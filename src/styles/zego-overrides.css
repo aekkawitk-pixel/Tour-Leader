@@ -1,0 +1,377 @@
+/**
+ * ส่วนเสริม/แก้ไขที่ zego-design-system.css เองไม่มี — ไฟล์ต้นทาง (src/styles/zego-design-system.css)
+ * เป็นของที่ vendor เข้ามาทั้งไฟล์ ไม่แก้ตรง ๆ เพื่อให้ diff กับต้นฉบับที่อัปเดตในอนาคตยังสะอาด
+ *
+ * html,body{height:100%;overflow:hidden} ของ zego เอง "ตั้งใจ" แล้ว — AppShell ใช้ .zego-app/
+ * .zego-workspace เป็นโครงจริงตั้งแต่ Phase 3 (การเลื่อนทั้งหมดเกิดใน .zego-workspace เท่านั้น
+ * ไม่ใช่ที่ body) จึงไม่ต้อง override ตรงนี้อีกต่อไป — Modal/Drawer ล็อกการเลื่อนด้วย
+ * document.body.style.overflow ตอนเปิด แต่ตอนนี้ body ไม่ใช่ตัวเลื่อนอยู่แล้วจึงไม่กระทบอะไร
+ */
+
+/** ความกว้างเนื้อหาแบบ 'wide' (ดู useWideContent ใน AppShell.tsx) — ไม่จำกัดด้วย --zego-max */
+.app-main--wide{width:100%}
+
+/**
+ * ฉากหลังมืดตอนเปิดเมนูมือถือ — โผล่เฉพาะ ≤980px จุดเดียวกับที่ .zego-sidebar ยุบเป็น overlay
+ * z:119 ต้อง "ต่ำกว่า" .zego-sidebar ตอนมือถือ (z:120 ของ zego เอง) ไม่งั้นฉากหลังจะทับ sidebar
+ * เอง — ไม่ใช้ .zego-backdrop ของ zego ตรง ๆ เพราะตัวนั้น z:150 สูงกว่า sidebar มือถือมาก
+ */
+.zego-mobile-backdrop{display:none;position:fixed;inset:0;z-index:119;background:var(--zego-overlay)}
+@media(max-width:980px){.zego-mobile-backdrop{display:block}}
+
+/** ฉากหลังมืดแบบ inline (เช่น scrim ปิด Popover/Bottom Sheet บนมือถือที่คุม z-index/breakpoint เองอยู่แล้ว
+    จึงใช้ .zego-mobile-backdrop ทั้งก้อนไม่ได้) — สีเดียวกับ --zego-overlay */
+.zego-scrim{background:var(--zego-overlay)}
+
+/** จุดนับแจ้งเตือนค้างอยู่มุมกระดิ่ง */
+.zego-count-badge{background:var(--zego-danger);color:#fff}
+
+/** จุดสีของแต่ละโทนแจ้งเตือน (กระดิ่งในหัวเว็บ) */
+.zego-dot--danger{background:var(--zego-danger)}
+.zego-dot--warning{background:var(--zego-warning)}
+.zego-dot--info{background:var(--zego-info)}
+
+/** เมนูฝั่งซ้ายที่ยัง "กำลังพัฒนา" — กดไม่ได้ (zego-nav__link ปกติกดได้ ต้องแยกสไตล์) */
+.zego-nav__link--disabled{cursor:not-allowed;opacity:.55}
+.zego-nav__link--disabled:hover{background:transparent;transform:none}
+
+/**
+ * === โทนป้ายสถานะเพิ่มเติม (เกิน 4 โทนสำเร็จรูปของ zego) ===
+ * ระบบใช้ ToneKey 10 โทน (ดู src/lib/tone-tokens.ts) — 4 โทนที่ตรงกับของ zego ใช้
+ * .zego-badge--success/--warning/--info/--danger ตรง ๆ ส่วนอีก 6 โทนนี้เพิ่มในสไตล์เดียวกัน
+ * (bg พาสเทลอ่อน ตัวหนังสือเข้ม กรอบสีอ่อนกว่า) ให้ยังแยกสถานะออกจากกันได้ชัดเหมือนเดิม
+ */
+.zego-badge--slate{background:var(--zego-surface-soft);color:var(--zego-text-secondary);border-color:var(--zego-border)}
+.zego-badge--sky{background:#eff8fd;color:#0f7490;border-color:#c9e8f2}
+.zego-badge--indigo{background:#f1f0fd;color:#4c3fa6;border-color:#d9d5f5}
+.zego-badge--orange{background:#fff3ea;color:#b5570f;border-color:#f0d2b8}
+.zego-badge--violet{background:#f8f0fd;color:#7d3aa6;border-color:#e8d3f2}
+.zego-badge--teal{background:#eafaf6;color:#0f8073;border-color:#c8ece3}
+html[data-zego-theme="dark"] .zego-badge--sky{background:rgba(15,116,144,.16);color:#7cd4ee;border-color:rgba(124,212,238,.22)}
+html[data-zego-theme="dark"] .zego-badge--indigo{background:rgba(76,63,166,.20);color:#b7aef5;border-color:rgba(183,174,245,.22)}
+html[data-zego-theme="dark"] .zego-badge--orange{background:rgba(181,87,15,.18);color:#f2ab72;border-color:rgba(242,171,114,.22)}
+html[data-zego-theme="dark"] .zego-badge--violet{background:rgba(125,58,166,.18);color:#dba9f5;border-color:rgba(219,169,245,.22)}
+html[data-zego-theme="dark"] .zego-badge--teal{background:rgba(15,128,115,.18);color:#6fe0cb;border-color:rgba(111,224,203,.22)}
+
+/**
+ * === Utility สีตัวหนังสือ/พื้นผิวตาม token ของ zego ===
+ * ไฟล์ .tsx ทั่วระบบยังผสม Tailwind (layout, spacing) กับ class ของ zego (สี, พื้นผิว) ปนกันได้ —
+ * แต่สี "ต้อง" มาจาก token พวกนี้ ไม่ใช่ text-slate-* หรือ bg-white ของ Tailwind ตรง ๆ ไม่งั้นตอนสลับ
+ * ธีมมืด ตัวหนังสือและพื้นจะไม่เปลี่ยนตาม (เช่น text-slate-900 บนพื้นการ์ดมืดจะอ่านไม่ออก)
+ */
+.zego-text{color:var(--zego-text)}
+.zego-text-secondary{color:var(--zego-text-secondary)}
+.zego-text-tertiary{color:var(--zego-text-tertiary)}
+.zego-surface-bg{background:var(--zego-surface)}
+.zego-surface-soft-bg{background:var(--zego-surface-soft)}
+.zego-hover-surface:hover{background:var(--zego-surface-soft)}
+.zego-text-success{color:var(--zego-success)}
+.zego-text-info{color:var(--zego-info)}
+.zego-text-danger{color:var(--zego-danger)}
+.zego-text-warning{color:var(--zego-warning)}
+.zego-text-orange{color:#b5570f}
+.zego-text-disabled{color:var(--zego-text-disabled)}
+
+/**
+ * === การ์ดเนื้อหาทั่วไป (zego ไม่มีชื่อสำเร็จรูปสำหรับพื้นผิวการ์ดเปล่า ๆ) ===
+ * ใช้สูตรเดียวกับ .zego-lab/.zego-product-frame/.zego-settings ของ zego เอง (border+bg+shadow+radius)
+ * ตั้งชื่อใหม่ .zego-card-surface เพราะ .zego-card ของ zego เองมีแค่ padding/typography
+ * ไม่มีกรอบ/พื้นหลัง (ออกแบบมาให้ซ้อนอยู่ในพื้นผิวอื่นอีกที เช่น .zego-glass-panel)
+ */
+.zego-card-surface{overflow:hidden;border:1px solid var(--zego-border);border-radius:var(--zego-radius-lg);background:var(--zego-surface);box-shadow:var(--zego-shadow-sm)}
+/**
+ * .zego-card-surface ใช้ overflow:hidden (shorthand ล็อกทั้ง x และ y) เพื่อครอบมุมโค้งเป็นค่าเริ่มต้น —
+ * ชนกับตารางที่ต้องเลื่อนแนวตั้งภายในการ์ดเอง (เช่น ตารางจัดหัวหน้าทัวร์/เจ้าหน้าที่ส่งกรุ๊ปที่ผูก
+ * overflow-y-auto ไว้ที่ตัวการ์ดโดยตรง) ทั้งสอง class specificity เท่ากัน ตัวที่มาทีหลังใน CSS ชนะ
+ * ทำให้ overflow-y-auto ถูกทับเป็น hidden เงียบ ๆ (แถวเกินความสูงที่กำหนดหายไปเฉย ๆ ไม่มี scrollbar
+ * ให้เห็นด้วยซ้ำ) ต้อง reset overflow-y กลับตรงนี้เมื่อสองคลาสอยู่ด้วยกัน
+ */
+.zego-card-surface.overflow-y-auto{overflow-y:auto}
+/** การ์ดที่มี dropdown/popover ยื่นพ้นขอบ (เช่นแถบตัวกรอง) — overflow:hidden จะตัดกล่องรายการทิ้ง จึงเปิดให้ล้นได้ */
+.zego-card-surface.overflow-visible{overflow:visible}
+/**
+ * ตอนมี dropdown/popover เปิดอยู่ในการ์ด (ปุ่มเปิดตั้ง aria-expanded="true") — ให้กล่องรายการล้นขอบการ์ดได้
+ * ไม่งั้น overflow:hidden ตัดรายการเหลือแค่ช่องค้นหา (เช่นตัวกรองประเทศในปฏิทินงาน) · ครอบทุกหน้า/ทุก dropdown ในจุดเดียว
+ * ยกเว้นการ์ดที่เป็นกล่องเลื่อนเอง (overflow-y-auto) — เปิดให้ล้นแล้วจะเสียการเลื่อน
+ */
+.zego-card-surface:not(.overflow-y-auto):has([aria-expanded="true"]){overflow:visible}
+/**
+ * คลิปเฉพาะแนวนอน — ให้ sticky ข้างในเกาะตามการเลื่อนของหน้าเว็บได้ (เช่นหัวปฏิทินงาน)
+ * overflow:hidden ของการ์ดทำให้การ์ดกลายเป็นกล่องเลื่อนเอง sticky จึงไม่เกาะอะไรเลย
+ * (clip ไม่บังคับอีกแกนให้เป็น auto เหมือน hidden แนวตั้งจึงยัง visible)
+ */
+.zego-card-surface.overflow-x-clip{overflow:visible;overflow-x:clip}
+
+/**
+ * === ปุ่มขนาดเล็ก (zego-button มีขนาดเดียวตาม --zego-control) ===
+ * แอปนี้ใช้ปุ่มเล็กเยอะในตาราง/แถวข้อมูลที่ความหนาแน่นสูง — ปุ่มเดียวขนาด 44px จะใหญ่เกินไป
+ */
+.zego-button--sm{min-height:34px;padding:0 10px;font-size:12px;gap:6px}
+.zego-button--sm.zego-button--icon{width:34px}
+
+/** ป้ายสถานะขนาดเล็ก (ใช้ในตาราง/แถวความหนาแน่นสูง) */
+.zego-badge--sm{min-height:20px;padding:0 7px;font-size:10.5px}
+
+/** พื้นวงกลมหลังไอคอน (EmptyState ฯลฯ) */
+.zego-icon-well{background:var(--zego-surface-inset);color:var(--zego-text-tertiary)}
+.zego-icon-well--danger{background:#fff4f4;color:var(--zego-danger)}
+html[data-zego-theme="dark"] .zego-icon-well--danger{background:rgba(196,66,66,.16)}
+
+/** พื้นที่ placeholder ระหว่างโหลด — ต้องเปลี่ยนตามธีมมืด (bg-slate-200 เดิมมองไม่เห็นบนพื้นมืด) */
+.zego-skeleton{background:var(--zego-surface-inset)}
+
+/** padding ของการ์ดเนื้อหา — แยกจาก .zego-card ของ zego เอง (มี selector ลูก h3/p/strong ที่จะไปทับ
+    สไตล์ข้อความที่ตั้งใจไว้ในหน้าอื่นที่ import Card ไปใช้ทั้งระบบ ใช้แค่ padding เฉย ๆ ปลอดภัยกว่า) */
+.zego-card-pad{padding:19px}
+
+/** กรอบวงแหวนรอบรูปประจำตัว (Avatar แบบมีรูป) */
+.zego-avatar-ring{box-shadow:0 0 0 1px var(--zego-border-strong)}
+
+/** เส้นคั่นด้านบน/ล่าง (เช่น เนื้อหาที่ขยายออกมาใต้หัวข้อ Accordion, แถบค้นหาเหนือรายการ dropdown) */
+.zego-divider-top{border-top:1px solid var(--zego-border)}
+.zego-divider-bottom{border-bottom:1px solid var(--zego-border)}
+
+/** สีกรอบกลาง — ใช้แทนที่ค่าสี border ของ Tailwind เมื่อยังต้องการคุม border-width หลายด้านแยกกัน
+    (เช่น grid ปฏิทิน ที่มี border-b border-r คนละค่ากัน) ไว้ที่ Tailwind class เดิม */
+.zego-border-color{border-color:var(--zego-border)}
+
+/** ตัวเลข/จุดบอก "วันนี้" บนปฏิทิน — ใช้โทน info (ฟ้า) แยกจากโทนสถานะการจัด (BOARD_STATUS) โดยเจตนา */
+.zego-today-badge{background:var(--zego-info);color:#fff}
+.zego-today-tint{background:rgba(40,120,199,.08)}
+html[data-zego-theme="dark"] .zego-today-tint{background:rgba(40,120,199,.16)}
+.zego-today-border{border-color:var(--zego-info)}
+
+/** ปุ่มเลขวันที่บนปฏิทิน — hover เปลี่ยนพื้น+สีตัวหนังสือเป็นโทน info พร้อมกัน (ต้องกำหนดเอง เพราะ
+    Tailwind สร้าง CSS ให้ hover: นำหน้า class ของเราเองไม่ได้ ต้องเป็น class คงที่ในไฟล์นี้) */
+.zego-day-num-btn:hover{background:rgba(40,120,199,.08);color:var(--zego-info)}
+html[data-zego-theme="dark"] .zego-day-num-btn:hover{background:rgba(40,120,199,.16)}
+
+/** หัว Accordion — ปกติ/แดง (มีข้อผิดพลาด) */
+.zego-accordion--error{border-color:#efd0d0}
+html[data-zego-theme="dark"] .zego-accordion--error{border-color:rgba(196,66,66,.28)}
+.zego-accordion__head:hover{background:var(--zego-surface-soft)}
+.zego-accordion__head--error{background:#fff4f4}
+.zego-accordion__head--error:hover{background:#ffe9e9}
+html[data-zego-theme="dark"] .zego-accordion__head--error{background:rgba(196,66,66,.14)}
+html[data-zego-theme="dark"] .zego-accordion__head--error:hover{background:rgba(196,66,66,.20)}
+
+/** === Stepper (zego ไม่มีคอมโพเนนต์นี้สำเร็จรูป — ประกอบจาก token สีเดียวกับ badge 4 โทนหลัก) === */
+.zego-step-circle{border:2px solid var(--zego-border-strong);background:var(--zego-surface);color:var(--zego-text-tertiary)}
+.zego-step-circle--info{border-color:var(--zego-info);background:#f1f7fd;color:var(--zego-info)}
+.zego-step-circle--success{border-color:var(--zego-success);background:var(--zego-success);color:#fff}
+.zego-step-circle--danger{border-color:var(--zego-danger);background:#fff4f4;color:var(--zego-danger)}
+html[data-zego-theme="dark"] .zego-step-circle--info{background:rgba(40,120,199,.16)}
+html[data-zego-theme="dark"] .zego-step-circle--danger{background:rgba(196,66,66,.16)}
+.zego-step-circle--current{box-shadow:0 0 0 3px var(--zego-focus)}
+.zego-step-btn:hover{background:var(--zego-surface-soft)}
+.zego-step-btn--current{background:#f1f7fd}
+html[data-zego-theme="dark"] .zego-step-btn--current{background:rgba(40,120,199,.14)}
+.zego-step-bar{background:var(--zego-border-strong)}
+.zego-step-bar--current{background:var(--zego-info)}
+.zego-step-bar--success{background:var(--zego-success)}
+.zego-step-bar--danger{background:var(--zego-danger)}
+.zego-step-line{background:var(--zego-border-strong)}
+.zego-step-line--success{background:var(--zego-success)}
+
+/**
+ * === Toast: แก้จุดที่ zego เองลืมเปิด pointer-events ===
+ * .zego-toast-stack ปิด pointer-events ไว้ทั้งกล่อง (กันคลิกทะลุพื้นที่ว่างรอบ toast)
+ * แต่ .zego-toast ของ zego เองไม่ได้เปิดกลับมาให้ตัว toast แต่ละใบกดปิดได้ — เปิดที่นี่แทน
+ */
+.zego-toast{pointer-events:auto}
+.zego-toast__icon--danger{background:#fff4f4;color:var(--zego-danger)}
+.zego-toast__icon--warning{background:#fff8e9;color:var(--zego-warning)}
+.zego-toast__icon--info{background:#f1f7fd;color:var(--zego-info)}
+html[data-zego-theme="dark"] .zego-toast__icon--danger{background:rgba(196,66,66,.16)}
+html[data-zego-theme="dark"] .zego-toast__icon--warning{background:rgba(184,117,16,.16)}
+html[data-zego-theme="dark"] .zego-toast__icon--info{background:rgba(40,120,199,.16)}
+.zego-toast__close{color:var(--zego-text-tertiary)}
+.zego-toast__close:hover{color:var(--zego-text)}
+
+/** ปุ่มไอคอนเปล่า ๆ ที่แค่ต้องการ hover เข้มขึ้น (ปุ่มล้างค่าในช่องค้นหา ฯลฯ) */
+.zego-icon-btn{color:var(--zego-text-tertiary)}
+.zego-icon-btn:hover{color:var(--zego-text)}
+
+/** zego ไม่มี state "เลือกอยู่" สำหรับ menu item (เช่น รายการประเทศที่เลือกอยู่ใน dropdown) */
+.zego-menu-item--selected{background:var(--zego-primary-50);color:var(--zego-primary-800)}
+html[data-zego-theme="dark"] .zego-menu-item--selected{background:rgba(5,168,79,.12);color:#7fe0a8}
+
+/**
+ * .zego-menu-item ใช้กับ <button> เสมอ (Header สลับบทบาท/ผู้ใช้, Combobox, MultiSelect, PhoneInput,
+ * NewLeaderWizard) — align-items:center ของตัวเอง (zego-design-system.css) ตั้งใจจัดกึ่งกลางแนวตั้ง
+ * (cross-axis) เท่านั้น แต่ไม่ได้ reset text-align กลับมาเป็น left เลย ทำให้ text-align:center ที่เป็น
+ * ค่าเริ่มต้นของ <button> ตาม UA stylesheet หลุดออกมา ข้อความ 2 บรรทัด (ชื่อ/บทบาท) ในทุกเมนูนี้เลย
+ * จัดกึ่งกลางแทนที่จะชิดซ้ายเหมือนเมนูอื่นในระบบ
+ */
+.zego-menu-item{text-align:left}
+
+/**
+ * .zego-popover ของ zego เอง (เมนูสลับบทบาท/ผู้ใช้ใน Header ฯลฯ) ใช้พื้นหลังกระจกโปร่งแสง
+ * (--zego-glass-floating ทึบแค่ ~84%) + backdrop-filter:blur(22px) — ตั้งใจให้เนื้อหาข้างหลังเบลอจาง ๆ
+ * มองไม่ออกเป็นตัวอักษร แต่ backdrop-filter ไม่ทำงานเสมอในทุกสภาพแวดล้อม/การ render บางกรณี ทำให้
+ * เนื้อหาหน้าเพจข้างหลัง (ตัวเลขปฏิทิน ปุ่ม ป้ายกำกับ) โผล่ทะลุมาคมชัด ทับกับข้อความในเมนูจนอ่านไม่ออก
+ * แก้โดยบังคับให้พื้นหลังทึบแสงเต็ม 100% เสมอ (ใช้ผิวเดียวกับโหมด non-rich ของ zego เอง — ดู
+ * html:not([data-zego-materials="rich"]) .zego-popover ด้านบน) ไม่พึ่ง backdrop-filter อีกต่อไป
+ */
+.zego-popover{background:var(--zego-surface-raised)!important}
+
+/** ช่องกริดเปล่า ๆ ที่แค่ต้องการ hover จาง ๆ (เช่น ตารางเดือนใน MonthPicker) */
+.zego-cell-hover:hover{background:var(--zego-surface-soft)}
+
+/**
+ * SearchBox (FormField.tsx) ใส่ pl-9/pr-9 ของ Tailwind บน <input class="zego-input pl-9"> เพื่อเว้นที่ให้
+ * ไอคอนแว่นขยาย/ปุ่มล้างที่วางทับด้วย position:absolute — แต่ .zego-input ของ zego เองมี padding:8px 11px
+ * (shorthand ตั้งทั้งซ้ายขวา) เป็น class เดียวเหมือนกัน (specificity เท่ากับ pl-9/pr-9 พอดี) ไฟล์ zego โหลด
+ * หลัง Tailwind ในบันเดิล จึงชนะเสมอ ทำให้ padding-left เหลือแค่ 11px จริง ข้อความในช่องเลยทับไอคอนแว่นขยาย
+ * แก้ด้วย selector 2 คลาสรวมกัน (specificity สูงกว่า) ให้ pl-9/pr-9 ชนะแน่นอนไม่ว่าลำดับโหลดจะเป็นอย่างไร
+ */
+.zego-input.pl-9{padding-left:2.25rem}
+.zego-input.pr-9{padding-right:2.25rem}
+
+/**
+ * popover กว้างกว่าปกติ (เช่น InfoPopover ที่แสดงเนื้อหายาว) — ใช้ min() จริงแทน Tailwind
+ * arbitrary value เดิม (w-[min(20rem,calc(100vw-3rem))]) ตามแนวทางเดียวกับ token อื่นของ zego
+ */
+.zego-popover--wide{width:min(20rem,calc(100vw - 3rem))}
+/** popover ที่ต้องกว้างเท่าปุ่มต้นทาง (เช่น MultiSelect) แทน 240px ตายตัวของ zego */
+.zego-popover--full{width:100%}
+
+/**
+ * .zego-popover ของ zego เองล็อก left:0 ไว้ตายตัว (ดีไซน์มาให้ popover ชิดซ้ายปุ่มเป็นค่าเริ่มต้น)
+ * ชนกับ Tailwind right-0 ที่ใช้จัดให้ popover ชิดขวาปุ่มแทน (เช่น แจ้งเตือน/สลับผู้ใช้ใน Header ที่ปุ่ม
+ * อยู่มุมขวาบนของจอ) — เมื่อกำหนดทั้ง left, right และ width ตายตัวพร้อมกัน เบราว์เซอร์จะทิ้งค่า right ไป
+ * ใช้ left แทนเสมอ (LTR) ทำให้ popover โผล่ขยายจากซ้ายของปุ่มไปทางขวาแทนที่จะชิดขวาปุ่ม จนล้นขอบจอขวา
+ * ข้อความในนั้นเลยดูเหมือนถูกตัดกลางคันไม่มี ellipsis (จริง ๆ คือ popover ทั้งกล่องเลื่อนไปอยู่ผิดตำแหน่ง)
+ */
+.zego-popover.right-0{left:auto}
+/**
+ * .zego-popover ของ zego ตั้ง z-index:30 ตายตัว ทับคลาส z-40 (Z_POPOVER) ที่ MultiSelect ฯลฯ ขอไว้
+ * → เท่ากับหัว sticky z-30 ของปฏิทิน/ตาราง ตัวที่อยู่หลังใน DOM ชนะ รายการตัวกรองจึงถูกแถบเดือนบังกลางกล่อง
+ * ให้คลาส z-40 มีผลจริง (ยังต่ำกว่า topbar 70 / sidebar 80 ของ zego)
+ */
+.zego-popover.z-40{z-index:40}
+
+/** กรอบช่องติ๊กเปล่า ๆ (checkbox ทรงสี่เหลี่ยมใน MultiSelect ที่ยังไม่ได้เลือก) */
+.zego-checkbox-empty{border-color:var(--zego-border-strong)}
+
+/**
+ * === ตารางข้อมูล (DataTable) ===
+ * เอาสูตรสี/เส้นขอบ/hover/แถวสลับสีของ .zego-data-table ของ zego มาใช้ แต่ "ไม่" เอา
+ * min-width:1180px ที่ติดมากับ class นั้นด้วย — DataTable.tsx ของแอปให้แต่ละตารางกำหนด
+ * ความกว้างขั้นต่ำเองผ่าน prop minWidthClass (ตารางบางหน้ามีแค่ไม่กี่คอลัมน์ ไม่ควรบังคับ 1180px)
+ * ถ้าใช้ .zego-data-table ตรง ๆ ค่า min-width ของมันจะไปทับ prop นี้เพราะ specificity เท่ากัน
+ * และไฟล์ zego โหลดก่อนไฟล์นี้ในบันเดิล Tailwind
+ */
+.zego-table{width:100%;border-collapse:separate;border-spacing:0}
+.zego-table th,.zego-table td{height:var(--zego-row);padding:var(--zego-cell-y) 11px;border-bottom:1px solid var(--zego-border-soft);vertical-align:middle}
+.zego-table th{position:sticky;top:0;z-index:3;background:var(--zego-surface-soft);color:var(--zego-text-tertiary);font-size:11.5px;font-weight:850;text-transform:uppercase;letter-spacing:.03em}
+.zego-table td{font-size:12.5px;color:var(--zego-text-secondary)}
+.zego-table tbody tr{background:var(--zego-surface);transition:background var(--zego-motion-fast)}
+.zego-table tbody tr:nth-child(even){background:var(--zego-surface-soft)}
+.zego-table tbody tr.zego-is-clickable:hover{background:#f5faf7}
+html[data-zego-theme="dark"] .zego-table tbody tr.zego-is-clickable:hover{background:#1c2822}
+.zego-table tbody tr.zego-is-clickable:focus{background:var(--zego-primary-50);outline:2px solid var(--zego-focus);outline-offset:-2px}
+html[data-zego-theme="dark"] .zego-table tbody tr.zego-is-clickable:focus{background:rgba(5,168,79,.10)}
+/** ปุ่มหัวคอลัมน์กดเรียงได้ — เข้มขึ้นตอน hover */
+.zego-sort-btn:hover{color:var(--zego-text)}
+
+/**
+ * zego-design-system.css ตั้ง .zego-timeline__item span{display:block} ไว้กว้างเกินไป
+ * (ตั้งใจให้ label/เวลาขึ้นบรรทัดใหม่) แต่ Timeline.tsx มี span ซ้อนอยู่ใน strong สำหรับ
+ * "จากสถานะ → ไปสถานะ" ที่ต้องอยู่บรรทัดเดียวกัน — เจาะจงกว่าด้วย strong span ให้กลับมาเป็น inline
+ */
+.zego-timeline__item strong span{display:inline}
+
+/** ป้าย/ปุ่มโทน info ที่กดเปิด-ปิดได้ (เช่น ปุ่มเปิด InfoPopover) — zego-badge เองไม่มี state hover/เปิดอยู่ */
+button.zego-badge--info:hover, button.zego-badge--info.zego-is-open{background:#e3f0fb}
+html[data-zego-theme="dark"] button.zego-badge--info:hover, html[data-zego-theme="dark"] button.zego-badge--info.zego-is-open{background:rgba(40,120,199,.24)}
+
+/**
+ * === พอร์ทัลหัวหน้าทัวร์ (GuideShell) — มือถือล้วน ๆ ===
+ * zego-design-system.css ไม่มีแพทเทิร์น mobile-app-shell สำเร็จรูป (โครง .zego-app/.zego-topbar
+ * ออกแบบมาสำหรับแอปฝั่งผู้จัดที่มี sidebar) จึงประกอบเองจาก token สี/กระจกชุดเดียวกัน
+ */
+.zego-guide-backdrop{background:var(--zego-workspace)}
+.zego-guide-phone{background:var(--zego-surface);border-color:var(--zego-border)}
+.zego-guide-header,.zego-guide-bottomnav{
+  background:var(--zego-glass-chrome);
+  -webkit-backdrop-filter:blur(20px) saturate(120%);
+  backdrop-filter:blur(20px) saturate(120%);
+}
+.zego-guide-header{border-bottom:1px solid var(--zego-border-soft)}
+.zego-guide-bottomnav{border-top:1px solid var(--zego-border-soft)}
+.zego-guide-icon-btn{color:var(--zego-text-tertiary)}
+.zego-guide-icon-btn:hover{background:var(--zego-surface-soft);color:var(--zego-text)}
+.zego-guide-nav-item{color:var(--zego-text-disabled)}
+.zego-guide-nav-item:hover{color:var(--zego-text-secondary)}
+.zego-guide-nav-item--active{color:var(--zego-primary-700)}
+.zego-guide-dot--idle{background:var(--zego-border-strong)}
+
+/**
+ * === แถบสถานะการจัดงาน/วันลา (ตารางจัดสเก็ต, ปฏิทิน) ===
+ * ใช้แทนสูตร Tailwind เดิม `bg-*-100 text-*-900 ring-*-300 border-l-4 border-*-500` ที่ BOARD_STATUS
+ * (src/lib/logic/guideBoard.ts) และ LEAVE_STYLE (GuideScheduleTimeline.tsx) ประกาศไว้ — ครบทั้ง
+ * พื้นหลัง/ตัวหนังสือ/กรอบในตัวเอง จุดที่ใช้ต้องเอา ring-1 ring-inset (Tailwind) ออก ไม่งั้น
+ * ring สีฟ้า default ของ Tailwind จะโผล่มาแทนสีเดิมที่เคยมากับ ring-{color}-300
+ */
+.zego-status-bar{border:1px solid transparent;border-left-width:4px}
+.zego-status-bar--slate{background:var(--zego-surface-soft);color:var(--zego-text-secondary);border-color:var(--zego-border);border-left-color:var(--zego-text-tertiary)}
+.zego-status-bar--warning{background:#fff8e9;color:#7a5209;border-color:#eddcb5;border-left-color:var(--zego-warning)}
+.zego-status-bar--success{background:#effaf4;color:#0a4b29;border-color:#cce8d7;border-left-color:var(--zego-success)}
+.zego-status-bar--danger{background:#fff4f4;color:#7a2020;border-color:#efd0d0;border-left-color:var(--zego-danger)}
+.zego-status-bar--orange{background:#fff3ea;color:#7a3b0a;border-color:#f0d2b8;border-left-color:#b5570f}
+html[data-zego-theme="dark"] .zego-status-bar--slate{background:rgba(255,255,255,.04);color:var(--zego-text-secondary);border-color:var(--zego-border)}
+html[data-zego-theme="dark"] .zego-status-bar--warning{background:rgba(184,117,16,.14);color:#f0c77c;border-color:rgba(240,199,124,.22)}
+html[data-zego-theme="dark"] .zego-status-bar--success{background:rgba(22,132,71,.14);color:#7fe0a8;border-color:rgba(127,224,168,.2)}
+html[data-zego-theme="dark"] .zego-status-bar--danger{background:rgba(196,66,66,.14);color:#f2a3a3;border-color:rgba(242,163,163,.2)}
+html[data-zego-theme="dark"] .zego-status-bar--orange{background:rgba(181,87,15,.14);color:#f2ab72;border-color:rgba(242,171,114,.2)}
+
+/** จุดสีเดี่ยว ๆ (ชิปสรุป/legend) — เสริมจากที่มีอยู่แล้ว (--danger/--warning/--info) */
+.zego-dot--slate{background:var(--zego-text-tertiary)}
+.zego-dot--success{background:var(--zego-success)}
+.zego-dot--orange{background:#b5570f}
+
+/** === ช่องกรอกฟอร์ม: สถานะ error/disabled (zego.zego-input เองไม่มี modifier พวกนี้) === */
+.zego-input--error{border-color:var(--zego-danger)}
+.zego-input--error:focus{border-color:var(--zego-danger);box-shadow:0 0 0 4px rgba(196,66,66,.18)}
+.zego-input:disabled,.zego-select:disabled,.zego-textarea:disabled{background:var(--zego-surface-inset);color:var(--zego-text-disabled);cursor:not-allowed}
+
+/**
+ * === "เลือกอยู่" (selected/active) สำหรับแถว/การ์ด/ชิปที่กดเลือกได้ — คลัสเตอร์เลือกหัวหน้าทัวร์/โปรแกรม ===
+ * โทน primary (เขียว) เดียวกับที่ zego ใช้เองสำหรับ state "เลือกอยู่" (.zego-menu-item--selected,
+ * .zego-nav__link.zego-is-active, ::selection, ปุ่ม isSelected ของ MultiSelect ที่ใช้ zego-button--primary)
+ * ไม่ใช่โทน info/ฟ้า แม้ของเดิมจะเขียนด้วย border-blue, bg-blue, ring-blue ก็ตาม (สีฟ้าเดิมเป็นเพียง
+ * accent เฉพาะกิจของโค้ดก่อนรีสกิน ไม่ใช่ความหมาย "ข้อมูล/info" ของ zego)
+ */
+.zego-selected-border{border-color:var(--zego-primary-500)}
+.zego-selected-tint{background:var(--zego-primary-50)}
+html[data-zego-theme="dark"] .zego-selected-tint{background:rgba(5,168,79,.12)}
+.zego-selected-fill{background:var(--zego-primary-500);border-color:var(--zego-primary-500);color:#fff}
+/** hover ของการ์ดที่ยังไม่ถูกเลือก (เช่น ตัวเลือกโปรแกรม) — เกริ่นโทน primary จาง ๆ ก่อนถูกเลือกจริง */
+.zego-hover-selected:hover{border-color:var(--zego-primary-500);background:var(--zego-primary-50)}
+html[data-zego-theme="dark"] .zego-hover-selected:hover{background:rgba(5,168,79,.12)}
+/** แท่งวัดคะแนน/ความเหมาะสม (progress meter) — โทน info เดียวกับ text-info ไม่ใช่ primary (ไม่ใช่ state "เลือกอยู่") */
+.zego-meter-fill{background:var(--zego-info)}
+
+/** แถว/การ์ดที่เลือกไว้แต่มีคำเตือน/ชนกัน (เช่น ตัวเลือกโปรแกรมที่ชนกับกรุ๊ปอื่น) — โทน danger เดียวกับ .zego-status-bar--danger */
+.zego-warned-border{border-color:#efd0d0}
+html[data-zego-theme="dark"] .zego-warned-border{border-color:rgba(242,163,163,.2)}
+.zego-warned-tint{background:#fff4f4}
+html[data-zego-theme="dark"] .zego-warned-tint{background:rgba(196,66,66,.14)}
+
+/**
+ * ปุ่มไอคอนลบ/นำออกรายการ (Wizard เพิ่มหัวหน้าทัวร์ใหม่ — แถวติดต่อ/ประสบการณ์/ภาษา/เอกสารที่ลบได้)
+ * hover เป็นโทน danger เดียวกับ .zego-icon-well--danger · disabled+hover คงสีปกติไว้ (ไม่ใบ้ว่ากดลบได้)
+ */
+.zego-icon-btn--danger:hover{background:#fff4f4;color:var(--zego-danger)}
+html[data-zego-theme="dark"] .zego-icon-btn--danger:hover{background:rgba(196,66,66,.16)}
+.zego-icon-btn--danger:disabled:hover{background:transparent;color:var(--zego-text-tertiary)}
+
+/**
+ * พื้นแถวสลับของตาราง/รายการที่จอเล็กใช้พื้นผิวเปล่า (การ์ด) แต่จอใหญ่ (≥1024px, breakpoint lg
+ * ของ Tailwind) ใช้พื้นสีอ่อนจาง ๆ แยกแถวให้เห็นชัดขึ้นในตาราง — class ของ zego เองไม่มี responsive
+ * variant ให้ (ไฟล์นี้เป็น CSS เปล่า ไม่ได้ประกาศผ่าน @layer utilities ของ Tailwind) จึงต้องผูก
+ * breakpoint ไว้ในนี้แทน "lg:" prefix ตรง ๆ กับ utility เหล่านี้
+ */
+.zego-row-alt-bg{background:var(--zego-surface)}
+@media(min-width:1024px){.zego-row-alt-bg{background:var(--zego-surface-soft)}}

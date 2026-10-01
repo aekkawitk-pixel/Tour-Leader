@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(node ltype.mjs)",
+      "Bash(grep -n \"address: { ...leader.address }\\\\|idCardAddress: { ...\\(leader\" src/modules/tour-leaders/mappers.ts)"
+    ]
+  }
+}

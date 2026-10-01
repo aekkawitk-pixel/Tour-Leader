@@ -1,0 +1,11 @@
+# duplicate local copy of the project — not part of the build
+tour-leader-system-main
+
+# local-only artifacts
+.next
+tests
+.claude
+*.tsbuildinfo
+
+# uncompressed OCR data — the app loads public/*.traineddata.gz instead
+eng.traineddata

@@ -1,0 +1,805 @@
+'use client';
+
+/**
+ * ซองเงินของกรุ๊ป — ฝั่งการเงิน (เปิดจากหน้า "จัดการค่าใช้จ่ายกรุ๊ป")
+ *
+ * หลักการถือเงิน: การเงินจัดซอง → เจ้าหน้าที่ส่งกรุ๊ป → หัวหน้าทัวร์ → (ส่งให้แลนด์ต่างประเทศ | ใช้ตามรายการ)
+ * ซองเป็นของกรุ๊ป: รวมเอกสารเบิกหลายใบไว้ในซองเดียว หรือแยกหลายซองตามค่าใช้จ่ายที่ถือไปก็ได้
+ *   1) จัดซอง — เลือกรายการเบิก (จากทุกเอกสารของกรุ๊ป) ใส่ซอง · 1 รายการอยู่ได้ซองเดียว · ปิดซอง = ยอดหน้าซอง
+ *   2) ส่งมอบ — เลือกส่งให้เจ้าหน้าที่ส่งกรุ๊ป (นำไปส่งหัวหน้าทัวร์ต่อ) หรือหัวหน้าทัวร์โดยตรง (มีผู้รับแทนได้)
+ *      ไม่เซ็น/ถ่ายรูปบนเครื่องการเงิน — ผู้รับต้องยืนยันด้วยเครื่องของตัวเอง
+ *   3) หัวหน้าทัวร์กดยืนยันรับในเครื่องของตัวเอง (ทีละซอง) = หลักฐานการรับ
+ *   4) ใช้เงิน — หัวหน้าทัวร์ส่งแลนด์ + ใช้ตามใบเสร็จ (Timeline แสดงแค่ว่าเริ่มใช้แล้ว)
+ * ไม่มีขั้นนับซ้ำ — ผู้รับไม่เปิดนับจนกว่าจะใช้ ถ้ายอดไม่ตรง หัวหน้าทัวร์แจ้งกลับในแอปและขึ้นเตือนที่นี่
+ */
+
+import { useMemo, useState } from 'react';
+import { PhotoConfirmModal, ProofThumb } from './EnvelopeProofPhoto';
+import { useDemo } from '@/store/DemoStore';
+import { Drawer } from '@/components/ui/Modal';
+import { Button, cx } from '@/components/ui/Primitives';
+import { TextInput } from '@/components/ui/FormField';
+import { Icon } from '@/components/ui/Icon';
+import { formatCurrency, formatDate, formatDateRange, formatDateTime, formatTime, toISODateTime } from '@/lib/format';
+import {
+  canEditHandover, canSeal, docChangedSinceSeal, docIdOfLineKey, envelopeTimeline, handoverReceiverText, envelopeName, envelopeShortLabel, envelopeStage, envelopeStatusLabel,
+  envelopeTotals, groupEnvelopeStatus, groupLines, lineKey, lineOwners, newEnvelope, sumAmounts, unassignedLines,
+  type CashEnvelope, type EnvelopeAmount, type EnvelopeTone,
+} from '@/lib/logic/cashEnvelope';
+import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
+import { loadSendOffAssignments } from '@/services/sendOffAssignmentStore';
+import { loadSendOffStaff } from '@/services/sendOffStaffStore';
+import { sendOffStaffName } from '@/lib/logic/sendOffStaff';
+import type { ExpenseRequest } from '@/types';
+
+const TONE: Record<EnvelopeTone, { bg: string; fg: string }> = {
+  slate: { bg: '#f1f5f9', fg: '#475569' },
+  amber: { bg: '#fef3c7', fg: '#92400e' },
+  blue: { bg: '#e0f2fe', fg: '#075985' },
+  violet: { bg: '#ede9fe', fg: '#5b21b6' },
+  green: { bg: '#dcfce7', fg: '#166534' },
+  red: { bg: '#ffe4e6', fg: '#9f1239' },
+};
+
+export function StatusPill({ label, tone }: { label: string; tone: EnvelopeTone }) {
+  return (
+    <span className="inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: TONE[tone].bg, color: TONE[tone].fg }}>
+      {label}
+    </span>
+  );
+}
+
+export function EnvelopeStatusBadge({ env, short = false }: { env: CashEnvelope | undefined; short?: boolean }) {
+  return <StatusPill {...(short ? envelopeShortLabel(env) : envelopeStatusLabel(env))} />;
+}
+
+const fmtTotals = (list: EnvelopeAmount[]) => list.map((t) => formatCurrency(t.amount, t.currency)).join(' · ');
+
+/** ยอดที่หัวหน้าทัวร์ใช้ตามใบเสร็จของกรุ๊ปนี้ (ไม่รวมใบยกเลิก/ปฏิเสธ และบรรทัดที่บัญชีไม่อนุมัติ) */
+export function spentByReceipts(expenses: ExpenseRequest[], periodId: string, leaderId?: string): EnvelopeAmount[] {
+  return sumAmounts(
+    expenses
+      .filter((e) => e.jobId === periodId && e.category === 'actual' && e.status !== 'cancelled' && e.status !== 'rejected'
+        && (!leaderId || e.requesterId === leaderId))
+      .flatMap((e) => e.lines.filter((l) => !l.rejected).map((l) => ({ amount: l.amount, currency: l.currency }))),
+  );
+}
+
+/** Timeline ความเคลื่อนไหวของซองเงินทั้งกรุ๊ป (แบบติดตามพัสดุ) — ล่าสุดอยู่บนและเน้นสี */
+export function EnvelopeTimeline({ envs, limit = 5 }: { envs: CashEnvelope[]; limit?: number }) {
+  const [all, setAll] = useState(false);
+  const events = envelopeTimeline(envs);
+  // มีซองเดียว — ไม่ต้องติดป้ายชื่อซองทุกบรรทัด
+  const multi = new Set(events.map((e) => e.envelopeId)).size > 1;
+  const shown = all ? events : events.slice(0, limit);
+  return (
+    <section className="rounded-xl border zego-border-color px-3 py-3 sm:px-4">
+      <h3 className="mb-3 text-sm font-semibold zego-text">Timeline</h3>
+      {events.length === 0 ? (
+        <p className="text-sm zego-text-tertiary">ยังไม่มีความเคลื่อนไหว — เริ่มจากการเงินจัดซอง</p>
+      ) : (
+        <ol>
+          {shown.map((ev, i) => {
+            const latest = i === 0;
+            const last = i === shown.length - 1;
+            return (
+              <li key={`${ev.envelopeId}-${ev.at}-${i}`} className="relative flex gap-3 pb-5 last:pb-0">
+                {!last && <span aria-hidden className="absolute left-[15px] top-8 bottom-0 w-0.5 bg-slate-300" />}
+                <span
+                  className={cx(
+                    'relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 bg-white',
+                    latest ? 'border-emerald-600 text-emerald-600' : 'border-slate-300 text-slate-400',
+                  )}
+                >
+                  <Icon name="clock" className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1 space-y-1 pt-0.5">
+                  <p className="text-xs tabular-nums zego-text-tertiary">
+                    วันที่ {formatDate(ev.at)} เวลา {formatTime(ev.at)}
+                    <span className="mx-1.5">·</span>
+                    โดย {ev.byName}
+                  </p>
+                  <p className="flex flex-wrap items-center gap-2">
+                    <span className={cx('text-sm font-semibold', latest ? 'text-emerald-700' : 'zego-text')}>{ev.title}</span>
+                    {multi && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium zego-text-secondary">{ev.envName}</span>}
+                  </p>
+                  {ev.details.length > 0 && (
+                    <ul className="space-y-0.5 text-sm zego-text-secondary">
+                      {ev.details.map((d, j) => <li key={j}>{d}</li>)}
+                    </ul>
+                  )}
+                  {/* รูปหลักฐานที่ผู้รับ/ผู้ส่งแนบตอนกดยืนยันทอดนี้ */}
+                  <ProofThumb src={ev.photo} label={`${ev.title} · ${ev.envName} · ${formatDate(ev.at)} ${formatTime(ev.at)} · ${ev.byName}`} />
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {events.length > limit && (
+        <button type="button" onClick={() => setAll((v) => !v)} className="mt-2 text-xs font-medium zego-text-info hover:underline">
+          {all ? 'แสดงเฉพาะล่าสุด' : `ดูทั้งหมด (${events.length})`}
+        </button>
+      )}
+    </section>
+  );
+}
+
+/** ดู Timeline อย่างเดียว (แยกจากหน้าจัดการ) — สรุปซองของกรุ๊ป + ความเคลื่อนไหวทั้งหมด */
+export function GroupTimelineDrawer({ periodId, docs, onClose }: { periodId: string; docs: ExpenseRequest[]; onClose: () => void }) {
+  const { envelopes } = useDemo();
+  const period = getTourPeriodById(periodId);
+  const envs = envelopes.filter((e) => e.periodId === periodId).sort((a, b) => a.no - b.no);
+  const used = envs.filter((e) => e.packedLineIds.length > 0);
+  const status = groupEnvelopeStatus(groupLines(docs), envs);
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={`Timeline ${period?.groupCode ?? periodId}`}
+      description={`${period?.displayName ?? ''}${period ? ` · ${formatDateRange(period.startDate, period.endDate)}` : ''} · เอกสารเบิก ${docs.map((d) => d.id).join(', ')}`}
+      footer={<Button variant="secondary" onClick={onClose}>ปิด</Button>}
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold zego-text">สถานะปัจจุบัน</p>
+          <StatusPill label={status.label} tone={status.tone} />
+        </div>
+        {used.length > 0 && (
+          <ul className="divide-y divide-[var(--zego-border-soft)] rounded-lg border zego-border-color text-sm">
+            {used.map((e) => (
+              <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                <span className="min-w-0">
+                  <span className="block font-medium zego-text">{envelopeName(e)}</span>
+                  <span className="block text-xs zego-text-tertiary">
+                    {e.handover ? `ผู้รับ: ${handoverReceiverText(e.handover)}` : `${e.packedLineIds.length} รายการ`}
+                  </span>
+                </span>
+                <span className="flex items-center gap-2">
+                  {e.sealed && <span className="text-xs font-semibold tabular-nums zego-text">{fmtTotals(e.sealed.faceTotals)}</span>}
+                  <EnvelopeStatusBadge env={e} short />
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <EnvelopeTimeline envs={envs} limit={50} />
+      </div>
+    </Drawer>
+  );
+}
+
+type DocLine = ExpenseRequest['lines'][number];
+interface LineInfo { key: string; doc: ExpenseRequest; line: DocLine; no: number }
+
+export function GroupEnvelopeDrawer({ periodId, docs, onClose }: { periodId: string; docs: ExpenseRequest[]; onClose: () => void }) {
+  const { envelopes, saveEnvelope, leaders } = useDemo();
+  const period = getTourPeriodById(periodId);
+  const envs = useMemo(() => envelopes.filter((e) => e.periodId === periodId).sort((a, b) => a.no - b.no), [envelopes, periodId]);
+  const lines = useMemo(() => groupLines(docs), [docs]);
+  const info = useMemo(() => {
+    const m = new Map<string, LineInfo>();
+    for (const doc of docs) doc.lines.forEach((line, i) => m.set(lineKey(doc.id, line.id), { key: lineKey(doc.id, line.id), doc, line, no: i + 1 }));
+    return m;
+  }, [docs]);
+
+  const leader = useMemo(() => {
+    const a = loadActiveGuideAssignments().find((x) => x.periodId === periodId && x.assignmentStatus === 'CONFIRMED');
+    const l = a ? leaders.find((x) => x.id === a.tourLeaderId) : undefined;
+    return l ? { id: l.id, name: `${l.firstName} ${l.lastName}`.trim() } : null;
+  }, [periodId, leaders]);
+
+  // การจัดที่ยังไม่บันทึกของแต่ละซอง (สลับแท็บแล้วไม่หาย) — ใช้ร่วมกันเพื่อกันใส่รายการเดียวซ้ำ 2 ซอง
+  const [drafts, setDrafts] = useState<Record<string, string[]>>({});
+  const packedOf = (e: CashEnvelope) => drafts[e.id] ?? e.packedLineIds;
+  const owners = lineOwners(envs.map((e) => ({ id: e.id, packedLineIds: packedOf(e) })));
+  const free = unassignedLines(lines, envs.map((e) => ({ id: e.id, packedLineIds: packedOf(e) })));
+
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const active = envs.find((e) => e.id === activeId) ?? envs.find((e) => !e.sealed) ?? envs[0];
+
+  const status = groupEnvelopeStatus(lines, envs);
+
+  const addEnvelope = async (withLines: string[] = []) => {
+    const env = { ...newEnvelope(periodId, envelopes), packedLineIds: withLines };
+    await saveEnvelope(env, 'สร้างซอง', withLines.length ? `${withLines.length} รายการ` : undefined);
+    setActiveId(env.id);
+  };
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      size="xl"
+      title={`ซองเงิน ${period?.groupCode ?? periodId}`}
+      description={`${period?.displayName ?? ''}${period ? ` · ${formatDateRange(period.startDate, period.endDate)}` : ''} · เอกสารเบิก ${docs.map((d) => d.id).join(', ')}`}
+      footer={<Button variant="secondary" onClick={onClose}>ปิด</Button>}
+    >
+      <div className="space-y-5">
+        {/* ซองทั้งหมดของกรุ๊ป */}
+        <section className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold zego-text">ซองเงินของกรุ๊ป · {envs.length} ซอง</h3>
+            <StatusPill label={status.label} tone={status.tone} />
+          </div>
+          {envs.length === 0 ? (
+            <div className="rounded-lg border border-dashed zego-border-color px-4 py-5 text-center text-sm">
+              <p className="zego-text-secondary">ยังไม่ได้จัดซอง — รวมทุกเอกสารไว้ในซองเดียว หรือแยกหลายซองตามค่าใช้จ่ายที่ถือไปก็ได้</p>
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                <Button variant="primary" size="sm" onClick={() => void addEnvelope(lines.map((l) => l.id))}>จัดรวมในซองเดียว</Button>
+                <Button variant="secondary" size="sm" icon="plus" onClick={() => void addEnvelope()}>แยกเป็นหลายซอง (เลือกรายการเอง)</Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2" role="tablist" aria-label="ซองเงิน">
+                {envs.map((e) => {
+                  const on = e.id === active?.id;
+                  const pk = packedOf(e);
+                  const tot = sumAmounts(pk.map((k) => info.get(k)).filter(Boolean).map((x) => ({ amount: x!.line.amount, currency: x!.line.currency })));
+                  return (
+                    <button
+                      key={e.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={on}
+                      onClick={() => setActiveId(e.id)}
+                      className={cx('rounded-lg border px-3 py-2 text-left text-sm transition', on ? 'border-emerald-500 bg-emerald-50/60 ring-1 ring-emerald-500' : 'zego-border-color hover:border-emerald-300')}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="font-semibold zego-text">{envelopeName(e)}</span>
+                        <EnvelopeStatusBadge env={e} short />
+                      </span>
+                      <span className="mt-0.5 block text-xs tabular-nums zego-text-tertiary">{pk.length} รายการ · {fmtTotals(tot) || '—'}</span>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => void addEnvelope()}
+                  className="rounded-lg border border-dashed zego-border-color px-3 py-2 text-sm font-medium zego-text-info hover:border-emerald-300"
+                >
+                  + เพิ่มซอง
+                </button>
+              </div>
+              {free.length > 0 && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs zego-text-warning">
+                  ยังไม่ได้จัดใส่ซอง {free.length} รายการ · {fmtTotals(sumAmounts(free))}
+                </p>
+              )}
+            </>
+          )}
+        </section>
+
+        {active && (
+          <EnvelopePanel
+            key={active.id}
+            env={active}
+            docs={docs}
+            info={info}
+            lines={lines}
+            owners={owners}
+            envs={envs}
+            packed={packedOf(active)}
+            setPacked={(p) => setDrafts((d) => ({ ...d, [active.id]: p }))}
+            clearDraft={() => setDrafts((d) => {
+              const rest = { ...d };
+              delete rest[active.id];
+              return rest;
+            })}
+            onDeleted={() => setActiveId(null)}
+            leader={leader}
+            periodId={periodId}
+          />
+        )}
+      </div>
+    </Drawer>
+  );
+}
+
+/** ซองใบเดียว: จัดรายการ → ปิดซอง → ส่งมอบ → หัวหน้าทัวร์รับ · ประวัติ */
+function EnvelopePanel({
+  env, docs, info, lines, owners, envs, packed, setPacked, clearDraft, onDeleted, leader, periodId,
+}: {
+  env: CashEnvelope;
+  docs: ExpenseRequest[];
+  info: Map<string, LineInfo>;
+  lines: ReturnType<typeof groupLines>;
+  owners: Map<string, string>;
+  envs: CashEnvelope[];
+  packed: string[];
+  setPacked: (p: string[]) => void;
+  clearDraft: () => void;
+  onDeleted: () => void;
+  leader: { id: string; name: string } | null;
+  periodId: string;
+}) {
+  const { saveEnvelope, deleteEnvelope } = useDemo();
+  const stage = envelopeStage(env);
+  const period = getTourPeriodById(periodId);
+  const name = envelopeName(env);
+  const staffOptions = useMemo(() => {
+    const all = loadSendOffStaff().filter((s) => s.status !== 'disabled');
+    const assigned = new Set(loadSendOffAssignments().filter((a) => a.periodId === periodId).map((a) => a.staffId));
+    return all
+      .map((s) => ({ id: s.id, name: sendOffStaffName(s), assigned: assigned.has(s.id) }))
+      .sort((a, b) => Number(b.assigned) - Number(a.assigned) || a.name.localeCompare(b.name, 'th'));
+  }, [periodId]);
+
+  /* ---------------- 1) จัดซอง ---------------- */
+  const [label, setLabel] = useState(env.label ?? '');
+  const totals = envelopeTotals(lines, packed);
+  const changed = docChangedSinceSeal(env, lines);
+  const mine = new Set(packed);
+  const available = lines.filter((l) => !owners.has(l.id) || owners.get(l.id) === env.id).map((l) => l.id);
+  const toggle = (k: string) => setPacked(mine.has(k) ? packed.filter((x) => x !== k) : [...packed, k]);
+  const ownerName = (k: string) => {
+    const o = envs.find((e) => e.id === owners.get(k));
+    return o ? `ซอง ${o.no}` : '';
+  };
+
+  // เอกสาร → หมวด → รายการ (ตอนปิดแล้วแสดงเฉพาะรายการในซองนี้)
+  const sections = useMemo(() => {
+    return docs
+      .map((doc) => {
+        const cats: { category: string; rows: LineInfo[] }[] = [];
+        for (const line of doc.lines) {
+          const li = info.get(lineKey(doc.id, line.id))!;
+          if (stage !== 'packing' && !env.packedLineIds.includes(li.key)) continue;
+          const cat = line.expenseType.replace(/^#\s*(หมวด)?\s*/, '').trim() || 'อื่น ๆ';
+          const last = cats.at(-1);
+          if (last && last.category === cat) last.rows.push(li);
+          else cats.push({ category: cat, rows: [li] });
+        }
+        return { doc, cats };
+      })
+      .filter((d) => d.cats.length > 0);
+  }, [docs, info, stage, env.packedLineIds]);
+
+  const labelNow = label.trim() || undefined;
+  const withLabel = (e: CashEnvelope): CashEnvelope => {
+    const out = { ...e };
+    if (labelNow) out.label = labelNow;
+    else delete out.label;
+    return out;
+  };
+  const savePacking = async () => {
+    await saveEnvelope(withLabel({ ...env, packedLineIds: packed }), 'บันทึกการจัดซอง', `${name} · ${packed.length} รายการ`);
+    clearDraft();
+  };
+  const seal = async () => {
+    const snap = lines.filter((l) => mine.has(l.id));
+    await saveEnvelope(
+      withLabel({ ...env, packedLineIds: packed, sealed: { at: toISODateTime(new Date()), byName: '', faceTotals: totals.packed, lineSnapshot: snap } }),
+      'ปิดซอง',
+      `${name} · ยอดหน้าซอง ${fmtTotals(totals.packed)}`,
+    );
+    clearDraft();
+  };
+  const unseal = () => {
+    const rest: CashEnvelope = { ...env };
+    delete rest.sealed;
+    return saveEnvelope(rest, 'เปิดซองแก้ไขการจัด', name);
+  };
+  const remove = async () => {
+    if (packed.length > 0 && !window.confirm(`ลบ${name}? รายการในซองจะกลับไปเป็น "ยังไม่ได้จัด"`)) return;
+    await deleteEnvelope(env);
+    clearDraft();
+    onDeleted();
+  };
+
+  /* ---------------- 2) ส่งมอบ ---------------- */
+  // ส่งให้ใคร: เจ้าหน้าที่ส่งกรุ๊ป (นำไปส่งหัวหน้าทัวร์ต่อ) หรือ หัวหน้าทัวร์โดยตรง
+  // ไม่เซ็น/ถ่ายรูปบนเครื่องการเงิน — ผู้รับยืนยันในเครื่องของตัวเอง (เจ้าหน้าที่: /staff · หัวหน้าทัวร์: แอปหัวหน้าทัวร์)
+  const assignedStaff = staffOptions.filter((s) => s.assigned);
+  const [route, setRoute] = useState<'staff' | 'leader'>(() => (assignedStaff.length > 0 || !leader ? 'staff' : 'leader'));
+  const [staffId, setStaffId] = useState(() => assignedStaff[0]?.id ?? '');
+  const [hasProxy, setHasProxy] = useState(false);
+  const [proxyName, setProxyName] = useState('');
+  const staff = route === 'staff' ? staffOptions.find((s) => s.id === staffId) : undefined;
+  const leaderProxy = route === 'leader' && hasProxy ? proxyName.trim() : '';
+  const leaderName = leader?.name ?? 'หัวหน้าทัวร์ของกรุ๊ป';
+  const handoverMissing = (route === 'staff'
+    ? [!staff && 'เจ้าหน้าที่ส่งกรุ๊ป']
+    : [!leader && 'หัวหน้าทัวร์ของกรุ๊ป (ยังไม่มีที่คอนเฟิร์ม)', hasProxy && !leaderProxy && 'ชื่อผู้รับแทน']
+  ).filter(Boolean) as string[];
+
+  /** กล่องยืนยันที่ต้องแนบรูปถ่ายหลักฐาน — การเงินรับซองคืน (การเงินเป็นฝ่ายรับ) */
+  const [photoStep, setPhotoStep] = useState<'return' | null>(null);
+
+  /*
+    ส่งมอบ = การเงินบันทึกให้ผู้รับรู้ว่ามีซองรอรับ ไม่ต้องแนบรูป —
+    หลักฐานว่าซองเปลี่ยนมือจริงคือรูปที่ "ผู้รับ" ถ่ายตอนกดยืนยันรับในเครื่องของตัวเอง (เจ้าหน้าที่ / หัวหน้าทัวร์)
+  */
+  const handOver = () =>
+    route === 'staff'
+      ? saveEnvelope(
+        {
+          ...env,
+          handover: {
+            at: toISODateTime(new Date()),
+            byName: '',
+            receiverKind: 'staff',
+            ...(leader ? { receiverId: leader.id } : {}),
+            receiverName: leaderName,
+            proxyName: staff!.name,
+            proxyStaffId: staff!.id,
+          },
+        },
+        'ส่งมอบซองให้เจ้าหน้าที่ส่งกรุ๊ป',
+        `${name} · ${staff!.name} นำส่ง ${leaderName} · รอเจ้าหน้าที่ยืนยันรับในพอร์ทัลของตัวเอง`,
+      )
+      : saveEnvelope(
+        {
+          ...env,
+          handover: {
+            at: toISODateTime(new Date()),
+            byName: '',
+            receiverKind: 'leader',
+            receiverId: leader!.id,
+            receiverName: leader!.name,
+            ...(leaderProxy ? { proxyName: leaderProxy } : {}),
+          },
+        },
+        'ส่งมอบซองให้หัวหน้าทัวร์',
+        `${name} · ${handoverReceiverText({ receiverName: leader!.name, proxyName: leaderProxy || undefined })} · รอหัวหน้าทัวร์ยืนยันรับในเครื่องตัวเอง`,
+      );
+
+  /** ยังไม่มีผู้ตอบรับ → ยกเลิกการส่งมอบเดิม แล้วเลือกผู้รับใหม่ (หรือเปิดซองแก้ไขการจัดต่อได้) */
+  const editHandover = () => {
+    if (!window.confirm(`ยกเลิกการส่งมอบ${name}เดิม (${handoverReceiverText(env.handover!)}) เพื่อแก้ไข?`)) return;
+    const rest: CashEnvelope = { ...env };
+    delete rest.handover;
+    delete rest.staffHandoff;
+    return saveEnvelope(rest, 'ยกเลิกการส่งมอบเพื่อแก้ไข', `${name} · เดิม: ${handoverReceiverText(env.handover!)}`);
+  };
+
+  /** เจ้าหน้าที่ส่งซองคืน → การเงินยืนยันว่าได้ซองคืนจริง แล้วซองกลับไปเป็น "รอส่งมอบ" (ส่งมอบใหม่ได้) */
+  const receiveReturn = (photo: string) => {
+    const r = env.staffReturn!;
+    // รูปตอนเจ้าหน้าที่ส่งคืน (r.photo) ติดไปกับ lastReturn ด้วย ไม่หายไปพร้อม staffReturn
+    const rest: CashEnvelope = { ...env, lastReturn: { ...r, receivedAt: toISODateTime(new Date()), receivedPhoto: photo } };
+    delete rest.handover;
+    delete rest.staffAck;
+    delete rest.staffHandoff;
+    delete rest.staffReturn;
+    return saveEnvelope(rest, 'การเงินรับซองคืน', `${name} · คืนจาก ${r.staffName} · เหตุผล: ${r.reason}`, photo);
+  };
+
+  const face = env.sealed?.faceTotals ?? [];
+  const docIds = [...new Set(env.packedLineIds.map(docIdOfLineKey))];
+  const total = envs.length;
+
+  /**
+   * ใบปะหน้าซอง — จัดวางแบบหน้าซองจดหมาย ขนาดซอง DL (220 × 110 มม. แนวนอน)
+   * ผู้ส่ง (การเงิน) มุมซ้ายบน · กล่อง "ซองที่" มุมขวาบนแทนตำแหน่งแสตมป์ · ผู้รับ (หัวหน้าทัวร์) กลางซองแบบที่อยู่ผู้รับ
+   * ยอดเงินในซองแถบล่าง — เขียน/พิมพ์ยอดไว้หน้าซอง ผู้รับไม่ต้องเปิดนับจนกว่าจะใช้
+   */
+  const printLabel = () => {
+    const w = window.open('', '_blank', 'width=960,height=560');
+    if (!w || !env.sealed) return;
+    const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+    const toName = leader?.name ?? env.handover?.receiverName ?? 'หัวหน้าทัวร์ของกรุ๊ป';
+    const carrier = env.handover?.proxyStaffId ? env.handover.proxyName : undefined;
+    const totals = env.sealed.faceTotals.map((t) => `<div class="amt">${esc(formatCurrency(t.amount, t.currency))}</div>`).join('');
+    w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>ใบปะหน้าซอง ${esc(name)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+@page{size:220mm 110mm;margin:0}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0;display:flex;justify-content:center;align-items:center;min-height:100vh}
+.env{position:relative;width:220mm;height:110mm;background:#fff;padding:7mm 9mm;display:flex;flex-direction:column;box-shadow:0 6px 24px rgba(15,23,42,.18)}
+.env:before{content:'';position:absolute;inset:3mm;border:.3mm solid #cbd5e1;border-radius:2mm;pointer-events:none}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:6mm}
+.from{font-size:9.5pt;line-height:1.35}
+.from b{font-size:10.5pt}
+.muted{color:#64748b}
+.stamp{width:34mm;min-height:24mm;border:.5mm dashed #0f172a;border-radius:1.5mm;padding:2mm;text-align:center;display:flex;flex-direction:column;justify-content:center}
+.stamp .no{font-size:18pt;font-weight:700;line-height:1}
+.stamp .of{font-size:8.5pt}
+.stamp .lbl{font-size:8.5pt;font-weight:600;margin-top:1mm;word-break:break-word}
+.to{margin:3mm 0 0 62mm;font-size:10pt;line-height:1.45}
+.to .cap{font-size:9pt;color:#64748b;letter-spacing:.3mm}
+.to .name{font-size:17pt;font-weight:700;line-height:1.25;border-bottom:.3mm solid #94a3b8;padding-bottom:1mm;margin-bottom:1mm}
+.to .group{font-size:12pt;font-weight:700}
+.to .prog{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.bottom{margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end;border-top:.4mm solid #0f172a;padding-top:2mm}
+.bottom .cap{font-size:9pt;color:#64748b}
+.amt{font-size:20pt;font-weight:700;line-height:1.15}
+.ref{text-align:right;font-size:9pt;line-height:1.4}
+.ref code{font-family:ui-monospace,Consolas,monospace;font-size:9.5pt}
+@media print{body{background:#fff;min-height:0;display:block}.env{box-shadow:none}}
+</style></head><body>
+<div class="env">
+  <div class="top">
+    <div class="from"><span class="muted">จาก</span><br><b>ฝ่ายการเงิน</b><br><span class="muted">จัดซองโดย ${esc(env.sealed.byName)} · ${esc(formatDateTime(env.sealed.at))}</span></div>
+    <div class="stamp"><div class="of">ซองที่</div><div class="no">${env.no}<span class="of"> / ${total}</span></div>${env.label ? `<div class="lbl">${esc(env.label)}</div>` : ''}</div>
+  </div>
+  <div class="to">
+    <div class="cap">ถึง หัวหน้าทัวร์</div>
+    <div class="name">${esc(toName)}</div>
+    <div class="group">กรุ๊ป ${esc(period?.groupCode ?? periodId)}${period ? ` <span class="muted" style="font-weight:400;font-size:10pt">· เดินทาง ${esc(formatDateRange(period.startDate, period.endDate))}</span>` : ''}</div>
+    <div class="prog">${esc(period?.displayName ?? '')}</div>
+    ${carrier ? `<div class="muted">นำส่งโดย เจ้าหน้าที่ส่งกรุ๊ป ${esc(carrier)}</div>` : ''}
+  </div>
+  <div class="bottom">
+    <div><div class="cap">ยอดเงินในซอง</div>${totals}</div>
+    <div class="ref"><span class="muted">เอกสารเบิก</span><br><code>${docIds.map(esc).join('<br>')}</code></div>
+  </div>
+</div>
+<script>(document.fonts ? document.fonts.ready : Promise.resolve()).then(function(){setTimeout(function(){window.print()},150)})</script>
+</body></html>`);
+    w.document.close();
+  };
+
+  return (
+    <div className="space-y-5 rounded-xl border zego-border-color p-3 sm:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-base font-semibold zego-text">{name}</h3>
+          <EnvelopeStatusBadge env={env} />
+        </div>
+        <div className="flex gap-2">
+          {env.sealed && <Button variant="secondary" size="sm" icon="download" onClick={printLabel}>พิมพ์ใบปะหน้าซอง</Button>}
+          {!env.sealed && <Button variant="ghost" size="sm" onClick={() => void remove()}>ลบซอง</Button>}
+        </div>
+      </div>
+
+      {env.mismatch && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm" style={{ color: '#9f1239' }}>
+          <p className="font-semibold">หัวหน้าทัวร์แจ้งยอดในซองไม่ตรง · {formatDateTime(env.mismatch.at)}</p>
+          <p className="mt-0.5">{env.mismatch.note}</p>
+        </div>
+      )}
+      {changed && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs zego-text-warning">
+          เอกสารเบิกถูกแก้ไขหลังปิดซอง — ยอดหน้าซองอาจไม่ตรงเอกสารแล้ว ตรวจสอบก่อนส่งมอบ{stage === 'sealed' ? ' (เปิดซองแก้ไขได้)' : ''}
+        </p>
+      )}
+
+      {/* 1) จัดซอง */}
+      <section className="space-y-2">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <h4 className="text-sm font-semibold zego-text">1. จัดเงินใส่ซองตามรายการเบิก</h4>
+          {stage === 'packing' && (
+            <button
+              type="button"
+              className="text-xs font-medium zego-text-info hover:underline"
+              onClick={() => setPacked(packed.length === available.length ? [] : available)}
+            >
+              {packed.length === available.length ? 'เอาออกทั้งหมด' : 'ใส่รายการที่ยังไม่จัดทั้งหมด'}
+            </button>
+          )}
+        </div>
+        {stage === 'packing' && (
+          <TextInput label="ชื่อซอง" optional value={label} onChange={(e) => setLabel(e.target.value)} placeholder="เช่น ค่าแลนด์, ทิปไกด์/คนขับ" />
+        )}
+        <div className="overflow-hidden rounded-lg border zego-border-color">
+          {sections.map(({ doc, cats }) => (
+            <div key={doc.id}>
+              {docs.length > 1 && <p className="bg-slate-100 px-3 py-1.5 text-xs font-semibold zego-text">เอกสารเบิก {doc.id}</p>}
+              {cats.map((sec) => (
+                <div key={`${doc.id}-${sec.category}-${sec.rows[0].no}`}>
+                  <p className="zego-surface-soft-bg px-3 py-1 text-[11px] font-semibold zego-text-secondary">{sec.category}</p>
+                  <ul className="divide-y divide-[var(--zego-border-soft)]">
+                    {sec.rows.map(({ key, no, line }) => {
+                      const on = mine.has(key);
+                      const other = !on && owners.has(key) ? ownerName(key) : '';
+                      const disabled = stage !== 'packing' || !!other;
+                      return (
+                        <li key={key}>
+                          <label className={cx('flex items-center gap-3 px-3 py-2 text-sm', !disabled && 'cursor-pointer hover:bg-emerald-50/50', on && 'bg-emerald-50/40', other && 'opacity-55')}>
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-emerald-600"
+                              checked={stage === 'packing' ? on : true}
+                              disabled={disabled}
+                              onChange={() => toggle(key)}
+                            />
+                            <span className="w-6 text-right text-xs tabular-nums zego-text-tertiary">{no}.</span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate zego-text">{line.purpose}</span>
+                              {line.description && <span className="block truncate text-xs zego-text-tertiary">{line.description}</span>}
+                            </span>
+                            {other && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] zego-text-secondary">อยู่{other}</span>}
+                            <span className="shrink-0 font-semibold tabular-nums zego-text">{formatCurrency(line.amount, line.currency)}</span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg zego-surface-soft-bg px-3 py-2 text-sm">
+          <div>
+            <p className="text-xs zego-text-tertiary">ยอดเบิกทั้งกรุ๊ป</p>
+            <p className="font-semibold tabular-nums zego-text">{fmtTotals(totals.required)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs zego-text-tertiary">{stage === 'packing' ? `ในซองนี้ ${packed.length} รายการ` : 'ยอดหน้าซอง'}</p>
+            <p className="font-semibold tabular-nums zego-text-success">{stage === 'packing' ? fmtTotals(totals.packed) || '0' : fmtTotals(face)}</p>
+          </div>
+        </div>
+        {stage === 'packing' ? (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={() => void savePacking()}>บันทึกไว้ก่อน</Button>
+            <Button variant="primary" size="sm" onClick={() => void seal()} disabled={!canSeal(lines, packed)}>
+              ปิดซอง · ยอดหน้าซอง {fmtTotals(totals.packed) || '—'}
+            </Button>
+          </div>
+        ) : (
+          <p className="flex flex-wrap items-center justify-between gap-2 text-xs zego-text-tertiary">
+            <span>ปิดซองโดย {env.sealed?.byName || '—'} · {env.sealed && formatDateTime(env.sealed.at)}</span>
+            {stage === 'sealed' && (
+              <button type="button" onClick={() => void unseal()} className="font-medium zego-text-info hover:underline">เปิดซองแก้ไขการจัด</button>
+            )}
+          </p>
+        )}
+      </section>
+
+      {/* 2) ส่งมอบ */}
+      {stage !== 'packing' && (
+        <section className="space-y-2">
+          <h4 className="text-sm font-semibold zego-text">2. ส่งมอบซอง</h4>
+          {env.handover ? (
+            <div className="grid gap-3 rounded-lg border zego-border-color p-3 sm:grid-cols-[1fr_auto_auto]">
+              <div className="text-sm">
+                <p className="font-semibold zego-text">{handoverReceiverText(env.handover)}</p>
+                <p className="text-xs zego-text-tertiary">
+                  {env.handover.receiverKind === 'staff' ? 'ฝากเจ้าหน้าที่ส่งกรุ๊ปนำส่ง' : env.handover.receiverKind === 'leader' ? (env.handover.proxyName ? 'หัวหน้าทัวร์ · มีผู้รับแทน' : 'หัวหน้าทัวร์ (รับเองโดยตรง)') : 'ผู้รับอื่น'}
+                  {' · '}
+                  {formatDateTime(env.handover.at)} · ส่งมอบโดย {env.handover.byName || '—'}
+                </p>
+                {env.staffReturn && (
+                  <div className="mt-2 space-y-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <p className="font-semibold">{env.staffReturn.staffName} ส่งซองคืนการเงิน · {formatDateTime(env.staffReturn.at)}</p>
+                    <p>เหตุผล: {env.staffReturn.reason}</p>
+                    <ProofThumb src={env.staffReturn.photo} label={`${env.staffReturn.staffName} ส่งซองคืน`} />
+                    <Button variant="primary" size="sm" icon="camera" onClick={() => setPhotoStep('return')}>ยืนยันรับซองคืน (แนบรูป)</Button>
+                  </div>
+                )}
+                {canEditHandover(env) && (
+                  <p className="mt-1.5 text-xs zego-text-secondary">
+                    ยังไม่มีผู้ตอบรับ ·{' '}
+                    <button type="button" onClick={() => void editHandover()} className="font-medium zego-text-info hover:underline">
+                      แก้ไขการส่งมอบ
+                    </button>
+                  </p>
+                )}
+              </div>
+              {env.handover.signature && (
+                <figure className="text-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={env.handover.signature} alt="ลายเซ็นผู้รับ" className="h-20 w-40 rounded border zego-border-color bg-white object-contain" />
+                  <figcaption className="text-[11px] zego-text-tertiary">ลายเซ็นผู้รับ</figcaption>
+                </figure>
+              )}
+              {env.handover.photo && (
+                <figure className="text-center">
+                  <ProofThumb src={env.handover.photo} label={`ส่งมอบ${name} · ${handoverReceiverText(env.handover)}`} />
+                  <figcaption className="text-[11px] zego-text-tertiary">รูปผู้รับคู่ซอง</figcaption>
+                </figure>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3 rounded-lg border zego-border-color p-3">
+              {/* ส่งให้ใคร: เจ้าหน้าที่ส่งกรุ๊ป / หัวหน้าทัวร์ */}
+              <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="ส่งมอบซองให้">
+                {(['staff', 'leader'] as const).map((k) => {
+                  const on = route === k;
+                  const disabled = k === 'leader' && !leader;
+                  return (
+                    <label
+                      key={k}
+                      className={cx('block rounded-lg border px-3 py-2 text-sm', disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer', on ? 'border-emerald-500 bg-emerald-50/60 ring-1 ring-emerald-500' : 'zego-border-color')}
+                    >
+                      <span className="flex items-center gap-2 font-medium zego-text">
+                        <input type="radio" name={`route-${env.id}`} className="accent-emerald-600" checked={on} disabled={disabled} onChange={() => setRoute(k)} />
+                        {k === 'staff' ? 'เจ้าหน้าที่ส่งกรุ๊ป' : 'หัวหน้าทัวร์'}
+                      </span>
+                      <span className="mt-0.5 block pl-6 text-xs zego-text-secondary">
+                        {k === 'staff'
+                          ? assignedStaff.length > 0 ? assignedStaff.map((s) => s.name).join(', ') : 'ยังไม่ได้ระบุเจ้าหน้าที่ให้กรุ๊ปนี้'
+                          : leader?.name ?? 'ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม'}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {route === 'staff' ? (
+                <>
+                  {assignedStaff.length !== 1 && (
+                    <label className="block text-sm">
+                      <span className="mb-1 block text-xs font-medium zego-text-secondary">
+                        {assignedStaff.length > 1 ? 'เจ้าหน้าที่ที่ระบุให้กรุ๊ปนี้' : 'เลือกเจ้าหน้าที่ส่งกรุ๊ป'}
+                      </span>
+                      <select className="w-full rounded-lg border zego-border-color px-3 py-2" value={staffId} onChange={(e) => setStaffId(e.target.value)}>
+                        <option value="">— เลือก —</option>
+                        {(assignedStaff.length > 1 ? assignedStaff : staffOptions).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  <p className="text-xs zego-text-secondary">
+                    {staff?.name ?? 'เจ้าหน้าที่'} กด “ยืนยันรับซอง” ในพอร์ทัลของตัวเอง แล้วนำไปส่ง {leaderName} ซึ่งต้องกดยืนยันรับอีกครั้งในเครื่องของตัวเอง
+                  </p>
+                </>
+              ) : (
+                leader && (
+                  <>
+                    <div className="space-y-2 rounded-lg zego-surface-soft-bg px-3 py-2">
+                      <label className="flex cursor-pointer items-center gap-2 text-sm zego-text">
+                        <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={hasProxy} onChange={(e) => setHasProxy(e.target.checked)} />
+                        ผู้มารับซองไม่ใช่ {leader.name} (มีผู้รับแทน)
+                      </label>
+                      {hasProxy && (
+                        <TextInput label="ชื่อผู้รับแทน" required value={proxyName} onChange={(e) => setProxyName(e.target.value)} placeholder="ชื่อ-นามสกุล ผู้มารับซองแทน" />
+                      )}
+                    </div>
+                    <p className="text-xs zego-text-secondary">
+                      {leader.name} ต้องกด “ยืนยันรับซอง” ในเครื่องของตัวเอง{hasProxy ? ' เมื่อได้รับซองจากผู้รับแทนแล้ว' : ''}
+                    </p>
+                  </>
+                )
+              )}
+              {handoverMissing.length > 0 && <p className="text-xs zego-text-warning">ยังขาด: {handoverMissing.join(' · ')}</p>}
+              <div className="flex justify-end">
+                <Button variant="primary" onClick={() => void handOver()} disabled={handoverMissing.length > 0 || changed}>
+                  บันทึกส่งมอบ{name} ให้{route === 'staff' ? 'เจ้าหน้าที่ส่งกรุ๊ป' : 'หัวหน้าทัวร์'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {photoStep === 'return' && env.staffReturn && (
+        <PhotoConfirmModal
+          title={`ยืนยันรับ${name}คืน`}
+          description={`คืนจาก ${env.staffReturn.staffName} · ยอดหน้าซอง ${fmtTotals(face)}`}
+          confirmLabel="ยืนยันรับซองคืน"
+          photoHint="ถ่ายรูปซองที่ได้รับคืน ให้เห็นหน้าซองชัดเจน"
+          onClose={() => setPhotoStep(null)}
+          onConfirm={async (photo) => { await receiveReturn(photo); setPhotoStep(null); }}
+        />
+      )}
+
+      {/* 3) ผู้รับยืนยันในเครื่องของตัวเอง — เจ้าหน้าที่ (ถ้าฝาก) → หัวหน้าทัวร์ */}
+      {env.handover && (
+        <section className="space-y-1">
+          <h4 className="text-sm font-semibold zego-text">3. ยืนยันการรับ (ในเครื่องของผู้รับ)</h4>
+          <ul className="space-y-1 rounded-lg zego-surface-soft-bg px-3 py-2 text-sm">
+            {env.handover.proxyStaffId && (
+              <>
+                <li className={env.staffAck ? 'zego-text-success' : 'zego-text-secondary'}>
+                  {env.staffAck
+                    ? `✓ ${env.staffAck.staffName} ยืนยันรับซองจากการเงิน · ${formatDateTime(env.staffAck.at)}`
+                    : `รอ ${env.handover.proxyName} (เจ้าหน้าที่ส่งกรุ๊ป) ยืนยันรับในพอร์ทัลของตัวเอง`}{' '}
+                  <ProofThumb src={env.staffAck?.photo} label={`${env.staffAck?.staffName ?? ''} รับซองจากการเงิน`} />
+                </li>
+                {env.staffHandoff && (
+                  <li className="zego-text-success">
+                    ✓ ส่งต่อให้{env.handover.receiverKind === 'other' ? ` ${env.handover.receiverName} (ผู้รับคนอื่น)` : 'หัวหน้าทัวร์'} · {formatDateTime(env.staffHandoff.at)}{' '}
+                    <ProofThumb src={env.staffHandoff.photo} label={`ส่งต่อให้ ${env.handover.receiverName}`} />
+                  </li>
+                )}
+              </>
+            )}
+            <li className={env.leaderAck ? 'zego-text-success' : 'zego-text-secondary'}>
+              {env.leaderAck
+                ? `✓ ${env.leaderAck.leaderName} ยืนยันรับซองแล้ว${env.leaderAck.fromStaffName ? ` (รับต่อจาก ${env.leaderAck.fromStaffName})` : ''} · ${formatDateTime(env.leaderAck.at)}`
+                : `รอ${leader ? ` ${leader.name}` : 'หัวหน้าทัวร์'} กดยืนยันรับซองในเครื่องของตัวเอง`}{' '}
+              <ProofThumb src={env.leaderAck?.photo} label={`${env.leaderAck?.leaderName ?? ''} รับซอง`} />
+            </li>
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
