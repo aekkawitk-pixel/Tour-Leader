@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { can, canViewPath } from '@/lib/permissions';
 import { Icon } from '@/components/ui/Icon';
 import { EXPENSE_STATUS, MONEY_CATEGORY, MONEY_CATEGORY_ORDER } from '@/lib/labels';
-import { formatTHB, formatDate, formatDateRange } from '@/lib/format';
+import { formatTHB, formatDate, formatDateRange, formatThaiMonthYear } from '@/lib/format';
 import { Button, Card, PageHeader, StatusBadge } from '@/components/ui/Primitives';
 import { StatCard } from '@/components/ui/Charts';
 import { SearchBox, SelectInput } from '@/components/ui/FormField';
@@ -21,6 +21,8 @@ import { ExpenseDrawer } from '@/components/expenses/ExpenseDrawer';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import type { ExpenseRequest, ExpenseStatus, MoneyCategory } from '@/types';
+import type { StatusMeta } from '@/lib/labels';
+import { isHolidayFeeLine, SEND_OFF_FEE_TYPE } from '@/lib/logic/staffPortal';
 
 const ALL_STATUSES: ExpenseStatus[] = [
   'draft',
@@ -33,12 +35,31 @@ const ALL_STATUSES: ExpenseStatus[] = [
   'cancelled',
 ];
 
+/** ผู้ขอเบิก — หัวหน้าทัวร์ / เจ้าหน้าที่ส่งกรุ๊ป / พนักงานที่สร้างใบในระบบ */
+type RequesterRole = 'leader' | 'sendoff' | 'staff';
+const REQUESTER_ROLE: Record<RequesterRole, StatusMeta> = {
+  leader: { label: 'หัวหน้าทัวร์', tone: 'teal' },
+  sendoff: { label: 'เจ้าหน้าที่ส่งกรุ๊ป', tone: 'orange' },
+  staff: { label: 'พนักงาน', tone: 'slate' },
+};
+
+/** ประเภทของใบ — ใบเจ้าหน้าที่ส่งกรุ๊ปแยกเป็น "ค่าส่งกรุ๊ป" (ไม่ปนกับค่าใช้จ่ายจริงของหัวหน้าทัวร์) */
+function expenseTypeOf(expense: ExpenseRequest): StatusMeta {
+  if (expense.claimMonth) return { label: 'ค่าส่งกรุ๊ป (รายเดือน)', tone: 'orange' };
+  if (expense.requesterKind === 'sendoff') return { label: 'ค่าส่งกรุ๊ป', tone: 'orange' };
+  // ใบเบิกของหัวหน้าทัวร์ที่ไม่ใช่ใบเสร็จ — แยกเอกสารต่อกรุ๊ป (ดู leaderClaims.ts)
+  if (expense.claimKind === 'per_diem') return { label: 'เบี้ยเลี้ยง', tone: 'indigo' };
+  if (expense.claimKind === 'tip') return { label: 'ค่าทิป', tone: 'sky' };
+  return MONEY_CATEGORY[expense.category];
+}
+
 export default function ExpensesPage() {
-  const { expenses, jobs, currentUser } = useDemo();
+  const { expenses, jobs, leaders, currentUser } = useDemo();
 
   const [tab, setTab] = useState<'all' | MoneyCategory>('all');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'all' | ExpenseStatus>('all');
+  const [requester, setRequester] = useState<'all' | RequesterRole>('all');
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -59,19 +80,33 @@ export default function ExpensesPage() {
   }, [expenses, currentUser]);
 
   /**
-   * กรุ๊ปของใบเบิก — งานเดิม (JOB-…) ก่อน ไม่พบ = กรุ๊ปจาก Tour Period Master (ใบเสร็จหัวหน้าทัวร์ / เงินทดรองของกรุ๊ป)
-   * รหัสกรุ๊ป: groupCode ของพีเรียด · งานเดิมใช้ periodCode (ไม่มี = รหัสงาน) · หาไม่เจอเลย = jobId ดิบ
+   * อ้างอิงของใบเบิก (คอลัมน์ "อ้างอิง (กรุ๊ป / งวด)")
+   * - ใบค่าส่งกรุ๊ปรายเดือน: งวดเดือน + จำนวนกรุ๊ป · รหัสกรุ๊ปทุกกรุ๊ปในใบ (กรุ๊ปอยู่ที่บรรทัด)
+   * - ใบของกรุ๊ปเดียว: งานเดิม (JOB-…) ก่อน ไม่พบ = กรุ๊ปจาก Tour Period Master · หาไม่เจอเลย = jobId ดิบ
    */
-  const groupOf = useCallback((expense: ExpenseRequest) => {
+  const refOf = useCallback((expense: ExpenseRequest): { title: string; codes: string[]; programName: string; dates: string } => {
+    if (expense.claimMonth) {
+      const codes = [...new Set(expense.lines.map((l) => l.periodId).filter((id): id is string => Boolean(id)))]
+        .map((id) => getTourPeriodById(id)?.groupCode ?? id);
+      return { title: `${formatThaiMonthYear(`${expense.claimMonth}-01`)} · ${codes.length} กรุ๊ป`, codes, programName: '', dates: '' };
+    }
     const job = jobs.find((j) => j.id === expense.jobId);
     if (job) {
-      return { groupCode: job.periodCode ?? job.id, programName: job.title, dates: formatDateRange(job.departDate, job.returnDate) };
+      const code = job.periodCode ?? job.id;
+      return { title: code, codes: [code], programName: job.title, dates: formatDateRange(job.departDate, job.returnDate) };
     }
     const period = getTourPeriodById(expense.jobId);
     return period
-      ? { groupCode: period.groupCode, programName: period.displayName, dates: formatDateRange(period.startDate, period.endDate) }
-      : { groupCode: expense.jobId, programName: '—', dates: '' };
+      ? { title: period.groupCode, codes: [period.groupCode], programName: period.displayName, dates: formatDateRange(period.startDate, period.endDate) }
+      : { title: expense.jobId, codes: [expense.jobId], programName: '', dates: '' };
   }, [jobs]);
+
+  /** ผู้ขอเบิกเป็นใคร — ใช้ทั้งป้ายในตารางและตัวกรอง */
+  const requesterRoleOf = useCallback(
+    (expense: ExpenseRequest): RequesterRole =>
+      expense.requesterKind === 'sendoff' ? 'sendoff' : leaders.some((l) => l.id === expense.requesterId) ? 'leader' : 'staff',
+    [leaders],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -79,15 +114,17 @@ export default function ExpensesPage() {
       .filter((expense) => {
         if (tab !== 'all' && expense.category !== tab) return false;
         if (status !== 'all' && expense.status !== status) return false;
+        if (requester !== 'all' && requesterRoleOf(expense) !== requester) return false;
         if (!q) return true;
-        const g = groupOf(expense);
-        return [expense.id, expense.jobId, g.groupCode, g.programName, expense.requesterName]
+        const r = refOf(expense);
+        // ค้นด้วยรหัสกรุ๊ปเจอทั้งใบของกรุ๊ปนั้น และใบค่าส่งกรุ๊ปรายเดือนที่มีกรุ๊ปนั้นอยู่
+        return [expense.id, expense.jobId, r.title, ...r.codes, r.programName, expense.requesterName]
           .join(' ')
           .toLowerCase()
           .includes(q);
       })
       .sort((a, b) => requestedAtOf(b).localeCompare(requestedAtOf(a)));
-  }, [scoped, tab, status, query, groupOf]);
+  }, [scoped, tab, status, requester, query, refOf, requesterRoleOf]);
 
   const pendingCount = scoped.filter((e) => e.status === 'submitted').length;
   const awaitingPayTotal = scoped
@@ -109,43 +146,67 @@ export default function ExpensesPage() {
 
   const columns: Column<ExpenseRequest>[] = [
     {
-      key: 'group',
-      header: 'รหัสกรุ๊ป',
+      key: 'id',
+      header: 'เลขที่ใบเบิก',
       render: (expense) => (
         <div>
-          <p className="zego-text whitespace-nowrap font-medium">{groupOf(expense).groupCode}</p>
-          <p className="zego-text-tertiary whitespace-nowrap text-xs">ทำรายการ {formatDate(requestedAtOf(expense))}</p>
+          <p className="zego-text whitespace-nowrap font-medium tabular-nums">{expense.id}</p>
+          <p className="zego-text-tertiary whitespace-nowrap text-xs">ยื่น {formatDate(requestedAtOf(expense))}</p>
         </div>
       ),
     },
     {
-      key: 'program',
-      header: 'ชื่อโปรแกรม',
+      key: 'requester',
+      header: 'ผู้ขอเบิก',
       render: (expense) => {
-        const g = groupOf(expense);
+        const role = REQUESTER_ROLE[requesterRoleOf(expense)];
         return (
-          <div className="min-w-0">
-            <p className="zego-text-secondary truncate">{g.programName}</p>
-            {g.dates && <p className="zego-text-tertiary text-xs">{g.dates}</p>}
+          <div>
+            <p className="zego-text-secondary whitespace-nowrap">{expense.requesterName}</p>
+            <span className="mt-0.5 inline-block"><StatusBadge meta={role} size="sm" dot={false} /></span>
           </div>
         );
       },
     },
     {
-      key: 'requester',
-      header: 'ผู้ขอเบิก',
+      key: 'category',
+      header: 'ประเภท',
       hideOnMobile: true,
-      render: (expense) => (
-        <span className="zego-text-secondary whitespace-nowrap">{expense.requesterName}</span>
-      ),
+      render: (expense) => <StatusBadge meta={expenseTypeOf(expense)} size="sm" dot={false} />,
     },
     {
-      key: 'category',
-      header: 'ประเภทเงิน',
-      hideOnMobile: true,
-      render: (expense) => (
-        <StatusBadge meta={MONEY_CATEGORY[expense.category]} size="sm" dot={false} />
-      ),
+      key: 'ref',
+      header: 'อ้างอิง (กรุ๊ป / งวด)',
+      render: (expense) => {
+        const r = refOf(expense);
+        if (expense.claimMonth) {
+          /*
+            เจ้าหน้าที่ 1 คนส่งได้ 20+ กรุ๊ป/เดือน — ไล่รหัสกรุ๊ปในตารางอ่านไม่ได้และดันแถวสูง
+            จึงสรุปเป็น ช่วงวันไปส่ง + จำนวนอัตราปกติ/วันหยุด (สิ่งที่บัญชีใช้ตรวจยอด) · รายชื่อกรุ๊ปครบอยู่ในหน้ารายละเอียด
+            รหัสกรุ๊ปยังค้นหาได้ และชี้ค้างดูได้ (title)
+          */
+          const fees = expense.lines.filter((l) => l.expenseType === SEND_OFF_FEE_TYPE && l.periodId);
+          const dates = fees.map((l) => l.receiptDate).filter((d): d is string => Boolean(d)).sort();
+          const holiday = fees.filter(isHolidayFeeLine).length;
+          return (
+            <div className="min-w-0" title={r.codes.join(', ')}>
+              <p className="zego-text font-medium">{r.title}</p>
+              <p className="zego-text-tertiary text-xs">
+                {dates.length > 0 && `ไปส่ง ${formatDate(dates[0])}${dates.length > 1 ? `–${formatDate(dates.at(-1))}` : ''} · `}
+                ปกติ {fees.length - holiday}{holiday > 0 && <span className="zego-text-warning"> · วันหยุด {holiday}</span>}
+              </p>
+            </div>
+          );
+        }
+        return (
+          <div className="min-w-0">
+            <p className="zego-text whitespace-nowrap font-medium">{r.title}</p>
+            {(r.programName || r.dates) && (
+              <p className="zego-text-tertiary line-clamp-1 text-xs">{[r.programName, r.dates].filter(Boolean).join(' · ')}</p>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'lines',
@@ -177,7 +238,7 @@ export default function ExpensesPage() {
     },
   ];
 
-  const hasFilter = query.trim() !== '' || status !== 'all';
+  const hasFilter = query.trim() !== '' || status !== 'all' || requester !== 'all';
   const canManageGroup = canViewPath(currentUser.role, '/group-expenses');
 
   return (
@@ -230,16 +291,25 @@ export default function ExpensesPage() {
       <Card className="mb-5">
         <Tabs items={tabs} value={tab} onChange={(k) => setTab(k as 'all' | MoneyCategory)} />
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-[1.5fr_1fr_auto] sm:items-end">
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1.5fr_1fr_1fr_auto] sm:items-end">
           <div className="flex flex-col gap-1.5">
             <label className="zego-text-secondary text-sm font-medium">ค้นหา</label>
             <SearchBox
               value={query}
               onChange={setQuery}
-              placeholder="รหัสกรุ๊ป ชื่อโปรแกรม เลขที่ใบเบิก หรือผู้ขอเบิก"
+              placeholder="เลขที่ใบเบิก รหัสกรุ๊ป ชื่อโปรแกรม หรือผู้ขอเบิก"
               label="ค้นหาใบเบิก"
             />
           </div>
+          <SelectInput
+            label="ผู้ขอเบิก"
+            value={requester}
+            onChange={(e) => setRequester(e.target.value as 'all' | RequesterRole)}
+            options={[
+              { value: 'all', label: 'ทั้งหมด' },
+              ...(Object.keys(REQUESTER_ROLE) as RequesterRole[]).map((r) => ({ value: r, label: REQUESTER_ROLE[r].label })),
+            ]}
+          />
           <SelectInput
             label="สถานะใบเบิก"
             value={status}
@@ -257,6 +327,7 @@ export default function ExpensesPage() {
                 onClick={() => {
                   setQuery('');
                   setStatus('all');
+                  setRequester('all');
                 }}
               >
                 ล้างตัวกรอง

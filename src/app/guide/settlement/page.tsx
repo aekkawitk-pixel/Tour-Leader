@@ -13,6 +13,7 @@ import { Card } from '@/components/ui/Primitives';
 import { Icon, type IconName } from '@/components/ui/Icon';
 
 const TOPICS: { href: string; label: string; description: string; icon: IconName }[] = [
+  { href: '/guide/settlement/allowance', label: 'เบิกเบี้ยเลี้ยง / ค่าทิป', description: 'ทำใบเบิกเบี้ยเลี้ยงและค่าทิปแยกต่อกรุ๊ป พร้อมดูสถานะค่าใช้จ่ายของกรุ๊ป', icon: 'receipt' },
   { href: '/guide/settlement/claim', label: 'เคลียร์ค่าใช้จ่ายรายกรุ๊ป', description: 'กรอกเบี้ยเลี้ยง/ค่าใช้จ่ายของกรุ๊ปที่เดินทางเสร็จแล้ว ส่งเข้าตรวจ', icon: 'money' },
   { href: '/guide/settlement/appointments', label: 'นัดหมายเคลียร์เงิน', description: 'ดูรายการรอเคลียร์ และจองคิวกับฝ่ายบัญชี', icon: 'clock' },
 ];

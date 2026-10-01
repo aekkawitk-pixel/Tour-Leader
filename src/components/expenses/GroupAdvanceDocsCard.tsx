@@ -17,7 +17,7 @@ import { useDemo } from '@/store/DemoStore';
 import { Button, Card } from '@/components/ui/Primitives';
 import { formatCurrency, formatDateRange } from '@/lib/format';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
-import { groupEnvelopeStatus, groupLines, groupManageable, sumAmounts } from '@/lib/logic/cashEnvelope';
+import { envelopeName, groupEnvelopeStatus, groupLines, groupManageable, sumAmounts } from '@/lib/logic/cashEnvelope';
 import { GroupEnvelopeDrawer, GroupTimelineDrawer, StatusPill } from './CashEnvelopeDrawer';
 import type { ExpenseRequest } from '@/types';
 
@@ -86,6 +86,7 @@ export function GroupAdvanceDocsCard({
                 // ยังไม่ได้จัด / จัดไม่ครบ / ยังส่งมอบไม่ครบ / ส่งมอบแล้วแต่ยังไม่มีผู้ตอบรับ → การเงินยังเข้าไปจัดการได้
                 const manageable = groupManageable(lines, envs);
                 const hasEvents = envs.some((e) => e.history.length > 0);
+                const forwarded = envs.filter((e) => e.packedLineIds.length > 0 && e.leaderForward).sort((a, b) => a.no - b.no);
                 return (
                   <tr key={periodId} className="zego-hover-surface">
                     <td className="px-3 py-2.5 align-top">
@@ -108,7 +109,17 @@ export function GroupAdvanceDocsCard({
                       {status.stage === 'sealed' && !status.mismatch && (pickupByPeriod.get(periodId)?.length ?? 0) > 0 && (
                         <p className="mt-0.5 text-xs zego-text-tertiary">ผู้มารับ: {pickupByPeriod.get(periodId)!.join(', ')}</p>
                       )}
-                      {status.envelopeCount > 1 && <p className="mt-0.5 whitespace-nowrap text-[11px] zego-text-tertiary">{status.envelopeCount} ซอง</p>}
+                      {(status.envelopeCount > 1 || forwarded.length > 0) && (
+                        <p className="mt-0.5 whitespace-nowrap text-[11px] zego-text-tertiary">
+                          {status.envelopeCount} ซอง{forwarded.length > 0 ? ` · ส่งต่อแล้ว ${forwarded.length} ซอง` : ''}
+                        </p>
+                      )}
+                      {/* ซองที่หัวหน้าทัวร์ส่งต่อ — บอกชัดว่าซองไหนไปอยู่กับใคร */}
+                      {forwarded.map((e) => (
+                        <p key={e.id} className="mt-0.5 whitespace-nowrap text-[11px] text-sky-800">
+                          {envelopeName(e)} → {e.leaderForward!.toName}
+                        </p>
+                      ))}
                     </td>
                     {/*
                       ทุกแถวมีปุ่มชุดเดียวกันในตำแหน่งเดิมเสมอ (ไม่ซ่อนปุ่ม) — แถวเรียงตรงกันทั้งตาราง

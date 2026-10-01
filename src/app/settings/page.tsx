@@ -22,6 +22,8 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Tabs } from '@/components/ui/Tabs';
 import { ConfirmDialog, Modal } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
+import { SendOffFeeSettings } from '@/components/settings/SendOffFeeSettings';
+import { TipRateSettings } from '@/components/settings/TipRateSettings';
 import type {
   Country,
   DemoUser,
@@ -43,7 +45,7 @@ const MASTER_KEYS: MasterKey[] = [
   'appointmentModes',
 ];
 
-type TabKey = MasterKey | 'countries' | 'routes' | 'users';
+type TabKey = MasterKey | 'countries' | 'routes' | 'users' | 'sendoffFee' | 'tipRates';
 
 const ACTIVE_META = { label: 'ใช้งาน', tone: 'green' } as const;
 const INACTIVE_META = { label: 'ปิดใช้งาน', tone: 'slate' } as const;
@@ -527,6 +529,10 @@ export default function SettingsPage() {
       badge: master[key].filter((i) => i.active).length,
     })),
     { key: 'users', label: 'ผู้ใช้และสิทธิ์', badge: users.filter((u) => u.active).length },
+    // มาตรฐานค่าส่งกรุ๊ป (ค่าที่เจ้าหน้าที่ส่งกรุ๊ปเบิกได้) — ไม่ใช่ข้อมูลตั้งต้นแบบรายการ จึงเป็นฟอร์มของตัวเอง
+    { key: 'sendoffFee', label: 'ค่าส่งกรุ๊ป' },
+    // อัตราค่าทิปหัวหน้าทัวร์ (ตามประเทศ + เฉพาะโปรแกรม)
+    { key: 'tipRates', label: 'ค่าทิป' },
   ];
 
   const addButton =
@@ -569,7 +575,7 @@ export default function SettingsPage() {
           }}
         />
 
-        {tab !== 'users' && (
+        {tab !== 'users' && tab !== 'sendoffFee' && tab !== 'tipRates' && (
           <div className="mt-4 flex flex-wrap gap-3">
             <div className="min-w-56 flex-1 sm:max-w-sm">
               <SearchBox
@@ -596,7 +602,11 @@ export default function SettingsPage() {
       </Card>
 
       <Card>
-        {tab === 'users' ? (
+        {tab === 'sendoffFee' ? (
+          <SendOffFeeSettings />
+        ) : tab === 'tipRates' ? (
+          <TipRateSettings />
+        ) : tab === 'users' ? (
           <>
             <CardHeader
               title="ผู้ใช้และสิทธิ์"

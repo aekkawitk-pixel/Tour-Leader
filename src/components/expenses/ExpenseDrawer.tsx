@@ -18,7 +18,7 @@ import { Icon } from '@/components/ui/Icon';
 import { useDemo } from '@/store/DemoStore';
 import { can, canViewPath } from '@/lib/permissions';
 import { EXPENSE_STATUS, MONEY_CATEGORY } from '@/lib/labels';
-import { formatCurrency, formatDate, formatDateRange, formatDateTime } from '@/lib/format';
+import { formatCurrency, formatDate, formatDateRange, formatDateTime, formatThaiMonthYear } from '@/lib/format';
 import { CurrencyStack } from '@/app/guide/expenses/CurrencyStack';
 import { expenseApprovedTotals, expenseOriginalTotals, formatMultiCurrency, groupAmountsByCurrency, requestedAtOf } from '@/app/guide/expenses/expenseAmounts';
 import { EvidencePreview } from '@/app/guide/expenses/EvidencePreview';
@@ -203,9 +203,17 @@ export function ExpenseDrawer({
           {/* ข้อมูลหลัก */}
           <dl className="space-y-2.5 text-sm">
             <Row
-              label="งานทัวร์"
+              label={expense.claimMonth ? 'ใบเบิกรายเดือน' : 'งานทัวร์'}
               value={
-                job ? (
+                // ใบเบิกค่าส่งกรุ๊ปรายเดือน — รวมหลายกรุ๊ป (กรุ๊ปของแต่ละบรรทัดอยู่ในรายการด้านล่าง)
+                expense.claimMonth ? (
+                  <span>
+                    ค่าส่งกรุ๊ป เดือน{formatThaiMonthYear(`${expense.claimMonth}-01`)}
+                    <span className="ml-1 text-xs zego-text-disabled">
+                      ({new Set(expense.lines.map((l) => l.periodId).filter(Boolean)).size} กรุ๊ป)
+                    </span>
+                  </span>
+                ) : job ? (
                   // ฝ่ายบัญชีเปิดหน้าการจัดสเก็ตไม่ได้ — แสดงชื่องานเป็นข้อความแทนลิงก์ที่กดแล้วเจอหน้าไม่มีสิทธิ์
                   canViewPath(currentUser.role, `/jobs/${job.id}`) ? (
                     <Link

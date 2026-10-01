@@ -22,7 +22,7 @@ import { TextInput } from '@/components/ui/FormField';
 import { Icon } from '@/components/ui/Icon';
 import { formatCurrency, formatDate, formatDateRange, formatDateTime, formatTime, toISODateTime } from '@/lib/format';
 import {
-  canEditHandover, canSeal, docChangedSinceSeal, docIdOfLineKey, envelopeTimeline, handoverReceiverText, envelopeName, envelopeShortLabel, envelopeStage, envelopeStatusLabel,
+  canEditHandover, canSeal, ENVELOPE_KIND, ENVELOPE_KIND_ORDER, envelopeKindReady, type EnvelopeKind, docChangedSinceSeal, docIdOfLineKey, envelopeTimeline, handoverReceiverText, envelopeName, envelopeShortLabel, envelopeStage, envelopeStatusLabel,
   envelopeTotals, groupEnvelopeStatus, groupLines, lineKey, lineOwners, newEnvelope, sumAmounts, unassignedLines,
   type CashEnvelope, type EnvelopeAmount, type EnvelopeTone,
 } from '@/lib/logic/cashEnvelope';
@@ -245,13 +245,18 @@ export function GroupEnvelopeDrawer({ periodId, docs, onClose }: { periodId: str
                       role="tab"
                       aria-selected={on}
                       onClick={() => setActiveId(e.id)}
-                      className={cx('rounded-lg border px-3 py-2 text-left text-sm transition', on ? 'border-emerald-500 bg-emerald-50/60 ring-1 ring-emerald-500' : 'zego-border-color hover:border-emerald-300')}
+                      title={envelopeName(e)}
+                      className={cx('min-w-[11rem] max-w-[16rem] rounded-lg border px-3 py-2 text-left text-sm transition', on ? 'border-emerald-500 bg-emerald-50/60 ring-1 ring-emerald-500' : 'zego-border-color hover:border-emerald-300')}
                     >
-                      <span className="flex items-center gap-2">
-                        <span className="font-semibold zego-text">{envelopeName(e)}</span>
+                      {/* แท็บสั้น ๆ: เลขซอง + สถานะ · ประเภท · ยอด — ชื่อเต็ม/ชื่อเพิ่มเติมอยู่ในรายละเอียดด้านล่าง (ชี้ค้างดูได้) */}
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="font-semibold zego-text">ซอง {e.no}</span>
                         <EnvelopeStatusBadge env={e} short />
                       </span>
-                      <span className="mt-0.5 block text-xs tabular-nums zego-text-tertiary">{pk.length} รายการ · {fmtTotals(tot) || '—'}</span>
+                      <span className={cx('mt-0.5 block truncate text-xs', e.kind ? 'zego-text-secondary' : 'zego-text-warning')}>
+                        {e.kind ? ENVELOPE_KIND[e.kind].short : 'ยังไม่เลือกประเภท'}
+                      </span>
+                      <span className="block text-xs tabular-nums zego-text-tertiary">{pk.length} รายการ · {fmtTotals(tot) || '—'}</span>
                     </button>
                   );
                 })}
@@ -329,6 +334,9 @@ function EnvelopePanel({
 
   /* ---------------- 1) จัดซอง ---------------- */
   const [label, setLabel] = useState(env.label ?? '');
+  const [kind, setKind] = useState<EnvelopeKind | undefined>(env.kind);
+  const [forGroup, setForGroup] = useState(env.forGroup ?? '');
+  const kindReady = envelopeKindReady(kind, forGroup);
   const totals = envelopeTotals(lines, packed);
   const changed = docChangedSinceSeal(env, lines);
   const mine = new Set(packed);
@@ -362,6 +370,11 @@ function EnvelopePanel({
     const out = { ...e };
     if (labelNow) out.label = labelNow;
     else delete out.label;
+    if (kind) out.kind = kind;
+    else delete out.kind;
+    // กรุ๊ปปลายทางใช้กับประเภท 4 เท่านั้น — เปลี่ยนประเภทแล้วล้างทิ้ง
+    if (kind === 'land_tip' && forGroup.trim()) out.forGroup = forGroup.trim();
+    else delete out.forGroup;
     return out;
   };
   const savePacking = async () => {
@@ -516,7 +529,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
 <div class="env">
   <div class="top">
     <div class="from"><span class="muted">จาก</span><br><b>ฝ่ายการเงิน</b><br><span class="muted">จัดซองโดย ${esc(env.sealed.byName)} · ${esc(formatDateTime(env.sealed.at))}</span></div>
-    <div class="stamp"><div class="of">ซองที่</div><div class="no">${env.no}<span class="of"> / ${total}</span></div>${env.label ? `<div class="lbl">${esc(env.label)}</div>` : ''}</div>
+    <div class="stamp"><div class="of">ซองที่</div><div class="no">${env.no}<span class="of"> / ${total}</span></div>${env.kind ? `<div class="lbl">${esc(ENVELOPE_KIND[env.kind].short)}</div>` : ''}${env.label ? `<div class="lbl">${esc(env.label)}</div>` : ''}</div>
   </div>
   <div class="to">
     <div class="cap">ถึง หัวหน้าทัวร์</div>
@@ -524,6 +537,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
     <div class="group">กรุ๊ป ${esc(period?.groupCode ?? periodId)}${period ? ` <span class="muted" style="font-weight:400;font-size:10pt">· เดินทาง ${esc(formatDateRange(period.startDate, period.endDate))}</span>` : ''}</div>
     <div class="prog">${esc(period?.displayName ?? '')}</div>
     ${carrier ? `<div class="muted">นำส่งโดย เจ้าหน้าที่ส่งกรุ๊ป ${esc(carrier)}</div>` : ''}
+    ${env.kind === 'land_tip' && env.forGroup ? `<div style="font-weight:700">ฝากจ่ายแลนด์ให้กรุ๊ป ${esc(env.forGroup)}</div>` : ''}
   </div>
   <div class="bottom">
     <div><div class="cap">ยอดเงินในซอง</div>${totals}</div>
@@ -538,9 +552,18 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
   return (
     <div className="space-y-5 rounded-xl border zego-border-color p-3 sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <h3 className="text-base font-semibold zego-text">{name}</h3>
-          <EnvelopeStatusBadge env={env} />
+        {/* หัวรายละเอียด: เลขซอง + สถานะ · ตอนจัดซองประเภท/ชื่ออยู่ในฟอร์มด้านล่างแล้ว จึงแสดงเฉพาะหลังปิดซอง */}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-semibold zego-text">ซอง {env.no}</h3>
+            <EnvelopeStatusBadge env={env} />
+          </div>
+          {stage !== 'packing' && (
+            <p className="text-xs zego-text-secondary">
+              {[env.kind ? ENVELOPE_KIND[env.kind].label : '', env.label ?? ''].filter(Boolean).join(' · ') || '—'}
+              {env.kind === 'land_tip' && env.forGroup ? ` · ฝากจ่ายแลนด์ให้กรุ๊ป ${env.forGroup}` : ''}
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           {env.sealed && <Button variant="secondary" size="sm" icon="download" onClick={printLabel}>พิมพ์ใบปะหน้าซอง</Button>}
@@ -575,7 +598,45 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
           )}
         </div>
         {stage === 'packing' && (
-          <TextInput label="ชื่อซอง" optional value={label} onChange={(e) => setLabel(e.target.value)} placeholder="เช่น ค่าแลนด์, ทิปไกด์/คนขับ" />
+          <div className="space-y-2">
+            <div>
+              <p className="mb-1.5 text-sm font-medium zego-text-secondary">ประเภทซอง <span className="text-rose-600">*</span></p>
+              <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="ประเภทซอง">
+                {ENVELOPE_KIND_ORDER.map((k, i) => (
+                  <label
+                    key={k}
+                    className={cx(
+                      'flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm',
+                      kind === k ? 'border-emerald-400 bg-emerald-50/60' : 'zego-border-color hover:bg-emerald-50/30',
+                    )}
+                  >
+                    <input type="radio" name={`kind-${env.id}`} className="mt-0.5 accent-emerald-600" checked={kind === k} onChange={() => setKind(k)} />
+                    <span>
+                      <span className="block zego-text">{i + 1}. {ENVELOPE_KIND[k].label}</span>
+                      {ENVELOPE_KIND[k].hint && <span className="block text-xs zego-text-tertiary">{ENVELOPE_KIND[k].hint}</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            {kind === 'land_tip' && (
+              <TextInput
+                label="ฝากจ่ายแลนด์ให้กรุ๊ป"
+                required
+                value={forGroup}
+                onChange={(e) => setForGroup(e.target.value)}
+                placeholder="รหัสกรุ๊ปที่เงินนี้ฝากไปจ่ายแลนด์ เช่น CAN-261105G-AQ"
+              />
+            )}
+            <TextInput
+              label="ชื่อซองเพิ่มเติม"
+              optional
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="เช่น ชื่อบริษัทแลนด์ (ไม่ต้องใส่ประเภทซ้ำ)"
+              hint={`ชื่อที่แสดง: ${envelopeName({ no: env.no, kind, label: labelNow })}`}
+            />
+          </div>
         )}
         <div className="overflow-hidden rounded-lg border zego-border-color">
           {sections.map(({ doc, cats }) => (
@@ -629,7 +690,13 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
         {stage === 'packing' ? (
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="secondary" size="sm" onClick={() => void savePacking()}>บันทึกไว้ก่อน</Button>
-            <Button variant="primary" size="sm" onClick={() => void seal()} disabled={!canSeal(lines, packed)}>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void seal()}
+              disabled={!canSeal(lines, packed) || !kindReady}
+              title={!kindReady ? (kind === 'land_tip' ? 'ระบุกรุ๊ปที่ฝากจ่ายแลนด์ก่อน' : 'เลือกประเภทซองก่อน') : undefined}
+            >
               ปิดซอง · ยอดหน้าซอง {fmtTotals(totals.packed) || '—'}
             </Button>
           </div>
@@ -797,6 +864,13 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                 : `รอ${leader ? ` ${leader.name}` : 'หัวหน้าทัวร์'} กดยืนยันรับซองในเครื่องของตัวเอง`}{' '}
               <ProofThumb src={env.leaderAck?.photo} label={`${env.leaderAck?.leaderName ?? ''} รับซอง`} />
             </li>
+            {env.leaderForward && (
+              <li className="zego-text-success">
+                ✓ {env.leaderForward.byName} ส่งต่อให้ {env.leaderForward.toName} · {formatDateTime(env.leaderForward.at)}
+                {env.leaderForward.note ? ` · ${env.leaderForward.note}` : ''}{' '}
+                <ProofThumb src={env.leaderForward.photo} label={`ส่งต่อให้ ${env.leaderForward.toName}`} />
+              </li>
+            )}
           </ul>
         </section>
       )}

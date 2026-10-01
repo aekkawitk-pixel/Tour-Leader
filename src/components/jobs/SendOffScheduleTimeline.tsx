@@ -620,7 +620,17 @@ export function SendOffScheduleTimeline() {
         });
       }
       setAssignments(rows);
-      pushToast('success', summarizeAutoAssign(result, autoAssignPreview.staffCount));
+      /*
+        ตารางแสดงทีละ VISIBLE_DAYS วัน — กรุ๊ปที่จัดได้อาจอยู่นอกช่วงที่เปิดอยู่ทั้งหมด (เช่นเปิด 1–7 แต่กรุ๊ปอยู่กลางเดือน)
+        ผู้จัดจะเห็นตารางว่างเปล่าเหมือนจัดไม่สำเร็จ → เลื่อนไปช่วงที่มีกรุ๊ปแรกที่เพิ่งจัดให้เลย
+      */
+      const planned = new Set(result.plan.map((p) => p.periodId));
+      const firstDate = unassigned.filter((j) => planned.has(j.period.internalId)).map((j) => j.dutyDate).sort()[0];
+      const firstIdx = firstDate ? days.indexOf(firstDate) : -1;
+      if (firstIdx >= 0) setDayOffset(Math.min(maxDayOffset, Math.floor(firstIdx / VISIBLE_DAYS) * VISIBLE_DAYS));
+      const dates = [...new Set(unassigned.filter((j) => planned.has(j.period.internalId)).map((j) => formatDate(j.dutyDate)))].sort();
+      pushToast('success', summarizeAutoAssign(result, autoAssignPreview.staffCount),
+        dates.length > 0 ? `วันไปส่ง: ${dates.join(', ')} — กดลูกศรขวาบนตารางเพื่อดูช่วงวันถัดไป` : undefined);
     } catch (e) {
       setAssignments(rows);
       pushToast('error', e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
@@ -1070,7 +1080,8 @@ export function SendOffScheduleTimeline() {
                 // ไม่แสดงรหัสเจ้าหน้าที่ (SOS-xxx) — ผู้จัดดูจากชื่อ/ชื่อเล่นอยู่แล้ว รหัสทำให้บรรทัดรกเปล่า ๆ
                 const countLabel = cap != null
                   ? `${confirmed}/${cap} กรุ๊ป`
-                  : confirmed > 0 ? `${confirmed} กรุ๊ป` : 'ยังไม่มีงาน';
+                  // มีงานรอคอนเฟิร์มอยู่ (แม้ยังไม่มีที่คอนเฟิร์ม) ห้ามขึ้น "ยังไม่มีงาน" — อ่านแล้วขัดกับ "+N รอคอนเฟิร์ม" ด้านล่าง
+                  : confirmed > 0 ? `${confirmed} กรุ๊ป` : pending > 0 ? 'ยังไม่มีงานที่คอนเฟิร์ม' : 'ยังไม่มีงาน';
                 const countTone = cap != null && confirmed >= cap ? 'font-semibold zego-text-danger' : 'zego-text-tertiary';
                 return (
                   <div key={s.id} className="zego-divider-bottom last:border-b-0" style={{ display: 'grid', gridTemplateColumns: gridCols, minHeight: rowHeight }}>

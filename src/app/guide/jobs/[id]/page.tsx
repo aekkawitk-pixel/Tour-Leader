@@ -22,6 +22,7 @@ import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitive
 import { ConfirmDialog } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
 import type { TourSector } from '@/data/schedule/masterTypes';
+import { GuideEnvelopeCard } from '../../expenses/GuideEnvelopeCard';
 
 function Row({ label, value }: { label: string; value?: React.ReactNode }) {
   const empty = value === undefined || value === null || value === '';
@@ -188,6 +189,9 @@ export default function GuideJobDetailPage() {
           value={sendOffStaffList.length > 0 ? sendOffStaffList.map((s) => s.phone).join(', ') : undefined}
         />
       </Card>
+
+      {/* ขั้นตอนรับซองเงินของกรุ๊ป — ยืนยันการรับ + แนบรูป (ไม่บังคับ) · ไม่มีเอกสารเบิก = ไม่แสดง */}
+      <GuideEnvelopeCard periodId={period.internalId} mode="receive" />
 
       {period.remark && (
         <Card>

@@ -156,7 +156,7 @@ export const NAV_ITEMS: NavItem[] = [
  *
  * เปิดเมนูเพิ่ม → ใส่ NavKey ลงชุดนี้ · เปิดครบทุกเมนู → ตั้งเป็น null
  */
-const TRIAL_NAV_KEYS: ReadonlySet<NavKey> | null = new Set<NavKey>(['dashboard', 'leaders', 'jobs', 'calendar', 'expenses', 'groupExpenses', 'settlements', 'holidays', 'zego', 'sendOffStaff']);
+const TRIAL_NAV_KEYS: ReadonlySet<NavKey> | null = new Set<NavKey>(['dashboard', 'leaders', 'jobs', 'calendar', 'expenses', 'groupExpenses', 'settlements', 'holidays', 'zego', 'sendOffStaff', 'settings']);
 
 /** ป้ายกำกับเมนูที่ยังไม่เปิดให้ใช้ในรอบทดลอง */
 export const IN_DEVELOPMENT_LABEL = 'กำลังพัฒนา';

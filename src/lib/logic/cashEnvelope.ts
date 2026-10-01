@@ -16,6 +16,28 @@
  * ถ้าหัวหน้าทัวร์เปิดใช้แล้วยอดไม่ตรง แจ้งกลับในแอปได้ (mismatch) การเงินเห็นทันที
  */
 
+/**
+ * ประเภทซอง (การเงินเลือกตอนจัดซอง)
+ * 1) advance  — เงิน Advance ใช้จ่ายในกรุ๊ปทัวร์
+ * 2) land     — ค่า Land
+ * 3) local_tip — ค่าทิปไกด์ท้องถิ่น (ในต่างประเทศ)
+ * 4) land_tip — ค่า Land + ค่าทิปไกด์ท้องถิ่น กรณีฝากเงินไปกับกรุ๊ปนี้เพื่อจ่ายแลนด์ของกรุ๊ปอื่น (ระบุ forGroup)
+ */
+export type EnvelopeKind = 'advance' | 'land' | 'local_tip' | 'land_tip';
+export const ENVELOPE_KIND_ORDER: EnvelopeKind[] = ['advance', 'land', 'local_tip', 'land_tip'];
+export const ENVELOPE_KIND: Record<EnvelopeKind, { label: string; short: string; hint?: string }> = {
+  advance: { label: 'เงิน Advance เพื่อใช้ในกรุ๊ปทัวร์', short: 'Advance' },
+  land: { label: 'ค่า Land', short: 'ค่า Land' },
+  local_tip: { label: 'ค่าทิปไกด์ท้องถิ่น (ในต่างประเทศ)', short: 'ทิปไกด์ท้องถิ่น' },
+  land_tip: { label: 'ค่า Land + ค่าทิปไกด์ท้องถิ่น', short: 'ค่า Land + ทิปไกด์', hint: 'กรณีเงินฝากกรุ๊ปอื่นไปจ่ายแลนด์' },
+};
+
+/** ปิดซองได้เมื่อเลือกประเภทแล้ว (ประเภท 4 ต้องระบุกรุ๊ปปลายทางด้วย) */
+export function envelopeKindReady(kind: EnvelopeKind | undefined, forGroup: string | undefined): boolean {
+  if (!kind) return false;
+  return kind !== 'land_tip' || Boolean(forGroup?.trim());
+}
+
 export interface EnvelopeAmount {
   amount: number;
   currency: string;
@@ -38,7 +60,11 @@ export interface CashEnvelope {
   periodId: string;
   /** ลำดับซองในกรุ๊ป (ซอง 1, ซอง 2, …) */
   no: number;
-  /** ชื่อซอง (ไม่บังคับ) เช่น "ค่าแลนด์", "ทิปไกด์/คนขับ" */
+  /** ประเภทซอง — บังคับเลือกก่อนปิดซอง (ซองเก่าก่อนมีฟิลด์นี้ไม่มี) ดู ENVELOPE_KIND */
+  kind?: EnvelopeKind;
+  /** ประเภท land_tip: เงินฝากไปจ่ายแลนด์ของกรุ๊ปไหน (รหัสกรุ๊ป) */
+  forGroup?: string;
+  /** ชื่อซองเพิ่มเติม (ไม่บังคับ) เช่น ชื่อบริษัทแลนด์ — ต่อท้ายประเภท */
   label?: string;
   /** รายการเบิกที่ใส่ซองนี้ — lineKey(เลข Ref, id บรรทัด) */
   packedLineIds: string[];
@@ -90,6 +116,8 @@ export interface CashEnvelope {
   lastReturn?: { at: string; staffId: string; staffName: string; reason: string; receivedAt: string; photo?: string; receivedPhoto?: string };
   /** หัวหน้าทัวร์กดยืนยันรับซองในแอป (รับเองจากการเงิน หรือรับต่อจากเจ้าหน้าที่ส่งกรุ๊ป) */
   leaderAck?: { at: string; leaderId: string; leaderName: string; fromStaffName?: string; photo?: string };
+  /** หัวหน้าทัวร์ส่งต่อซองให้คนอื่น (เช่น ไกด์ท้องถิ่น / แลนด์) — บังคับรูปถ่าย + ชื่อผู้รับ */
+  leaderForward?: { at: string; byName: string; toName: string; note?: string; photo?: string };
   /** หัวหน้าทัวร์เปิดใช้แล้วยอดในซองไม่ตรงยอดหน้าซอง */
   mismatch?: { at: string; byName: string; note: string };
   /** หัวหน้าทัวร์ส่งเงินจากซองให้แลนด์ต่างประเทศ (ทีละครั้ง) — ยอดแยกสกุลเงิน + หลักฐาน */
@@ -138,7 +166,9 @@ export function envelopeStatusLabel(env: CashEnvelope | undefined): { label: str
         ? { label: 'ฝากผู้รับแทน รอหัวหน้าทัวร์ยืนยันรับ', tone: 'violet' }
         : { label: 'ส่งมอบแล้ว รอหัวหน้าทัวร์ยืนยัน', tone: 'violet' };
     case 'received':
-      return { label: 'หัวหน้าทัวร์รับซองแล้ว', tone: 'green' };
+      return env!.leaderForward
+        ? { label: `หัวหน้าทัวร์รับแล้ว ส่งต่อให้ ${env!.leaderForward.toName}`, tone: 'green' }
+        : { label: 'หัวหน้าทัวร์รับซองแล้ว', tone: 'green' };
   }
 }
 
@@ -158,6 +188,7 @@ export function envelopeShortLabel(env: CashEnvelope | undefined): { label: stri
   if (stage === 'handed_over' && env!.staffReturn) return { label: 'ส่งคืนการเงิน', tone };
   if (stage === 'handed_over' && env!.handover!.proxyStaffId && !env!.staffAck) return { label: 'รอเจ้าหน้าที่ส่งกรุ๊ปรับ', tone };
   if (stage === 'handed_over' && env!.staffAck && !env!.staffHandoff) return { label: 'เจ้าหน้าที่ส่งกรุ๊ปถือซอง', tone };
+  if (stage === 'received' && env!.leaderForward) return { label: 'รับแล้ว · ส่งต่อแล้ว', tone };
   return { label: SHORT[stage], tone };
 }
 
@@ -196,7 +227,9 @@ export function returnedToFinanceBy(
 }
 
 /** ชื่อซองสำหรับแสดง เช่น "ซอง 2 · ค่าแลนด์" */
-export const envelopeName = (env: Pick<CashEnvelope, 'no' | 'label'>) => `ซอง ${env.no}${env.label ? ` · ${env.label}` : ''}`;
+/** ชื่อซอง: "ซอง 1 · ค่า Land · ชื่อเพิ่มเติม" — ซองเก่าที่ไม่มีประเภทใช้ชื่อเดิม */
+export const envelopeName = (env: Pick<CashEnvelope, 'no' | 'label'> & Partial<Pick<CashEnvelope, 'kind'>>) =>
+  `ซอง ${env.no}${[env.kind ? ENVELOPE_KIND[env.kind].short : '', env.label ?? ''].filter(Boolean).map((s) => ` · ${s}`).join('')}`;
 
 /** เหตุการณ์ใน Timeline ของกรุ๊ป (แบบติดตามพัสดุ) — ใหม่สุดอยู่บน */
 export interface EnvelopeEvent {
@@ -222,6 +255,7 @@ function fallbackPhoto(e: CashEnvelope, action: string): string | undefined {
     case 'เจ้าหน้าที่ส่งกรุ๊ปส่งต่อให้หัวหน้าทัวร์':
     case 'เจ้าหน้าที่ส่งกรุ๊ปส่งต่อให้ผู้รับคนอื่น': return e.staffHandoff?.photo;
     case 'หัวหน้าทัวร์ยืนยันรับซอง': return e.leaderAck?.photo;
+    case 'หัวหน้าทัวร์ส่งต่อซอง': return e.leaderForward?.photo;
     case 'เจ้าหน้าที่ส่งกรุ๊ปส่งซองคืนการเงิน': return e.staffReturn?.photo ?? e.lastReturn?.photo;
     case 'การเงินรับซองคืน': return e.lastReturn?.receivedPhoto;
     default: return undefined;
@@ -386,7 +420,8 @@ export function groupEnvelopeStatus(
     // ซองที่ช้าที่สุด (ละเอียดถึงทอดของเจ้าหน้าที่ส่งกรุ๊ป) เป็นตัวกำหนดสถานะของกรุ๊ป
     const slowest = used.reduce((a, b) => (handoverRank(b) < handoverRank(a) ? b : a));
     stage = envelopeStage(slowest);
-    label = envelopeShortLabel({ ...slowest, mismatch: undefined }).label;
+    // สถานะรวมไม่บอกการส่งต่อ (ตารางแสดงแยกรายซองแล้ว) — กันซองแรกที่ส่งต่อทำให้ทั้งกรุ๊ปขึ้นว่า "ส่งต่อแล้ว"
+    label = envelopeShortLabel({ ...slowest, mismatch: undefined, leaderForward: undefined }).label;
     tone = stage === 'sealed' ? 'blue' : stage === 'handed_over' ? 'violet' : 'green';
     if (stage === 'handed_over') {
       const h = slowest.handover!;

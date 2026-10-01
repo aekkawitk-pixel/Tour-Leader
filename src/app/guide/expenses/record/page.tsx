@@ -156,7 +156,7 @@ export default function GuideExpensesRecordPage() {
             </div>
           </div>
           <SpendSummaryCard recorded={jobExpenses} budgetItems={budgetItemsForGroup(expenses, selectedPeriod.internalId)} />
-          <GuideEnvelopeCard periodId={selectedPeriod.internalId} />
+          <GuideEnvelopeCard periodId={selectedPeriod.internalId} mode="use" />
           {justSaved ? (
             <SavedPrompt
               expense={justSaved.expense}

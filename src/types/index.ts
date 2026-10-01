@@ -841,6 +841,8 @@ export interface ExpenseLine {
   rejected?: boolean;
   /** เหตุผลที่ไม่อนุมัติบรรทัดนี้ — แจ้งหัวหน้าทัวร์ */
   rejectNote?: string;
+  /** กรุ๊ปของบรรทัดนี้ (TourPeriodMaster.internalId) — ใบเบิกค่าส่งกรุ๊ปรายเดือนรวมหลายกรุ๊ปในใบเดียว */
+  periodId?: string;
 }
 
 export interface ExpenseRequest {
@@ -851,6 +853,16 @@ export interface ExpenseRequest {
   requesterName: string;
   /** ผู้เบิกเป็นใคร — ไม่ระบุ = หัวหน้าทัวร์/ผู้ใช้ภายใน · 'sendoff' = เจ้าหน้าที่ส่งกรุ๊ป (requesterId = SOS-xxx) */
   requesterKind?: 'sendoff';
+  /**
+   * ใบเบิกค่าส่งกรุ๊ปรายเดือน (YYYY-MM ของวันไปส่ง) — 1 ใบรวมหลายกรุ๊ปของเดือนนั้น แต่ละบรรทัดบอกกรุ๊ปที่ line.periodId
+   * jobId ของใบนี้เป็นรหัสเอกสาร (ไม่ใช่กรุ๊ป) — หน้าบัญชีแสดงเป็น "ค่าส่งกรุ๊ป <เดือน>" แทน
+   */
+  claimMonth?: string;
+  /**
+   * ใบเบิกของหัวหน้าทัวร์ที่ไม่ใช่ใบเสร็จ (category 'leader_fee') — 'per_diem' = เบี้ยเลี้ยง · 'tip' = ค่าทิป
+   * ทำแยกใบต่อกรุ๊ป (jobId = periodId) ดู src/lib/logic/leaderClaims.ts
+   */
+  claimKind?: 'per_diem' | 'tip';
   requestedAt: string; // วันที่ขอ
   submittedAt?: string; // เวลาจริงที่กดบันทึก (ISO datetime) — ต่างจาก requestedAt ที่เป็นวันที่ล้วน
   lines: ExpenseLine[];

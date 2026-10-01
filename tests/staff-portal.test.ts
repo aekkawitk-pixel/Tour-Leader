@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { claimableDuties, staffClaims, staffDuties, type DutyPeriod } from '../src/lib/logic/staffPortal';
+import { claimableDuties, dutiesByMonth, sendOffFee, staffClaims, staffDuties, validateSendOffFeeRates, type DutyPeriod } from '../src/lib/logic/staffPortal';
 import type { ExpenseRequest } from '../src/types';
 
 const periods: Record<string, DutyPeriod> = {
@@ -70,4 +70,34 @@ test('เบิกแล้วไม่ขึ้นซ้ำ · ใบที่�
 test('ใบเบิกของฉัน: เฉพาะใบเบิกเจ้าหน้าที่ส่งกรุ๊ปของตัวเอง', () => {
   const leaderExpense = { ...claim('P1', 'submitted'), requesterKind: undefined };
   assert.deepEqual(staffClaims([claim('P1', 'paid'), leaderExpense, claim('P3', 'submitted', 'SOS-002')], 'SOS-001').map((e) => e.jobId), ['P1']);
+});
+
+test('ค่าส่งกรุ๊ป: วันปกติ 900 บาท · วันไปส่งตรงกับวันหยุด 1,200 บาท', () => {
+  assert.deepEqual(sendOffFee(null), { amount: 900, holiday: null });
+  assert.deepEqual(sendOffFee('วันปิยมหาราช'), { amount: 1200, holiday: 'วันปิยมหาราช' });
+});
+
+test('ใบเบิกรายเดือน: กรุ๊ปในใบไม่ขึ้นรอเบิกซ้ำ · บรรทัดที่บัญชีไม่อนุมัติ กรุ๊ปนั้นเบิกใหม่ได้', () => {
+  const today = '2026-07-13';
+  const feeLine = (periodId: string, rejected = false) => ({
+    id: `L-${periodId}`, expenseType: 'ค่าส่งกรุ๊ป', purpose: '', amount: 900, currency: 'THB', fxRate: 1, amountTHB: 900,
+    receiptNo: '', evidenceFileName: '', periodId, ...(rejected ? { rejected: true } : {}),
+  });
+  const monthly = { ...claim('SOM-2026-07', 'submitted'), claimMonth: '2026-07', lines: [feeLine('P3'), feeLine('P1')] };
+  assert.deepEqual(claimableDuties(duties, [monthly], 'SOS-001', today).map((d) => d.periodId), []);
+  const partial = { ...monthly, lines: [feeLine('P3'), feeLine('P1', true)] };
+  assert.deepEqual(claimableDuties(duties, [partial], 'SOS-001', today).map((d) => d.periodId), ['P1']);
+});
+
+test('จัดงานรอเบิกเป็นรายเดือนตามวันไปส่ง', () => {
+  const list = dutiesByMonth(duties);
+  assert.deepEqual(list.map((g) => [g.month, g.duties.map((d) => d.periodId)]), [['2026-07', duties.map((d) => d.periodId)]]);
+});
+
+test('ค่าส่งกรุ๊ป: ใช้มาตรฐานที่ผู้ดูแลระบบตั้ง · ตรวจค่าก่อนบันทึก', () => {
+  const rates = { normal: 1000, holiday: 1500, weekendAsHoliday: true };
+  assert.deepEqual(sendOffFee(null, rates), { amount: 1000, holiday: null });
+  assert.deepEqual(sendOffFee('วันเสาร์', rates), { amount: 1500, holiday: 'วันเสาร์' });
+  assert.equal(validateSendOffFeeRates(rates), null);
+  assert.notEqual(validateSendOffFeeRates({ ...rates, normal: 0 }), null);
 });

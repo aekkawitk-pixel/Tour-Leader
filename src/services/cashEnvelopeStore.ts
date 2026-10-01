@@ -26,6 +26,7 @@ const MEDIA_FIELDS = [
   { key: 'lastReturn', part: 'lastReturn', field: 'photo' },
   { key: 'lastReturnReceived', part: 'lastReturn', field: 'receivedPhoto' },
   { key: 'leaderAck', part: 'leaderAck', field: 'photo' },
+  { key: 'leaderForward', part: 'leaderForward', field: 'photo' },
 ] as const;
 
 type Part = Record<string, unknown> | undefined;

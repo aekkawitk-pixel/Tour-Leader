@@ -1,16 +1,18 @@
 'use client';
 
 /**
- * ซองเงินของกรุ๊ป — ฝั่งหัวหน้าทัวร์ (หน้าบันทึกใบเสร็จ เมื่อเลือกกรุ๊ปแล้ว)
+ * ซองเงินของกรุ๊ป — ฝั่งหัวหน้าทัวร์ · รับซองที่รายละเอียดงาน (mode 'receive') · ใช้ซองที่หน้าบันทึกใบเสร็จ (mode 'use')
  *
  * หลักการถือเงิน: การเงินจัดซอง → เจ้าหน้าที่ส่งกรุ๊ป → หัวหน้าทัวร์ → (ส่งให้แลนด์ต่างประเทศ | ใช้ตามรายการ)
  * ซองเป็นของกรุ๊ป — การเงินอาจรวมทุกเอกสารในซองเดียว หรือแยกหลายซอง (เช่น ซองค่าแลนด์ / ซองทิป) · ยืนยันรับทีละซอง
- * - ส่งมอบแล้ว → หัวหน้าทัวร์กด "ยืนยันรับซองแล้ว" (ระบุว่ารับต่อจากเจ้าหน้าที่คนไหน) = หลักฐานทอดที่สาม
- * - รับแล้ว → เห็นยอดคงเหลือในซอง · บันทึก "ส่งเงินให้แลนด์" (ชื่อแลนด์ ยอด สกุลเงิน รูปใบรับเงิน)
+ * - ส่งมอบแล้ว → หัวหน้าทัวร์กด "ยืนยันการรับ" (ระบุว่ารับต่อจากเจ้าหน้าที่คนไหน) = หลักฐานทอดที่สาม · ไม่บังคับแนบรูป
+ * - รับแล้ว → เห็นยอดคงเหลือในซอง · บันทึก "ส่งเงินให้แลนด์" (ชื่อแลนด์ ยอด สกุลเงิน)
+ *   รูปใบรับเงิน/หลักฐานจากแลนด์ไม่บังคับ — แนบตอนบันทึก หรือกด "แนบหลักฐาน" ภายหลังก็ได้
  *   ใช้ตามรายการ = บันทึกใบเสร็จตามปกติ ยอดถูกหักจากซองให้อัตโนมัติ
  * - เปิดใช้แล้วยอดในซองไม่ตรงหน้าซอง → "แจ้งยอดในซองไม่ตรง" การเงินเห็นทันที (ไม่มีการนับซ้ำตอนรับ)
  */
 
+import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { Button, Card } from '@/components/ui/Primitives';
@@ -24,12 +26,27 @@ import { envelopeBalance, envelopeName, handoverReceiverText, envelopeStage, gro
 import { EnvelopeStatusBadge, StatusPill, spentByReceipts } from '@/components/expenses/CashEnvelopeDrawer';
 import { PhotoConfirmModal, ProofThumb } from '@/components/expenses/EnvelopeProofPhoto';
 
-export function GuideEnvelopeCard({ periodId }: { periodId: string }) {
-  const { expenses, envelopes, saveEnvelope, currentUser, leaders, master } = useDemo();
+/**
+ * mode
+ * - 'receive' (รายละเอียดงาน /guide/jobs/[id]) — ขั้นตอนรับซอง: ยืนยันการรับ + แนบรูปซองที่ได้รับ (ไม่บังคับ)
+ * - 'use' (หน้าบันทึกค่าใช้จ่าย) — ใช้เงินในซอง: ยอดคงเหลือ · ส่งเงินให้แลนด์ · แจ้งยอดไม่ตรง
+ *   ซองที่ยังไม่ยืนยันรับ มีลิงก์พาไปยืนยันที่รายละเอียดงาน
+ */
+export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 'receive' | 'use' }) {
+  const receiving = mode === 'receive';
+  const { expenses, envelopes, saveEnvelope, currentUser, leaders } = useDemo();
   const [landOpen, setLandOpen] = useState(false);
   const [mismatchOpen, setMismatchOpen] = useState(false);
-  /** ซองที่กำลังยืนยันรับ — ต้องแนบรูปถ่ายหลักฐานก่อนกดยืนยัน */
+  /** ซองที่กำลังยืนยันรับ — ยืนยันอย่างเดียว ไม่บังคับแนบรูป */
   const [ackTarget, setAckTarget] = useState<CashEnvelope | null>(null);
+  /** รายการส่งแลนด์ที่กำลังแนบหลักฐานภายหลัง */
+  const [proofTarget, setProofTarget] = useState<{ env: CashEnvelope; paymentId: string } | null>(null);
+  /** ซองที่รับแล้ว กำลังแนบรูปหลักฐานการรับภายหลัง */
+  const [ackPhotoTarget, setAckPhotoTarget] = useState<CashEnvelope | null>(null);
+  /** ซองที่กำลังส่งต่อให้คนอื่น — บังคับรูป + ชื่อผู้รับ */
+  const [forwardTarget, setForwardTarget] = useState<CashEnvelope | null>(null);
+  const [forwardTo, setForwardTo] = useState('');
+  const [forwardNote, setForwardNote] = useState('');
   const docs =expenses.filter((e) => isGroupAdvanceDoc(e) && e.jobId === periodId);
   if (docs.length === 0) return null;
 
@@ -42,21 +59,57 @@ export function GuideEnvelopeCard({ periodId }: { periodId: string }) {
   const leaderName = leader ? `${leader.firstName} ${leader.lastName}`.trim() : currentUser.name;
 
   const face = sumAmounts(received.flatMap((e) => e.sealed!.faceTotals));
-  const landList = received.flatMap((e) => (e.landPayments ?? []).map((lp) => ({ ...lp, envName: envelopeName(e) })));
+  const landList = received.flatMap((e) => (e.landPayments ?? []).map((lp) => ({ ...lp, env: e, envName: envelopeName(e) })));
   const land = sumAmounts(landList.map((l) => ({ amount: l.amount, currency: l.currency })));
+  /** ซองที่รับแล้วและยังไม่ได้ส่งให้แลนด์ (ส่งทั้งซองครั้งเดียว) */
+  const landable = received.filter((e) => !e.landPayments?.length);
   const spent = spentByReceipts(expenses, periodId, currentUser.leaderId);
   const balance = envelopeBalance(face, land, spent);
 
-  const acknowledge = async (env: CashEnvelope, photo: string) => {
-    // คนที่ถือซองมาให้ = ผู้รับแทน (ถ้ามี) หรือเจ้าหน้าที่ที่ระบุไว้
-    const fromStaff = env.handover?.proxyName ?? (env.handover?.receiverKind === 'staff' ? env.handover.receiverName : undefined);
+  // คนที่ถือซองมาให้ = ผู้รับแทน (ถ้ามี) หรือเจ้าหน้าที่ที่ระบุไว้
+  const fromStaffOf = (env: CashEnvelope) => env.handover?.proxyName ?? (env.handover?.receiverKind === 'staff' ? env.handover.receiverName : undefined);
+  const acknowledge = async (env: CashEnvelope) => {
+    const fromStaff = fromStaffOf(env);
     await saveEnvelope(
-      { ...env, leaderAck: { at: toISODateTime(new Date()), leaderId: currentUser.leaderId ?? '', leaderName, photo, ...(fromStaff ? { fromStaffName: fromStaff } : {}) } },
+      { ...env, leaderAck: { at: toISODateTime(new Date()), leaderId: currentUser.leaderId ?? '', leaderName, ...(fromStaff ? { fromStaffName: fromStaff } : {}) } },
       'หัวหน้าทัวร์ยืนยันรับซอง',
       `${envelopeName(env)}${fromStaff ? ` · รับต่อจาก ${fromStaff}` : ''}`,
+    );
+  };
+  /** แนบรูปซองที่ได้รับ ให้ซองที่กดยืนยันรับไปแล้ว (ไม่บังคับ) */
+  const attachAckPhoto = async (env: CashEnvelope, photo: string) => {
+    if (!env.leaderAck) return;
+    await saveEnvelope({ ...env, leaderAck: { ...env.leaderAck, photo } }, 'หัวหน้าทัวร์แนบรูปรับซอง', envelopeName(env), photo);
+  };
+  /** ส่งต่อซองให้คนอื่น — เก็บชื่อผู้รับ หมายเหตุ และรูปถ่ายตอนส่ง */
+  const forward = async (env: CashEnvelope, photo: string) => {
+    const toName = forwardTo.trim();
+    const note = forwardNote.trim();
+    await saveEnvelope(
+      { ...env, leaderForward: { at: toISODateTime(new Date()), byName: leaderName, toName, ...(note ? { note } : {}), photo } },
+      'หัวหน้าทัวร์ส่งต่อซอง',
+      `${envelopeName(env)} · ส่งให้ ${toName}${note ? ` · ${note}` : ''}`,
       photo,
     );
   };
+  const openForward = (env: CashEnvelope | null) => {
+    setForwardTo('');
+    setForwardNote('');
+    setForwardTarget(env);
+  };
+  /** แนบรูปใบรับเงินจากแลนด์ให้รายการส่งแลนด์ที่บันทึกไปแล้ว */
+  const attachLandProof = async (env: CashEnvelope, paymentId: string, photo: string) => {
+    const lp = env.landPayments?.find((p) => p.id === paymentId);
+    if (!lp) return;
+    await saveEnvelope(
+      { ...env, landPayments: (env.landPayments ?? []).map((p) => (p.id === paymentId ? { ...p, evidenceImage: photo } : p)) },
+      'แนบหลักฐานส่งเงินให้แลนด์',
+      `${envelopeName(env)} · ${formatCurrency(lp.amount, lp.currency)}`,
+      photo,
+    );
+  };
+  // รายการเดิมมีชื่อแลนด์ · รายการใหม่ไม่กรอกชื่อแล้ว
+  const landLabel = (lp: { landName: string }) => (lp.landName ? `ส่งแลนด์ ${lp.landName}` : 'ส่งแลนด์');
   const fmt = (list: { amount: number; currency: string }[]) => list.map((f) => formatCurrency(f.amount, f.currency)).join(' · ');
 
   return (
@@ -89,6 +142,10 @@ export function GuideEnvelopeCard({ periodId }: { periodId: string }) {
                 <p className="zego-text-secondary">
                   ยอดหน้าซอง <span className="font-semibold tabular-nums zego-text">{fmt(env.sealed!.faceTotals)}</span>
                 </p>
+                {/* ประเภท 4 — เงินฝากไปจ่ายแลนด์ของกรุ๊ปอื่น ต้องเห็นชัดว่าไม่ใช่เงินของกรุ๊ปนี้ */}
+                {env.kind === 'land_tip' && env.forGroup && (
+                  <p className="rounded bg-amber-50 px-2 py-1 font-medium text-amber-900">ฝากจ่ายแลนด์ให้กรุ๊ป {env.forGroup}</p>
+                )}
                 {env.handover ? (
                   <p className="zego-text-tertiary">
                     {env.handover.receiverKind === 'staff' && env.handover.proxyStaffId ? `การเงินฝากเจ้าหน้าที่ส่งกรุ๊ป ${env.handover.proxyName} นำมาส่งคุณ` : `การเงินส่งมอบให้ ${handoverReceiverText(env.handover)}`} · {formatDateTime(env.handover.at)}
@@ -113,13 +170,42 @@ export function GuideEnvelopeCard({ periodId }: { periodId: string }) {
                     <ProofThumb src={env.leaderAck.photo} label={`รับ${envelopeName(env)}`} />
                   </p>
                 )}
-                {env.mismatch && <p className="rounded bg-rose-50 px-2 py-1" style={{ color: '#9f1239' }}>แจ้งยอดไม่ตรงแล้ว · {env.mismatch.note}</p>}
-                {/* ซองถูกส่งคืนการเงินระหว่างทาง → ไม่อยู่กับหัวหน้าทัวร์แล้ว ห้ามกดยืนยันรับ */}
-                {stage === 'handed_over' && !env.staffReturn && (
-                  <Button variant="primary" size="sm" className="w-full" icon="camera" onClick={() => setAckTarget(env)}>
-                    ยืนยันรับ{envelopeName(env)}{env.handover!.proxyName ? ` (รับจาก ${env.handover!.proxyName})` : env.handover!.receiverKind === 'staff' ? ` (จาก ${env.handover!.receiverName})` : ''} · แนบรูป
+                {receiving && env.leaderAck && !env.leaderAck.photo && (
+                  <button
+                    type="button"
+                    onClick={() => setAckPhotoTarget(env)}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium zego-text-info hover:underline"
+                  >
+                    <Icon name="camera" className="h-3 w-3" />
+                    แนบรูปซองที่ได้รับ (ไม่บังคับ)
+                  </button>
+                )}
+                {env.leaderForward && (
+                  <div className="space-y-0.5 rounded bg-sky-50 px-2 py-1.5 text-sky-900">
+                    <p>
+                      ส่งต่อให้ <span className="font-semibold">{env.leaderForward.toName}</span> · {formatDateTime(env.leaderForward.at)}
+                    </p>
+                    {env.leaderForward.note && <p className="text-sky-800">{env.leaderForward.note}</p>}
+                    <ProofThumb src={env.leaderForward.photo} label={`ส่งต่อ${envelopeName(env)} ให้ ${env.leaderForward.toName}`} />
+                  </div>
+                )}
+                {receiving && env.leaderAck && !env.leaderForward && (
+                  <Button variant="secondary" size="sm" className="w-full" icon="camera" onClick={() => openForward(env)}>
+                    ส่งต่อซอง
                   </Button>
                 )}
+                {env.mismatch &&<p className="rounded bg-rose-50 px-2 py-1" style={{ color: '#9f1239' }}>แจ้งยอดไม่ตรงแล้ว · {env.mismatch.note}</p>}
+                {/* ซองถูกส่งคืนการเงินระหว่างทาง → ไม่อยู่กับหัวหน้าทัวร์แล้ว ห้ามกดยืนยันรับ */}
+                {stage === 'handed_over' && !env.staffReturn && (receiving ? (
+                  <Button variant="primary" size="sm" className="w-full" icon="check" onClick={() => setAckTarget(env)}>
+                    ยืนยันการรับ
+                  </Button>
+                ) : (
+                  <Link href={`/guide/jobs/${periodId}`} className="inline-flex items-center gap-1 text-[11px] font-medium zego-text-info hover:underline">
+                    ยังไม่ได้ยืนยันรับ — ไปยืนยันที่ งานของฉัน
+                    <Icon name="chevronRight" className="h-3 w-3" />
+                  </Link>
+                ))}
               </li>
             );
           })}
@@ -127,17 +213,53 @@ export function GuideEnvelopeCard({ periodId }: { periodId: string }) {
       )}
 
       {ackTarget && (
-        <PhotoConfirmModal
+        <AckModal
           title={`ยืนยันรับ${envelopeName(ackTarget)}`}
-          description={`ยอดหน้าซอง ${fmt(ackTarget.sealed?.faceTotals ?? [])}`}
-          confirmLabel="ยืนยันรับซอง"
-          photoHint="ถ่ายรูปซองที่ได้รับ ให้เห็นหน้าซองและยอดเงินชัดเจน"
+          face={fmt(ackTarget.sealed?.faceTotals ?? [])}
+          fromStaff={fromStaffOf(ackTarget)}
           onClose={() => setAckTarget(null)}
-          onConfirm={async (photo) => { await acknowledge(ackTarget, photo); setAckTarget(null); }}
+          onConfirm={async () => { await acknowledge(ackTarget); setAckTarget(null); }}
+        />
+      )}
+      {ackPhotoTarget && (
+        <PhotoConfirmModal
+          title={`แนบรูป${envelopeName(ackPhotoTarget)}`}
+          description={`ยอดหน้าซอง ${fmt(ackPhotoTarget.sealed?.faceTotals ?? [])}`}
+          confirmLabel="บันทึกรูป"
+          photoHint="ถ่ายรูปซองที่ได้รับ ให้เห็นหน้าซองและยอดเงินชัดเจน"
+          onClose={() => setAckPhotoTarget(null)}
+          onConfirm={async (photo) => { await attachAckPhoto(ackPhotoTarget, photo); setAckPhotoTarget(null); }}
+        />
+      )}
+      {forwardTarget && (
+        <PhotoConfirmModal
+          title={`ส่งต่อ${envelopeName(forwardTarget)}`}
+          description={`ยอดหน้าซอง ${fmt(forwardTarget.sealed?.faceTotals ?? [])}`}
+          confirmLabel="ยืนยันส่งต่อ"
+          photoHint="ถ่ายรูปซองคู่กับผู้รับ ให้เห็นหน้าซองชัดเจน"
+          canConfirm={forwardTo.trim().length > 0}
+          onClose={() => openForward(null)}
+          onConfirm={async (photo) => { await forward(forwardTarget, photo); openForward(null); }}
+        >
+          <TextInput label="ส่งให้ใคร" required value={forwardTo} onChange={(e) => setForwardTo(e.target.value)} placeholder="ชื่อผู้รับ เช่น ไกด์ท้องถิ่น / แลนด์" />
+          <TextArea label="หมายเหตุ" optional rows={2} value={forwardNote} onChange={(e) => setForwardNote(e.target.value)} />
+        </PhotoConfirmModal>
+      )}
+      {proofTarget && (
+        <PhotoConfirmModal
+          title="แนบหลักฐานส่งเงินให้แลนด์"
+          description={(() => {
+            const lp = proofTarget.env.landPayments?.find((p) => p.id === proofTarget.paymentId);
+            return lp ? `${landLabel(lp)} · ${formatCurrency(lp.amount, lp.currency)}` : undefined;
+          })()}
+          confirmLabel="บันทึกหลักฐาน"
+          photoHint="ถ่ายรูปใบรับเงิน / หลักฐานการรับเงินจากแลนด์"
+          onClose={() => setProofTarget(null)}
+          onConfirm={async (photo) => { await attachLandProof(proofTarget.env, proofTarget.paymentId, photo); setProofTarget(null); }}
         />
       )}
 
-      {received.length > 0 && (
+      {!receiving && received.length > 0 && (
         <>
           <table className="w-full text-xs tabular-nums">
             <thead className="zego-text-tertiary">
@@ -162,17 +284,32 @@ export function GuideEnvelopeCard({ periodId }: { periodId: string }) {
             </tbody>
           </table>
           {landList.length > 0 && (
-            <ul className="space-y-0.5 text-xs zego-text-secondary">
+            <ul className="space-y-1.5 text-xs zego-text-secondary">
               {landList.map((lp) => (
-                <li key={lp.id} className="flex justify-between gap-2">
-                  <span className="truncate">ส่งแลนด์ {lp.landName} · {received.length > 1 ? `${lp.envName} · ` : ''}{formatDateTime(lp.at)}</span>
-                  <span className="shrink-0 font-medium tabular-nums">{formatCurrency(lp.amount, lp.currency)}</span>
+                <li key={lp.id} className="space-y-0.5">
+                  <div className="flex justify-between gap-2">
+                    <span className="truncate">{landLabel(lp)} · {received.length > 1 ? `${lp.envName} · ` : ''}{formatDateTime(lp.at)}</span>
+                    <span className="shrink-0 font-medium tabular-nums">{formatCurrency(lp.amount, lp.currency)}</span>
+                  </div>
+                  {lp.note && <p className="zego-text-tertiary">{lp.note}</p>}
+                  {lp.evidenceImage ? (
+                    <ProofThumb src={lp.evidenceImage} label={landLabel(lp)} />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setProofTarget({ env: lp.env, paymentId: lp.id })}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium zego-text-info hover:underline"
+                    >
+                      <Icon name="camera" className="h-3 w-3" />
+                      แนบหลักฐาน (ไม่บังคับ)
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
           )}
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="primary" size="sm" icon="plane" onClick={() => setLandOpen(true)}>ส่งเงินให้แลนด์</Button>
+            <Button variant="primary" size="sm" icon="plane" onClick={() => setLandOpen(true)} disabled={landable.length === 0}>ส่งเงินให้แลนด์</Button>
             <Button variant="secondary" size="sm" icon="warning" onClick={() => setMismatchOpen(true)} disabled={received.every((e) => e.mismatch)}>
               แจ้งยอดในซองไม่ตรง
             </Button>
@@ -183,14 +320,18 @@ export function GuideEnvelopeCard({ periodId }: { periodId: string }) {
 
       {landOpen && (
         <LandPaymentModal
-          envelopes={received}
-          currencies={[...new Set([...face.map((f) => f.currency), ...master.currencies.filter((c) => c.active).map((c) => c.code)])]}
+          envelopes={landable}
+          fmt={fmt}
           onClose={() => setLandOpen(false)}
           onSave={async (env, p) => {
+            // ส่งให้แลนด์ทั้งซอง — ยอด = ยอดหน้าซอง (สกุลละ 1 รายการ)
+            const at = toISODateTime(new Date());
+            const stamp = Date.now();
+            const payments = env.sealed!.faceTotals.map((f, i) => ({ id: `LP-${stamp}-${i}`, at, byName: leaderName, landName: '', amount: f.amount, currency: f.currency, ...p }));
             await saveEnvelope(
-              { ...env, landPayments: [...(env.landPayments ?? []), { id: `LP-${Date.now()}`, at: toISODateTime(new Date()), byName: leaderName, ...p }] },
+              { ...env, landPayments: [...(env.landPayments ?? []), ...payments] },
               'ส่งเงินให้แลนด์',
-              `${envelopeName(env)} · ${p.landName} · ${formatCurrency(p.amount, p.currency)}`,
+              `${envelopeName(env)} · ${fmt(env.sealed!.faceTotals)}${p.note ? ` · ${p.note}` : ''}`,
               p.evidenceImage,
             );
             setLandOpen(false);
@@ -211,6 +352,56 @@ export function GuideEnvelopeCard({ periodId }: { periodId: string }) {
   );
 }
 
+/** ยืนยันรับซอง — ยืนยันอย่างเดียว ไม่ต้องแนบรูป */
+function AckModal({
+  title,
+  face,
+  fromStaff,
+  onClose,
+  onConfirm,
+}: {
+  title: string;
+  face: string;
+  fromStaff?: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title={title}
+      description={`ยอดหน้าซอง ${face}`}
+      footer={
+        <div className="grid w-full grid-cols-2 gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={saving}>ยกเลิก</Button>
+          <Button
+            variant="primary"
+            icon="check"
+            loading={saving}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await onConfirm();
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >
+            ยืนยันการรับ
+          </Button>
+        </div>
+      }
+    >
+      <p className="text-sm zego-text-secondary">
+        ยืนยันว่าได้รับซองนี้แล้ว{fromStaff ? ` (รับต่อจาก ${fromStaff})` : ''} — หลังยืนยันจึงจะบันทึกรายการจากซองนี้ได้
+      </p>
+    </Modal>
+  );
+}
+
 /** เลือกซอง (แสดงเมื่อมีมากกว่า 1 ซอง) */
 function EnvelopeSelect({ envelopes, value, onChange }: { envelopes: CashEnvelope[]; value: string; onChange: (id: string) => void }) {
   if (envelopes.length <= 1) return null;
@@ -224,28 +415,25 @@ function EnvelopeSelect({ envelopes, value, onChange }: { envelopes: CashEnvelop
   );
 }
 
+/** ส่งซองให้แลนด์ทั้งซอง — กรอกแค่หมายเหตุ + รูปหลักฐาน (ไม่บังคับ) · ยอดใช้ยอดหน้าซอง */
 function LandPaymentModal({
   envelopes,
-  currencies,
+  fmt,
   onClose,
   onSave,
 }: {
   envelopes: CashEnvelope[];
-  currencies: string[];
+  fmt: (list: { amount: number; currency: string }[]) => string;
   onClose: () => void;
-  onSave: (env: CashEnvelope, p: { landName: string; amount: number; currency: string; note?: string; evidenceImage?: string }) => Promise<void>;
+  onSave: (env: CashEnvelope, p: { note?: string; evidenceImage?: string }) => Promise<void>;
 }) {
   const [envId, setEnvId] = useState(envelopes[0]?.id ?? '');
   const env = envelopes.find((e) => e.id === envId);
-  const [landName, setLandName] = useState('');
-  const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState(currencies[0] ?? 'THB');
   const [note, setNote] = useState('');
   const [image, setImage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const amt = Number(amount);
-  const ok = env && landName.trim() && amt > 0;
+  const ok = Boolean(env);
 
   return (
     <Modal
@@ -253,7 +441,7 @@ function LandPaymentModal({
       onClose={onClose}
       size="sm"
       title="ส่งเงินให้แลนด์ต่างประเทศ"
-      description="บันทึกยอดที่นำออกจากซองส่งให้แลนด์ พร้อมหลักฐาน"
+      description={env ? `${envelopeName(env)} · ยอดหน้าซอง ${fmt(env.sealed?.faceTotals ?? [])}` : undefined}
       footer={
         <div className="grid w-full grid-cols-2 gap-2">
           <Button variant="secondary" onClick={onClose} disabled={saving}>ยกเลิก</Button>
@@ -264,7 +452,7 @@ function LandPaymentModal({
             onClick={async () => {
               setSaving(true);
               try {
-                await onSave(env!, { landName: landName.trim(), amount: amt, currency, ...(note.trim() ? { note: note.trim() } : {}), ...(image ? { evidenceImage: image } : {}) });
+                await onSave(env!, { ...(note.trim() ? { note: note.trim() } : {}), ...(image ? { evidenceImage: image } : {}) });
               } finally {
                 setSaving(false);
               }
@@ -277,16 +465,6 @@ function LandPaymentModal({
     >
       <div className="space-y-3">
         <EnvelopeSelect envelopes={envelopes} value={envId} onChange={setEnvId} />
-        <TextInput label="ชื่อแลนด์ / บริษัทรับจัด" value={landName} onChange={(e) => setLandName(e.target.value)} placeholder="เช่น Osaka Land Co., Ltd." />
-        <div className="grid grid-cols-[1fr_7rem] gap-2">
-          <TextInput label="ยอดเงิน" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-medium zego-text-secondary">สกุลเงิน</span>
-            <select className="w-full rounded-lg border zego-border-color px-2 py-2" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-              {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </label>
-        </div>
         <TextArea label="หมายเหตุ" optional rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
         <div>
           <p className="mb-1 text-sm font-medium zego-text-secondary">รูปใบรับเงิน / หลักฐานจากแลนด์ <span className="text-xs zego-text-tertiary">(ไม่บังคับ)</span></p>
