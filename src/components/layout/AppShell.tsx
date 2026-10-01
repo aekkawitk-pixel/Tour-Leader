@@ -11,8 +11,6 @@ import { useDemo } from '@/store/DemoStore';
 import { Button, cx, EmptyState, PageLoading } from '@/components/ui/Primitives';
 import { canViewPath, landingPathForRole, ROLE_SCOPE } from '@/lib/permissions';
 import { ROLE } from '@/lib/labels';
-import { DEMO_TODAY } from '@/data';
-import { formatDate } from '@/lib/format';
 
 /**
  * ความกว้างของพื้นที่เนื้อหา — ปกติจำกัดด้วย --zego-max (1660px) กึ่งกลาง
@@ -115,10 +113,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="zego-workspace">
           <Header onOpenMenu={() => setMenuOpen(true)} />
 
-          <div className="border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-center text-[11px] text-amber-800 sm:px-6">
-            ระบบต้นแบบสำหรับ Demo — ข้อมูลทั้งหมดเป็นข้อมูลจำลอง · วันที่อ้างอิงของระบบ:{' '}
-            <strong>{formatDate(DEMO_TODAY)}</strong>
-          </div>
 
           <main className={cx('zego-main', contentWidth === 'wide' && 'app-main--wide')}>
             {!ready ? <PageLoading /> : allowed ? children : <AccessDenied />}

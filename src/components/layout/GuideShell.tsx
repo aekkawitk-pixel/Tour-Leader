@@ -151,9 +151,6 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
           </button>
         </header>
 
-        <div className="border-b border-amber-200 bg-amber-50 px-4 py-1 text-center text-[10px] text-amber-800">
-          ระบบต้นแบบสำหรับ Demo — ข้อมูลทั้งหมดเป็นข้อมูลจำลอง
-        </div>
 
         {/* เนื้อหาหลัก — เว้นที่ด้านล่างให้พ้นแถบเมนูคงที่ */}
         <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-4">{children}</main>
