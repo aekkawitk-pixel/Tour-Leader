@@ -19,10 +19,11 @@ import { Button, Card } from '@/components/ui/Primitives';
 import { Modal } from '@/components/ui/Modal';
 import { TextArea, TextInput } from '@/components/ui/FormField';
 import { Icon } from '@/components/ui/Icon';
-import { formatCurrency, formatDateTime, toISODateTime } from '@/lib/format';
+import { formatCurrency, formatDateTime, toISODate, toISODateTime } from '@/lib/format';
+import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { compressImageToDataUrl } from '@/lib/image/compressImage';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
-import { envelopeBalance, envelopeName, handoverReceiverText, envelopeStage, groupEnvelopeStatus, groupLines, sumAmounts, type CashEnvelope } from '@/lib/logic/cashEnvelope';
+import { ACK_BEFORE_HANDOFF_NOTE, carrierOf, carrierTitle, envelopeBalance, envelopeName, handoverReceiverText, envelopeStage, groupEnvelopeStatus, groupLines, sumAmounts, type CashEnvelope } from '@/lib/logic/cashEnvelope';
 import { EnvelopeStatusBadge, StatusPill, spentByReceipts } from '@/components/expenses/CashEnvelopeDrawer';
 import { PhotoConfirmModal, ProofThumb } from '@/components/expenses/EnvelopeProofPhoto';
 
@@ -32,7 +33,12 @@ import { PhotoConfirmModal, ProofThumb } from '@/components/expenses/EnvelopePro
  * - 'use' (หน้าบันทึกค่าใช้จ่าย) — ใช้เงินในซอง: ยอดคงเหลือ · ส่งเงินให้แลนด์ · แจ้งยอดไม่ตรง
  *   ซองที่ยังไม่ยืนยันรับ มีลิงก์พาไปยืนยันที่รายละเอียดงาน
  */
-export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 'receive' | 'use' }) {
+export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
+  periodId: string;
+  mode: 'receive' | 'use';
+  /** แสดงรหัส/ชื่อกรุ๊ปที่หัวการ์ด — ใช้เมื่อการ์ดอยู่นอกหน้าของกรุ๊ปนั้น (เช่น หน้าการเงิน รวมหลายกรุ๊ป) */
+  groupLabel?: { code: string; detail?: string };
+}) {
   const receiving = mode === 'receive';
   const { expenses, envelopes, saveEnvelope, currentUser, leaders, noEnvelopeMarks } = useDemo();
   const [landOpen, setLandOpen] = useState(false);
@@ -47,6 +53,9 @@ export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 
   const [forwardTarget, setForwardTarget] = useState<CashEnvelope | null>(null);
   const [forwardTo, setForwardTo] = useState('');
   const [forwardNote, setForwardNote] = useState('');
+  /** ซองที่กำลังแจ้งว่าไม่ได้รับ (แจ้งได้เมื่อเดินทางกลับแล้ว) */
+  const [notRecvTarget, setNotRecvTarget] = useState<CashEnvelope | null>(null);
+  const [notRecvNote, setNotRecvNote] = useState('');
   const docs =expenses.filter((e) => isGroupAdvanceDoc(e) && e.jobId === periodId);
   if (docs.length === 0) return null;
 
@@ -58,6 +67,15 @@ export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 
   const received = envs.filter((e) => e.leaderAck);
   const leader = leaders.find((l) => l.id === currentUser.leaderId);
   const leaderName = leader ? `${leader.firstName} ${leader.lastName}`.trim() : currentUser.name;
+  // เดินทางกลับแล้ว (เลยวันกลับ) — แจ้ง "ไม่ได้รับซอง" ได้
+  const tripEnded = (getTourPeriodById(periodId)?.endDate ?? '9') < toISODate(new Date());
+  const reportNotReceived = async (env: CashEnvelope, note: string) => {
+    await saveEnvelope(
+      { ...env, notReceived: { at: toISODateTime(new Date()), byName: leaderName, note } },
+      'หัวหน้าทัวร์แจ้งไม่ได้รับซอง',
+      `${envelopeName(env)} · ${note}`,
+    );
+  };
 
   const face = sumAmounts(received.flatMap((e) => e.sealed!.faceTotals));
   const landList = received.flatMap((e) => (e.landPayments ?? []).map((lp) => ({ ...lp, env: e, envName: envelopeName(e) })));
@@ -74,7 +92,8 @@ export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 
     await saveEnvelope(
       { ...env, leaderAck: { at: toISODateTime(new Date()), leaderId: currentUser.leaderId ?? '', leaderName, ...(fromStaff ? { fromStaffName: fromStaff } : {}) } },
       'หัวหน้าทัวร์ยืนยันรับซอง',
-      `${envelopeName(env)}${fromStaff ? ` · รับต่อจาก ${fromStaff}` : ''}`,
+      // ยังอยู่ระหว่างทาง (เจ้าหน้าที่ยังไม่กดส่งต่อ) — บันทึกไว้ให้การเงินเห็นใน Timeline
+      `${envelopeName(env)}${fromStaff ? ` · รับต่อจาก ${fromStaff}` : ''}${carrierOf(env.handover) && !env.staffHandoff ? ` · ${ACK_BEFORE_HANDOFF_NOTE}` : ''}`,
     );
   };
   /** แนบรูปซองที่ได้รับ ให้ซองที่กดยืนยันรับไปแล้ว (ไม่บังคับ) */
@@ -116,17 +135,21 @@ export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 
   return (
     <Card className="space-y-2.5">
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500 text-white">
+        <div className="flex min-w-0 items-start gap-2">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-white">
             <Icon name="money" className="h-4 w-4" />
           </span>
-          <div>
-            <p className="text-sm font-semibold zego-text">ซองเงินของกรุ๊ป{envs.length > 1 ? ` · ${envs.length} ซอง` : ''}</p>
-            {/* ระหว่างรอจัด/กำลังจัด ยังไม่บอกเลขเอกสารเบิก — เห็นรายละเอียดเมื่อการเงินจัดซองเสร็จ */}
-            {status.stage !== 'packing' && <p className="text-[11px] zego-text-tertiary">ตามเอกสารเบิก {docs.map((d) => d.id).join(', ')}</p>}
+          <div className="min-w-0">
+            <p className="text-sm font-semibold zego-text">
+              {groupLabel ? groupLabel.code : 'ซองเงินของกรุ๊ป'}{envs.length > 1 ? ` · ${envs.length} ซอง` : ''}
+            </p>
+            {/* ชื่อโปรแกรม + วันเดินทาง แสดงเต็ม ไม่ตัด (ขึ้นบรรทัดใหม่ได้) */}
+            {groupLabel?.detail && <p className="break-words text-xs zego-text-secondary">{groupLabel.detail}</p>}
+            {/* ฝั่งหัวหน้าทัวร์ไม่แสดงเลขเอกสารเบิก — ไม่จำเป็นต่อการรับ/ใช้ซอง */}
           </div>
         </div>
-        <StatusPill label={status.label} tone={status.tone} />
+        {/* หน้าการเงิน (มี groupLabel) ไม่แสดงสถานะรวมของกรุ๊ป — แต่ละซองมีสถานะของตัวเองอยู่แล้ว */}
+        {!groupLabel && <StatusPill label={status.label} tone={status.tone} />}
       </div>
 
       {envs.length === 0 ? (
@@ -152,20 +175,20 @@ export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 
                 )}
                 {env.handover ? (
                   <p className="zego-text-tertiary">
-                    {env.handover.receiverKind === 'staff' && env.handover.proxyStaffId ? `การเงินฝากเจ้าหน้าที่ส่งกรุ๊ป ${env.handover.proxyName} นำมาส่งคุณ` : `การเงินส่งมอบให้ ${handoverReceiverText(env.handover)}`} · {formatDateTime(env.handover.at)}
+                    {carrierOf(env.handover) ? `การเงินฝาก${carrierTitle(carrierOf(env.handover)!.kind)} ${env.handover.proxyName} นำมาส่งคุณ` : `การเงินส่งมอบให้ ${handoverReceiverText(env.handover)}`} · {formatDateTime(env.handover.at)}
                   </p>
                 ) : (
                   <p className="zego-text-tertiary">จัดซองแล้ว — รอส่งมอบ</p>
                 )}
-                {env.handover?.proxyStaffId && !env.leaderAck && (
+                {carrierOf(env.handover) && !env.leaderAck && (
                   <p className="zego-text-secondary">
                     {env.staffReturn
                       ? `${env.staffReturn.staffName} ส่งซองคืนการเงินแล้ว (${env.staffReturn.reason}) — รอการเงินส่งมอบใหม่`
                       : env.staffHandoff
                       ? `${env.staffHandoff.staffName} แจ้งว่าส่งซองให้คุณแล้ว · ${formatDateTime(env.staffHandoff.at)}`
                       : env.staffAck
-                        ? `${env.staffAck.staffName} รับซองจากการเงินแล้ว กำลังนำมาส่งคุณ`
-                        : `รอ ${env.handover.proxyName} รับซองจากการเงิน`}
+                        ? `${env.staffAck.staffName} รับซองแล้ว กำลังนำมาส่งคุณ`
+                        : `รอ ${env.handover?.proxyName ?? ''} รับซอง${env.handover?.relayFrom ? ` (ฝากต่อจาก ${env.handover.relayFrom})` : 'จากการเงิน'}`}
                   </p>
                 )}
                 {env.leaderAck && (
@@ -199,11 +222,26 @@ export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 
                   </Button>
                 )}
                 {env.mismatch &&<p className="rounded bg-rose-50 px-2 py-1" style={{ color: '#9f1239' }}>แจ้งยอดไม่ตรงแล้ว · {env.mismatch.note}</p>}
+                {env.notReceived && !env.leaderAck && (
+                  <p className="rounded bg-rose-50 px-2 py-1" style={{ color: '#9f1239' }}>
+                    คุณแจ้งไม่ได้รับซองแล้ว · {formatDateTime(env.notReceived.at)} · {env.notReceived.note} — ถ้าได้รับภายหลัง กดยืนยันการรับได้
+                  </p>
+                )}
                 {/* ซองถูกส่งคืนการเงินระหว่างทาง → ไม่อยู่กับหัวหน้าทัวร์แล้ว ห้ามกดยืนยันรับ */}
-                {stage === 'handed_over' && !env.staffReturn && (receiving ? (
-                  <Button variant="primary" size="sm" className="w-full" icon="check" onClick={() => setAckTarget(env)}>
-                    ยืนยันการรับ
-                  </Button>
+                {/* กดรับได้เมื่อซองออกจากการเงินแล้ว (รวมระหว่างทาง — หน้างานอาจฝากคนอื่นนำมาให้)
+                    เจ้าหน้าที่ส่งกรุ๊ปยังไม่ได้รับซองจากการเงิน = ขั้นตอนยังมาไม่ถึง ไม่มีปุ่ม · ส่งคืนการเงินแล้วก็ไม่มี */}
+                {stage === 'handed_over' && !env.staffReturn && !(carrierOf(env.handover) && !env.staffAck) && (receiving ? (
+                  <div className="space-y-1.5">
+                    <Button variant="primary" size="sm" className="w-full" icon="check" onClick={() => setAckTarget(env)}>
+                      ยืนยันการรับ
+                    </Button>
+                    {/* เดินทางกลับแล้วยังไม่ได้รับเงิน → แจ้งการเงิน */}
+                    {tripEnded && !env.notReceived && (
+                      <Button variant="secondary" size="sm" className="w-full" icon="warning" onClick={() => { setNotRecvNote(''); setNotRecvTarget(env); }}>
+                        แจ้งไม่ได้รับซอง
+                      </Button>
+                    )}
+                  </div>
                 ) : (
                   <Link href={`/guide/jobs/${periodId}`} className="inline-flex items-center gap-1 text-[11px] font-medium zego-text-info hover:underline">
                     ยังไม่ได้ยืนยันรับ — ไปยืนยันที่ งานของฉัน
@@ -216,6 +254,36 @@ export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 
         </ul>
       )}
 
+      {notRecvTarget && (
+        <Modal
+          open
+          onClose={() => setNotRecvTarget(null)}
+          size="sm"
+          title={`แจ้งไม่ได้รับ${envelopeName(notRecvTarget)}`}
+          description={`ยอดหน้าซอง ${fmt(notRecvTarget.sealed?.faceTotals ?? [])}`}
+          footer={
+            <div className="grid w-full grid-cols-2 gap-2">
+              <Button variant="secondary" onClick={() => setNotRecvTarget(null)}>ยกเลิก</Button>
+              <Button
+                variant="danger"
+                disabled={!notRecvNote.trim()}
+                onClick={async () => { await reportNotReceived(notRecvTarget, notRecvNote.trim()); setNotRecvTarget(null); }}
+              >
+                ส่งแจ้งการเงิน
+              </Button>
+            </div>
+          }
+        >
+          <TextArea
+            label="รายละเอียด"
+            required
+            rows={3}
+            value={notRecvNote}
+            onChange={(e) => setNotRecvNote(e.target.value)}
+            placeholder="เช่น เจ้าหน้าที่ส่งกรุ๊ปไม่ได้มาส่งที่สนามบิน / ไม่มีใครนำซองมาให้ระหว่างเดินทาง"
+          />
+        </Modal>
+      )}
       {ackTarget && (
         <AckModal
           title={`ยืนยันรับ${envelopeName(ackTarget)}`}

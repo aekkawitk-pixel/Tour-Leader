@@ -13,6 +13,7 @@
 import { endOfMonth } from '@/lib/format';
 import { buildTourPeriodMaster, validateTourPeriodRecord, compositeKey, SOURCE_FILE, IMPORT_TS } from '@/data/schedule/master';
 import { loadPeriodOverrides } from '@/services/periodOverrideStore';
+import { periodVersion } from '@/services/periodCacheBus';
 import { loadZegoImport } from '@/services/zegoImportStore';
 import { zegoToTourPeriodMaster } from '@/data/zego/zegoToMaster';
 import type {
@@ -65,8 +66,34 @@ export function getPeriodSource(): PeriodSourceInfo {
   return { kind: 'csv', label: `ข้อมูลตัวอย่างจากไฟล์ ${SOURCE_FILE}`, importedAt: null, count: base.length };
 }
 
+/*
+  แคชผลลัพธ์ — เดิมทุกครั้งที่เรียก (getTourPeriodById ในลูป/ตัวเรียงลำดับของหลายหน้า) ต้องอ่าน + JSON.parse
+  ข้อมูลนำเข้า Zego ทั้งก้อนจาก localStorage แล้วแปลงทุกพีเรียดใหม่ ทำให้ทุกการกดช้า
+  ล้างแคชเมื่อเลขรุ่นเปลี่ยน (ผู้เขียนข้อมูลเรียก bumpPeriodVersion · แท็บอื่นเขียน = เหตุการณ์ storage)
+*/
+let cache: { version: number; rows: TourPeriodMaster[]; byId: Map<string, TourPeriodMaster> } | null = null;
+
+function cached() {
+  // ฝั่งเซิร์ฟเวอร์ (prerender) ไม่มี localStorage — ไม่แคช ให้ผลตรงกับเดิมเสมอ
+  if (typeof window === 'undefined') {
+    const rows = computeWithOverrides();
+    return { rows, byId: new Map(rows.map((r) => [r.internalId, r])) };
+  }
+  const v = periodVersion();
+  if (!cache || cache.version !== v) {
+    const rows = computeWithOverrides();
+    cache = { version: v, rows, byId: new Map(rows.map((r) => [r.internalId, r])) };
+  }
+  return cache;
+}
+
 /** พีเรียดจาก Master + ทับด้วย override ของผู้ดูแล (ปิดใช้งาน/Archive/สถานะขาย §10) — จุดเดียวที่ทุก view อ่าน */
 function withOverrides(): TourPeriodMaster[] {
+  // คืนสำเนาอาเรย์ — ผู้เรียกบางที่ sort/แก้อาเรย์ตรง ๆ ต้องไม่กระทบแคช
+  return cached().rows.slice();
+}
+
+function computeWithOverrides(): TourPeriodMaster[] {
   const ov = loadPeriodOverrides();
   const base = baseRecords();
   if (Object.keys(ov).length === 0) return base;
@@ -150,7 +177,7 @@ export function getTourPeriods(filters: TourPeriodFilters = {}): TourPeriodMaste
 
 /** ดึงพีเรียดตาม Primary Key จริง (internalId) */
 export function getTourPeriodById(periodId: string): TourPeriodMaster | null {
-  return withOverrides().find((r) => r.internalId === periodId) ?? null;
+  return cached().byId.get(periodId) ?? null;
 }
 
 /** ดึงพีเรียดตาม Group Code — คืนได้หลายรายการ (Group Code อาจซ้ำ §1) */

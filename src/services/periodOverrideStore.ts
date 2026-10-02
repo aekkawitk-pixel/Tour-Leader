@@ -10,6 +10,7 @@
 
 import type { DataStatus } from '@/data/schedule/masterTypes';
 import type { SaleStatus } from '@/data/schedule/types';
+import { bumpPeriodVersion } from '@/services/periodCacheBus';
 
 export interface PeriodOverride {
   dataStatus?: Extract<DataStatus, 'INACTIVE' | 'ARCHIVED' | 'MISSING_FROM_SOURCE'>;
@@ -42,6 +43,8 @@ export function loadPeriodOverrides(): Record<string, PeriodOverride> {
 function save(map: Record<string, PeriodOverride>): void {
   if (!canUseStorage()) return;
   try { window.localStorage.setItem(KEY, JSON.stringify(map)); } catch { /* ignore */ }
+  // ข้อมูลพีเรียดเปลี่ยน — ล้างแคชของ tourPeriodMaster
+  bumpPeriodVersion();
 }
 
 /** ตั้งสถานะข้อมูลของพีเรียด (ปิดใช้งาน/Archive) — คืน map ใหม่ */

@@ -23,6 +23,8 @@ import { ConfirmDialog } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
 import type { TourSector } from '@/data/schedule/masterTypes';
 import { GuideEnvelopeCard } from '../../expenses/GuideEnvelopeCard';
+import { SpendSummaryCard } from '../../expenses/SpendSummaryCard';
+import { leaderBudgetItems } from '@/lib/logic/groupBudget';
 
 function Row({ label, value }: { label: string; value?: React.ReactNode }) {
   const empty = value === undefined || value === null || value === '';
@@ -63,7 +65,7 @@ function FlightLegGroup({ title, sectors }: { title: string; sectors: TourSector
 
 export default function GuideJobDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { currentUser, today, pushToast } = useDemo();
+  const { currentUser, today, pushToast, expenses, envelopes, noEnvelopeMarks } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
   const period = getTourPeriodById(id);
   const [rev, setRev] = useState(0);
@@ -226,6 +228,13 @@ export default function GuideJobDetailPage() {
           })}
         </div>
       </div>
+
+      {/* สรุปค่าใช้จ่ายกรุ๊ป — ล่างสุดของหน้า · แสดงหัวข้อรอไว้เสมอ ยังไม่บันทึก = ยอด 0 */}
+      <SpendSummaryCard
+        title="สรุปค่าใช้จ่ายกรุ๊ป"
+        recorded={expenses.filter((e) => e.requesterId === leaderId && e.jobId === period.internalId && e.category === 'actual' && e.status !== 'cancelled')}
+        budgetItems={leaderBudgetItems(expenses, envelopes, noEnvelopeMarks, period.internalId)}
+      />
 
       <ConfirmDialog
         open={declineOpen}

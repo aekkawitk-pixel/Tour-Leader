@@ -26,7 +26,7 @@ const FILTERS: { key: Filter; label: string; hint: string; tone: string }[] = [
   { key: 'sealed', label: 'รอส่งมอบ', hint: 'ปิดซองแล้ว', tone: '#0369a1' },
   { key: 'handed_over', label: 'ระหว่างส่งมอบ', hint: 'รอเจ้าหน้าที่ / หัวหน้าทัวร์ยืนยันรับ', tone: '#6d28d9' },
   { key: 'received', label: 'หัวหน้าทัวร์รับแล้ว', hint: 'อยู่ในมือหัวหน้าทัวร์', tone: '#15803d' },
-  { key: 'mismatch', label: 'แจ้งยอดไม่ตรง', hint: 'ต้องตรวจสอบ', tone: '#be123c' },
+  { key: 'mismatch', label: 'แจ้งปัญหาซอง', hint: 'ยอดไม่ตรง / ไม่ได้รับซอง', tone: '#be123c' },
   { key: 'none', label: 'ไม่มีซอง', hint: 'การเงินระบุว่าไม่ต้องจัดซอง', tone: '#475569' },
 ];
 

@@ -3,7 +3,7 @@
 /**
  * Chrome ของพอร์ทัลหัวหน้าทัวร์ (/guide/*) — แยกจาก AppShell ฝั่งผู้จัดโดยสิ้นเชิง
  *
- * ออกแบบมือถือเป็นหลัก (ตามที่ผู้บริหารต้องการ): แถบล่างคงที่ 4 ปุ่ม แทน Sidebar,
+ * ออกแบบมือถือเป็นหลัก (ตามที่ผู้บริหารต้องการ): แถบล่างคงที่ 5 ปุ่ม แทน Sidebar,
  * ไม่มีตารางกว้าง ไม่มีเมนูย่อยหลายชั้น — ทุกอย่างเข้าถึงได้ใน 1 แตะจากแถบล่าง
  * จำกัดความกว้างเนื้อหาไว้ที่ขนาดจอมือถือ (max-w-md) แม้เปิดจากจอเดสก์ท็อป
  * เพื่อให้ตรงกับสิ่งที่จะเห็นจริงตอนใช้งานบนมือถือเสมอ ไม่ใช่ responsive แบบขยายเต็มจอ
@@ -32,7 +32,9 @@ const GUIDE_NAV: GuideNavItem[] = [
   { href: '/guide', label: 'หน้าหลัก', icon: 'dashboard' },
   { href: '/guide/jobs', label: 'งานของฉัน', icon: 'briefcase' },
   // "ค่าใช้จ่าย" + "เคลียร์เงิน" เดิมรวมเป็นเมนูเดียว — หน้าย่อยยังอยู่ path เดิม
-  { href: '/guide/finance', label: 'การเงิน', icon: 'money', also: ['/guide/expenses', '/guide/settlement'] },
+  { href: '/guide/finance', label: 'บัญชี-การเงิน', icon: 'money', also: ['/guide/expenses', '/guide/settlement'] },
+  // นัดหมายเคลียร์เงินกับฝ่ายบัญชี — path ยาวกว่า /guide/settlement จึงชนะการจับคู่แท็บ active (เลือก href ที่ยาวสุด)
+  { href: '/guide/settlement/appointments', label: 'นัดหมาย', icon: 'calendar' },
   { href: '/guide/profile', label: 'โปรไฟล์', icon: 'guide' },
 ];
 
@@ -158,7 +160,7 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
         <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-4">{children}</main>
 
         {/* แถบเมนูล่าง — คงที่ ใช้นิ้วโป้งแตะได้ตลอดโดยไม่ต้องเลื่อนขึ้น */}
-        <nav className="zego-guide-bottomnav sticky bottom-0 z-30 grid grid-cols-4 pb-[env(safe-area-inset-bottom)]">
+        <nav className="zego-guide-bottomnav sticky bottom-0 z-30 grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
           {GUIDE_NAV.map((item) => {
             const active = item.href === activeHref;
             return (

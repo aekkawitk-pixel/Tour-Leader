@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  allocatedTotals, allocationOf, canSeal, docChangedSinceSeal, envelopeShortLabel, envelopeStage, envelopeStatusLabel, envelopeTotals, groupEnvelopeStatus,
-  groupLines, lineKey, newEnvelope, normalizeEnvelope, packingFromAllocation, unassignedLines, type CashEnvelope,
+  allocatedTotals, allocationOf, canSeal, pendingDepositLabel, carriedByLeader, carrierOf, custodyTrail, handoverReceiverText, docChangedSinceSeal, envelopeShortLabel, envelopeStage, envelopeStatusLabel, envelopeTotals, groupEnvelopeStatus,
+  groupLines, leaderCanAck, leaderEnvelopeState, lineKey, newEnvelope, normalizeEnvelope, packingFromAllocation, unassignedLines, type CashEnvelope,
 } from '../src/lib/logic/cashEnvelope';
 
 // กรุ๊ป G1 มีเอกสารเบิก 2 ใบ — id บรรทัดซ้ำกันข้ามเอกสารได้ (R-1)
@@ -276,4 +276,80 @@ test('กรุ๊ปที่การเงินระบุว่าไม�
   assert.equal(s.label, 'ไม่มีซอง');
   const a = { ...newEnvelope('G1', []), packedLineIds: [K('EXPOP1', 'R-1')] };
   assert.equal(groupEnvelopeStatus(lines, [a], mark).stage, 'packing');
+});
+
+test('หัวหน้าทัวร์แจ้งไม่ได้รับซอง — สถานะกรุ๊ปแดง "แจ้งไม่ได้รับซอง" · ได้รับภายหลังแล้วกลับเป็นรับแล้ว', () => {
+  const k = K('EXPOP2', 'R-1');
+  const one = lines.filter((l) => l.id === k);
+  const env: CashEnvelope = {
+    ...sealedWith(newEnvelope('G1', []), [k]),
+    handover: { at: 't', byName: 'f', receiverKind: 'leader', receiverId: 'L1', receiverName: 'L' },
+    notReceived: { at: 't2', byName: 'L', note: 'ไม่มีคนมาส่ง' },
+  };
+  assert.equal(envelopeStatusLabel(env).label, 'หัวหน้าทัวร์แจ้งไม่ได้รับซอง');
+  assert.equal(envelopeShortLabel(env).label, 'แจ้งไม่ได้รับซอง');
+  const s = groupEnvelopeStatus(one, [env]);
+  assert.equal(s.label, 'แจ้งไม่ได้รับซอง');
+  assert.equal(s.mismatch, true);
+  assert.equal(leaderEnvelopeState(env, 'L1'), 'not_received');
+  const acked = { ...env, leaderAck: { at: 't3', leaderId: 'L1', leaderName: 'L' } };
+  assert.equal(groupEnvelopeStatus(one, [acked]).mismatch, false);
+  assert.equal(leaderEnvelopeState(acked, 'L1'), null);
+});
+
+test('สถานะซองฝั่งหัวหน้าทัวร์ — ส่งตรง = to_ack · เจ้าหน้าที่ยังไม่รับจากการเงิน = at_finance · รับแล้วยังไม่ส่งต่อ = in_transit · ส่งต่อแล้ว = to_ack', () => {
+  const base = sealedWith(newEnvelope('G1', []), [K('EXPOP1', 'R-1')]);
+  const direct: CashEnvelope = { ...base, handover: { at: 't', byName: 'f', receiverKind: 'leader', receiverId: 'L1', receiverName: 'L' } };
+  assert.equal(leaderEnvelopeState(direct, 'L1'), 'to_ack');
+  assert.equal(leaderEnvelopeState(direct, 'L2'), null);
+  const atFinance: CashEnvelope = { ...base, handover: { at: 't', byName: 'f', receiverKind: 'staff', receiverId: 'L1', receiverName: 'L', proxyName: 'S', proxyStaffId: 'SOS-1' } };
+  // เจ้าหน้าที่ยังไม่ได้รับจากการเงิน — ขั้นตอนยังมาไม่ถึง กดรับไม่ได้
+  assert.equal(leaderEnvelopeState(atFinance, 'L1'), 'at_finance');
+  assert.equal(leaderCanAck(atFinance, 'L1'), false);
+  const viaStaff: CashEnvelope = { ...atFinance, staffAck: { at: 't', staffId: 'SOS-1', staffName: 'S' } };
+  assert.equal(leaderEnvelopeState(viaStaff, 'L1'), 'in_transit');
+  assert.equal(leaderCanAck(viaStaff, 'L1'), true);
+  assert.equal(leaderEnvelopeState({ ...viaStaff, staffHandoff: { at: 't', staffName: 'S' } }, 'L1'), 'to_ack');
+  assert.equal(leaderEnvelopeState({ ...viaStaff, staffReturn: { at: 't', staffId: 'SOS-1', staffName: 'S', reason: 'x' } }, 'L1'), null);
+});
+
+test('ฝากหัวหน้าทัวร์คนอื่นนำส่ง — ผู้ถือซองระหว่างทาง · ปลายทางเห็นสถานะตามทอด · ไล่เส้นทางซองย้อนหลังได้', () => {
+  const base = sealedWith(newEnvelope('G1', []), [K('EXPOP1', 'R-1')]);
+  const env: CashEnvelope = {
+    ...base,
+    handover: { at: 't1', byName: 'การเงิน', receiverKind: 'leader', receiverId: 'L1', receiverName: 'ชัยมงคล', proxyName: 'สมชาย', proxyLeaderId: 'L2' },
+    history: [{ at: 't1', byName: 'การเงิน', action: 'ส่งมอบซองให้หัวหน้าทัวร์ (ฝากส่ง)' }, { at: 't0', byName: 'การเงิน', action: 'ปิดซอง' }],
+  };
+  assert.deepEqual(carrierOf(env.handover), { kind: 'leader', id: 'L2', name: 'สมชาย' });
+  assert.equal(handoverReceiverText(env.handover!), 'หัวหน้าทัวร์ (ฝากส่ง) สมชาย → นำส่ง ชัยมงคล');
+  // คนฝากส่ง (L2) เห็นเป็นงานของตัวเอง · ปลายทาง (L1) ยังกดรับไม่ได้จนกว่าผู้ถือจะรับซอง
+  assert.equal(carriedByLeader(env, 'L2'), true);
+  assert.equal(carriedByLeader(env, 'L1'), false);
+  assert.equal(leaderEnvelopeState(env, 'L1'), 'at_finance');
+  assert.equal(envelopeShortLabel(env).label, 'รอหัวหน้าทัวร์ฝากส่งรับ');
+  const holding: CashEnvelope = { ...env, staffAck: { at: 't2', staffId: 'L2', staffName: 'สมชาย' } };
+  assert.equal(leaderEnvelopeState(holding, 'L1'), 'in_transit');
+  assert.equal(envelopeShortLabel(holding).label, 'หัวหน้าทัวร์ฝากส่งถือซอง');
+  // ปลายทางรับแล้ว — คนฝากส่งไม่ต้องทำอะไรต่อ
+  assert.equal(carriedByLeader({ ...holding, leaderAck: { at: 't3', leaderId: 'L1', leaderName: 'ชัยมงคล' } }, 'L2'), false);
+  // เส้นทางซอง: เฉพาะทอดที่ซองเปลี่ยนมือ (ไม่รวม "ปิดซอง")
+  assert.deepEqual(custodyTrail(env).map((h) => h.action), ['ส่งมอบซองให้หัวหน้าทัวร์ (ฝากส่ง)']);
+});
+
+test('เส้นทางเลือกแยก: เจ้าหน้าที่ส่งกรุ๊ป → หัวหน้าทัวร์ฝากส่ง → หัวหน้าทัวร์หลัก', () => {
+  assert.equal(
+    handoverReceiverText({ receiverName: 'ชัยมงคล', proxyName: 'ธนกฤต', proxyStaffId: 'SOS-1', receiverKind: 'staff', nextLeaderCarrier: { id: 'L2', name: 'สมชาย', viaGroup: 'KIX-1' } }),
+    'เจ้าหน้าที่ส่งกรุ๊ป ธนกฤต → หัวหน้าทัวร์ (ฝากส่ง) สมชาย (ไปกับกรุ๊ป KIX-1) → นำส่ง ชัยมงคล',
+  );
+});
+
+test('รอฝากไปกับกรุ๊ปอื่น — สถานะของซอง/กรุ๊ปบอกว่ารอฝากกับใคร', () => {
+  const k = K('EXPOP2', 'R-1');
+  const one = lines.filter((l) => l.id === k);
+  const env: CashEnvelope = { ...sealedWith(newEnvelope('G1', []), [k]), pendingDeposit: { at: 't', byName: 'f', staff: 'pending', leader: 'main' } };
+  assert.equal(envelopeStatusLabel(env).label, 'รอฝากไปกับเจ้าหน้าที่กรุ๊ปอื่น');
+  assert.equal(envelopeShortLabel(env).label, 'รอฝากไปกับเจ้าหน้าที่กรุ๊ปอื่น');
+  assert.equal(groupEnvelopeStatus(one, [env]).label, 'รอฝากไปกับเจ้าหน้าที่กรุ๊ปอื่น');
+  assert.equal(pendingDepositLabel({ at: 't', byName: 'f', staff: 'none', leader: 'pending' }), 'รอฝากไปกับหัวหน้าทัวร์กรุ๊ปอื่น');
+  assert.equal(pendingDepositLabel({ at: 't', byName: 'f', staff: 'pending', leader: 'pending' }), 'รอฝากไปกับกรุ๊ปอื่น');
 });

@@ -10,6 +10,7 @@
 
 import type { ZegoPeriod, ZegoProgram } from '@/data/zego/types';
 import { readJson, writeJson } from './browserStorage';
+import { bumpPeriodVersion } from '@/services/periodCacheBus';
 
 const KEY = 'zegoImportedPrograms';
 
@@ -37,9 +38,11 @@ export function loadZegoImport(): ZegoImportSnapshot | null {
 /** บันทึกผลการนำเข้า — เขียนไม่สำเร็จจะโยน StorageWriteError (UI ต้องไม่บอกว่าสำเร็จ) */
 export function saveZegoImport(snapshot: ZegoImportSnapshot): void {
   writeJson(KEY, snapshot);
+  bumpPeriodVersion();
 }
 
 /** ล้างข้อมูลที่นำเข้า — ระบบกลับไปใช้ข้อมูลตัวอย่างเดิม */
 export function clearZegoImport(): void {
   writeJson(KEY, null);
+  bumpPeriodVersion();
 }

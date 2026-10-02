@@ -83,6 +83,13 @@ export interface CashEnvelope {
     faceTotals: EnvelopeAmount[];
     lineSnapshot: { id: string; amount: number; currency: string }[];
   };
+  /**
+   * รอฝากไปกับกรุ๊ปอื่น (ยังไม่ส่งมอบ) — การเงินเลือกแบบฝากไว้แต่ยังไม่ระบุคน
+   * ตอนทำส่งมอบของกรุ๊ปอื่น (กรุ๊ป A) หยิบซองนี้ไปฝากกับคนของกรุ๊ป A ได้ แล้วนำส่งหัวหน้าทัวร์ของกรุ๊ปเจ้าของซอง
+   * staff: 'pending' = รอเจ้าหน้าที่กรุ๊ปอื่น · 'none' = ไม่ผ่านเจ้าหน้าที่ · {id,name} = ระบุแล้ว
+   * leader: 'pending' = รอหัวหน้าทัวร์กรุ๊ปอื่น · 'main' = หัวหน้าทัวร์หลักของกรุ๊ปรับเอง · {id,name} = ระบุแล้ว
+   */
+  pendingDeposit?: PendingDeposit;
   /** ส่งมอบจากการเงิน — ผู้รับ + ลายเซ็น + รูปผู้รับคู่ซอง */
   handover?: {
     at: string;
@@ -95,6 +102,20 @@ export interface CashEnvelope {
     proxyName?: string;
     /** ผู้รับแทนเป็นเจ้าหน้าที่ส่งกรุ๊ป (SOS-xxx) — ต้องยืนยันรับในพอร์ทัล /staff ของตัวเอง */
     proxyStaffId?: string;
+    /**
+     * ผู้ถือซองเป็นหัวหน้าทัวร์คนอื่น (ฝากส่ง) — ยืนยันรับ/ส่งต่อในพอร์ทัลหัวหน้าทัวร์ของตัวเอง
+     * ใช้ทอดเดียวกับเจ้าหน้าที่ส่งกรุ๊ป (staffAck / staffHandoff / staffReturn) — มีได้อย่างใดอย่างหนึ่งกับ proxyStaffId
+     */
+    proxyLeaderId?: string;
+    /**
+     * ฝากต่อหัวหน้าทัวร์ (กรุ๊ปอื่น) หลังเจ้าหน้าที่ส่งกรุ๊ป — เจ้าหน้าที่ส่งต่อให้คนนี้แทนหัวหน้าทัวร์หลัก
+     * (เมื่อเจ้าหน้าที่กดส่งต่อ ผู้ถือซองเปลี่ยนเป็นคนนี้ → คนนี้กดรับ แล้วนำไปส่งหัวหน้าทัวร์หลัก)
+     */
+    nextLeaderCarrier?: { id: string; name: string; viaGroup?: string };
+    /** ฝากไปกับกรุ๊ปไหน (รหัสกรุ๊ปที่ผู้ถือซองดูแลอยู่) — ไว้ตรวจย้อนหลังว่าซองเดินทางไปกับกรุ๊ปอะไร */
+    viaGroup?: string;
+    /** ผู้ถือคนก่อนที่ฝากต่อมา (เช่น "เจ้าหน้าที่ส่งกรุ๊ป ธนกฤต") — ผู้ถือคนใหม่เห็นว่ารับต่อจากใคร */
+    relayFrom?: string;
     /** หลักฐานการรับ — อย่างใดอย่างหนึ่ง: เซ็นชื่อบนจอ หรือ ถ่ายรูปผู้รับคู่ซอง */
     proof?: 'signature' | 'photo';
     /** data URL — เก็บจริงใน IndexedDB (ดู cashEnvelopeStore) */
@@ -126,6 +147,11 @@ export interface CashEnvelope {
   leaderForward?: { at: string; byName: string; toName: string; note?: string; photo?: string };
   /** หัวหน้าทัวร์เปิดใช้แล้วยอดในซองไม่ตรงยอดหน้าซอง */
   mismatch?: { at: string; byName: string; note: string };
+  /**
+   * หัวหน้าทัวร์แจ้งว่าไม่ได้รับซอง (แจ้งได้เมื่อเดินทางกลับแล้วและยังไม่ได้กดรับ) — การเงินต้องตามซอง
+   * ถ้าภายหลังได้รับจริงแล้วกดยืนยันรับ สถานะเป็นรับแล้ว (การแจ้งยังอยู่ในประวัติ)
+   */
+  notReceived?: { at: string; byName: string; note: string };
   /** หัวหน้าทัวร์ส่งเงินจากซองให้แลนด์ต่างประเทศ (ทีละครั้ง) — ยอดแยกสกุลเงิน + หลักฐาน */
   landPayments?: LandPayment[];
   history: EnvelopeHistoryEntry[];
@@ -144,6 +170,20 @@ export interface LandPayment {
 }
 
 export type EnvelopeStage = 'packing' | 'sealed' | 'handed_over' | 'received';
+
+export interface PendingDeposit {
+  at: string;
+  byName: string;
+  staff: 'pending' | 'none' | { id: string; name: string };
+  leader: 'pending' | 'main' | { id: string; name: string; viaGroup?: string };
+}
+
+/** ข้อความสถานะรอฝาก — บอกว่ารอฝากไปกับใครของกรุ๊ปอื่น */
+export function pendingDepositLabel(pd: PendingDeposit): string {
+  if (pd.staff === 'pending' && pd.leader === 'pending') return 'รอฝากไปกับกรุ๊ปอื่น';
+  if (pd.staff === 'pending') return 'รอฝากไปกับเจ้าหน้าที่กรุ๊ปอื่น';
+  return 'รอฝากไปกับหัวหน้าทัวร์กรุ๊ปอื่น';
+}
 
 /**
  * กรุ๊ปที่ไม่มีซองเงินให้รับ (การเงินระบุ) — เช่น โอนจ่ายแลนด์ตรง / ไม่มีค่าใช้จ่ายเงินสด
@@ -168,6 +208,16 @@ export function envelopeStage(env: CashEnvelope | undefined): EnvelopeStage {
   return 'received';
 }
 
+/** ผู้ถือซองระหว่างทาง (ไม่ใช่ปลายทาง): เจ้าหน้าที่ส่งกรุ๊ป หรือหัวหน้าทัวร์คนอื่นที่ฝากส่ง */
+export type CarrierKind = 'staff' | 'leader';
+export function carrierOf(h: CashEnvelope['handover'] | undefined): { kind: CarrierKind; id: string; name: string } | null {
+  if (!h) return null;
+  if (h.proxyStaffId) return { kind: 'staff', id: h.proxyStaffId, name: h.proxyName ?? '' };
+  if (h.proxyLeaderId) return { kind: 'leader', id: h.proxyLeaderId, name: h.proxyName ?? '' };
+  return null;
+}
+export const carrierTitle = (kind: CarrierKind) => (kind === 'leader' ? 'หัวหน้าทัวร์ (ฝากส่ง)' : 'เจ้าหน้าที่ส่งกรุ๊ป');
+
 /** ข้อความสถานะของซองใบเดียว + โทนสี — ใช้ทั้งฝั่งการเงินและหัวหน้าทัวร์ */
 export function envelopeStatusLabel(env: CashEnvelope | undefined): { label: string; tone: EnvelopeTone } {
   if (env?.mismatch) return { label: 'แจ้งยอดในซองไม่ตรง', tone: 'red' };
@@ -175,11 +225,13 @@ export function envelopeStatusLabel(env: CashEnvelope | undefined): { label: str
     case 'packing':
       return env && env.packedLineIds.length > 0 ? { label: 'กำลังจัดซอง', tone: 'amber' } : { label: 'รอจัดซอง', tone: 'slate' };
     case 'sealed':
+      if (env!.pendingDeposit) return { label: pendingDepositLabel(env!.pendingDeposit), tone: 'amber' };
       return { label: 'จัดซองแล้ว รอส่งมอบ', tone: 'blue' };
     case 'handed_over':
-      if (env!.staffReturn) return { label: 'เจ้าหน้าที่ส่งคืนการเงิน รอการเงินยืนยันรับ', tone: 'amber' };
-      if (env!.handover!.proxyStaffId && !env!.staffAck) return { label: 'รอเจ้าหน้าที่ส่งกรุ๊ปยืนยันรับ', tone: 'violet' };
-      if (env!.staffAck && !env!.staffHandoff) return { label: 'เจ้าหน้าที่ส่งกรุ๊ปถือซอง รอส่งหัวหน้าทัวร์', tone: 'violet' };
+      if (env!.notReceived) return { label: 'หัวหน้าทัวร์แจ้งไม่ได้รับซอง', tone: 'red' };
+      if (env!.staffReturn) return { label: `${carrierTitle(carrierOf(env!.handover)?.kind ?? 'staff')}ส่งคืนการเงิน รอการเงินยืนยันรับ`, tone: 'amber' };
+      if (carrierOf(env!.handover) && !env!.staffAck) return { label: `รอ${carrierTitle(carrierOf(env!.handover)!.kind)}ยืนยันรับ`, tone: 'violet' };
+      if (env!.staffAck && !env!.staffHandoff) return { label: `${carrierTitle(carrierOf(env!.handover)?.kind ?? 'staff')}ถือซอง รอส่งหัวหน้าทัวร์`, tone: 'violet' };
       if (env!.staffHandoff) return { label: 'ส่งต่อให้หัวหน้าทัวร์แล้ว รอยืนยันรับ', tone: 'violet' };
       return env!.handover!.receiverKind === 'staff' || env!.handover!.proxyName
         ? { label: 'ฝากผู้รับแทน รอหัวหน้าทัวร์ยืนยันรับ', tone: 'violet' }
@@ -204,9 +256,12 @@ export function envelopeShortLabel(env: CashEnvelope | undefined): { label: stri
   if (env?.mismatch) return { label: 'ยอดไม่ตรง', tone };
   const stage = envelopeStage(env);
   if (stage === 'packing' && env && env.packedLineIds.length > 0) return { label: 'กำลังจัด', tone };
+  if (stage === 'sealed' && env!.pendingDeposit) return { label: pendingDepositLabel(env!.pendingDeposit), tone };
+  if (stage === 'handed_over' && env!.notReceived) return { label: 'แจ้งไม่ได้รับซอง', tone };
   if (stage === 'handed_over' && env!.staffReturn) return { label: 'ส่งคืนการเงิน', tone };
-  if (stage === 'handed_over' && env!.handover!.proxyStaffId && !env!.staffAck) return { label: 'รอเจ้าหน้าที่ส่งกรุ๊ปรับ', tone };
-  if (stage === 'handed_over' && env!.staffAck && !env!.staffHandoff) return { label: 'เจ้าหน้าที่ส่งกรุ๊ปถือซอง', tone };
+  const car = stage === 'handed_over' ? carrierOf(env!.handover) : null;
+  if (car && !env!.staffAck) return { label: car.kind === 'leader' ? 'รอหัวหน้าทัวร์ฝากส่งรับ' : 'รอเจ้าหน้าที่ส่งกรุ๊ปรับ', tone };
+  if (car && !env!.staffHandoff) return { label: car.kind === 'leader' ? 'หัวหน้าทัวร์ฝากส่งถือซอง' : 'เจ้าหน้าที่ส่งกรุ๊ปถือซอง', tone };
   if (stage === 'received' && env!.leaderForward) return { label: 'รับแล้ว · ส่งต่อแล้ว', tone };
   return { label: SHORT[stage], tone };
 }
@@ -215,13 +270,18 @@ export function envelopeShortLabel(env: CashEnvelope | undefined): { label: stri
  * ผู้รับซองสำหรับแสดง
  * - ส่งให้หัวหน้าทัวร์: "ชัยมงคล" / "ชัยมงคล (รับแทนโดย สมศักดิ์)"
  * - ฝากเจ้าหน้าที่ส่งกรุ๊ป: "เจ้าหน้าที่ส่งกรุ๊ป ธนกฤต → นำส่ง ชัยมงคล"
+ * - ฝากหัวหน้าทัวร์คนอื่น: "หัวหน้าทัวร์ (ฝากส่ง) สมชาย → นำส่ง ชัยมงคล"
  */
 export const handoverReceiverText = (
-  h: Pick<NonNullable<CashEnvelope['handover']>, 'receiverName' | 'proxyName'> & Partial<Pick<NonNullable<CashEnvelope['handover']>, 'receiverKind' | 'proxyStaffId'>>,
+  h: Pick<NonNullable<CashEnvelope['handover']>, 'receiverName' | 'proxyName'> & Partial<Pick<NonNullable<CashEnvelope['handover']>, 'receiverKind' | 'proxyStaffId' | 'proxyLeaderId' | 'viaGroup' | 'nextLeaderCarrier'>>,
 ) =>
-  h.receiverKind === 'staff' && h.proxyStaffId && h.proxyName
-    ? `เจ้าหน้าที่ส่งกรุ๊ป ${h.proxyName} → นำส่ง ${h.receiverName}`
-    : `${h.receiverName}${h.proxyName ? ` (รับแทนโดย ${h.proxyName})` : ''}`;
+  h.proxyLeaderId && h.proxyName
+    ? `หัวหน้าทัวร์ (ฝากส่ง) ${h.proxyName}${h.viaGroup ? ` (ไปกับกรุ๊ป ${h.viaGroup})` : ''} → นำส่ง ${h.receiverName}`
+    : h.proxyStaffId && h.proxyName
+      ? `เจ้าหน้าที่ส่งกรุ๊ป ${h.proxyName}${h.nextLeaderCarrier
+        ? ` → หัวหน้าทัวร์ (ฝากส่ง) ${h.nextLeaderCarrier.name}${h.nextLeaderCarrier.viaGroup ? ` (ไปกับกรุ๊ป ${h.nextLeaderCarrier.viaGroup})` : ''}`
+        : ''} → นำส่ง ${h.receiverName}`
+      : `${h.receiverName}${h.proxyName ? ` (รับแทนโดย ${h.proxyName})` : ''}`;
 
 /**
  * ซองนี้ถูกเจ้าหน้าที่คนนี้ส่งคืนการเงิน และการเงินรับคืนแล้ว (ยังไม่ได้ส่งมอบใหม่) หรือไม่
@@ -418,6 +478,49 @@ export function normalizeEnvelope(raw: CashEnvelope): CashEnvelope {
   };
 }
 
+/**
+ * ซองนี้อยู่ขั้นไหนในมุมของหัวหน้าทัวร์คนนี้
+ * - 'to_ack'     ถึงมือแล้ว รอกดยืนยันรับ (การเงินส่งให้ตรง หรือเจ้าหน้าที่ส่งกรุ๊ปแจ้งว่าส่งต่อให้แล้ว)
+ * - 'at_finance' ฝากเจ้าหน้าที่ส่งกรุ๊ป แต่เจ้าหน้าที่ยังไม่ได้รับซองจากการเงิน — ขั้นตอนยังมาไม่ถึง กดอะไรไม่ได้
+ * - 'in_transit' เจ้าหน้าที่ส่งกรุ๊ปรับจากการเงินแล้ว ยังไม่กดส่งต่อ — หัวหน้าทัวร์กดรับได้
+ *                เพราะหน้างานอาจฝากคนอื่นนำมาให้ระหว่างเดินทาง (ประวัติบันทึกว่ารับก่อนเจ้าหน้าที่กดส่งต่อ)
+ * - 'not_received' หัวหน้าทัวร์แจ้งว่าไม่ได้รับซองแล้ว — รอการเงินตามซอง (ยังกดรับได้ถ้าได้รับภายหลัง)
+ * - null         ไม่ใช่ซองที่ส่งถึงคนนี้ / ยังไม่ส่งมอบ / รับแล้ว / ส่งคืนการเงินอยู่
+ */
+export function leaderEnvelopeState(env: CashEnvelope, leaderId: string | null | undefined): 'to_ack' | 'in_transit' | 'at_finance' | 'not_received' | null {
+  if (!leaderId || envelopeStage(env) !== 'handed_over' || env.handover?.receiverId !== leaderId || env.staffReturn) return null;
+  if (env.notReceived) return 'not_received';
+  const car = carrierOf(env.handover);
+  if (car && !env.staffAck) return 'at_finance';
+  return car && !env.staffHandoff ? 'in_transit' : 'to_ack';
+}
+
+/** หัวหน้าทัวร์กดยืนยันรับซองนี้ได้ไหม — ได้เมื่อซองออกจากการเงินแล้ว (ถึงมือ / ระหว่างทาง / เคยแจ้งไม่ได้รับ) */
+export const leaderCanAck = (env: CashEnvelope, leaderId: string | null | undefined) => {
+  const s = leaderEnvelopeState(env, leaderId);
+  return s === 'to_ack' || s === 'in_transit' || (s === 'not_received' && !(carrierOf(env.handover) && !env.staffAck));
+};
+
+/** ข้อความประวัติเมื่อหัวหน้าทัวร์กดรับซองที่ยังอยู่ระหว่างทาง */
+export const ACK_BEFORE_HANDOFF_NOTE = 'รับก่อนผู้ถือซองกดส่งต่อ (ฝากคนอื่นนำมาให้ระหว่างทาง)';
+
+/**
+ * ซองที่ฝากหัวหน้าทัวร์คนนี้นำส่ง (เป็นผู้ถือซองระหว่างทาง ไม่ใช่ปลายทาง) และยังไม่จบทอดของตัวเอง
+ * จบทอด = ส่งต่อแล้ว / ส่งคืนการเงินแล้ว / หัวหน้าทัวร์ปลายทางกดรับแล้ว
+ */
+export function carriedByLeader(env: CashEnvelope, leaderId: string | null | undefined): boolean {
+  return !!leaderId && envelopeStage(env) === 'handed_over' && env.handover?.proxyLeaderId === leaderId && !env.leaderAck;
+}
+
+/**
+ * เส้นทางซอง (ตรวจย้อนหลัง) — ใครถือซองช่วงไหน ไล่จากประวัติจริงของซอง เรียงเก่า → ใหม่
+ * ทุกทอดที่เปลี่ยนมือ: ส่งมอบ / ผู้ถือรับ / ฝากต่อ / ส่งต่อ / ส่งคืน / การเงินรับคืน / หัวหน้าทัวร์รับ / ส่งต่อซอง
+ */
+const CUSTODY_ACTIONS = /ส่งมอบซอง|ยืนยันรับซอง|ฝากต่อ|ส่งต่อ|ส่งซองคืน|รับซองคืน|แจ้งไม่ได้รับ|ยกเลิกการส่งมอบ/;
+export function custodyTrail(env: CashEnvelope): EnvelopeHistoryEntry[] {
+  return env.history.filter((h) => CUSTODY_ACTIONS.test(h.action));
+}
+
 /** ส่งมอบแล้วแต่ยังไม่มีใครกดตอบรับ (เจ้าหน้าที่/หัวหน้าทัวร์) — การเงินยังแก้ไขการส่งมอบได้ */
 export function canEditHandover(env: CashEnvelope): boolean {
   return !!env.handover && !env.staffAck && !env.leaderAck;
@@ -441,7 +544,7 @@ export function handoverRank(env: CashEnvelope): number {
   const base = STAGE_ORDER.indexOf('handed_over') * 10;
   // ส่งคืนการเงิน = ถอยกลับไปก่อนส่งมอบ ช้ากว่าทุกทอดในขั้นนี้
   if (env.staffReturn) return base - 1;
-  if (env.handover!.proxyStaffId && !env.staffAck) return base;
+  if (carrierOf(env.handover) && !env.staffAck) return base;
   if (env.staffAck && !env.staffHandoff) return base + 1;
   return base + 2;
 }
@@ -463,7 +566,9 @@ export function groupEnvelopeStatus(
   }
   // รายการที่ซองปิดแล้วรวมกันครบยอด (แบ่งหลายซองได้)
   const sealedDone = allocatedTotals(lines, used.filter((e) => e.sealed));
-  const mismatch = used.some((e) => e.mismatch);
+  // ต้องตรวจสอบ: แจ้งยอดในซองไม่ตรง หรือหัวหน้าทัวร์แจ้งไม่ได้รับซอง (ที่ยังไม่ได้รับจริง)
+  const notReceived = used.some((e) => e.notReceived && !e.leaderAck);
+  const mismatch = used.some((e) => e.mismatch) || notReceived;
   const unassigned = unassignedLines(lines, used).length;
   const base = { mismatch, envelopeCount: used.length, unassigned };
 
@@ -488,10 +593,10 @@ export function groupEnvelopeStatus(
       const h = slowest.handover!;
       awaiting = slowest.staffReturn
         ? `${slowest.staffReturn.staffName} ส่งคืน — รอการเงินยืนยันรับ`
-        : h.proxyStaffId && !slowest.staffHandoff ? h.proxyName : h.receiverName;
+        : carrierOf(h) && !slowest.staffHandoff ? h.proxyName : h.receiverName;
     }
   }
-  if (mismatch) return { ...base, stage, label: 'ยอดไม่ตรง', tone: 'red' };
+  if (mismatch) return { ...base, stage, label: notReceived ? 'แจ้งไม่ได้รับซอง' : 'ยอดไม่ตรง', tone: 'red' };
   return { ...base, stage, label, tone, ...(awaiting ? { awaiting } : {}) };
 }
 

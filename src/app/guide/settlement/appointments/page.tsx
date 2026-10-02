@@ -18,7 +18,7 @@ import { formatDate, formatTHB } from '@/lib/format';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { SelectInput, TextInput } from '@/components/ui/FormField';
-import { SettlementBackHeader } from '../SettlementBackHeader';
+
 import type { Appointment, AppointmentMode, Settlement } from '@/types';
 
 export default function GuideSettlementAppointmentsPage() {
@@ -35,7 +35,7 @@ export default function GuideSettlementAppointmentsPage() {
   if (mySettlements.length === 0) {
     return (
       <div className="space-y-4">
-        <SettlementBackHeader title="นัดหมายเคลียร์เงิน" description="เตรียมเอกสารเคลียร์เงินและจองคิว Finance" />
+        <PageTitle />
         <Card>
           <EmptyState icon="money" title="ยังไม่มีรายการรอเคลียร์" description="รายการจะปรากฏที่นี่หลังงานทัวร์ของคุณจบและเข้าสถานะรอเคลียร์" />
         </Card>
@@ -45,7 +45,7 @@ export default function GuideSettlementAppointmentsPage() {
 
   return (
     <div className="space-y-4">
-      <SettlementBackHeader title="นัดหมายเคลียร์เงิน" description="เตรียมเอกสารเคลียร์เงินและจองคิว Finance" />
+      <PageTitle />
 
       {mySettlements.map((s) => (
         <SettlementCard
@@ -178,5 +178,15 @@ function SettlementCard({
         </div>
       )}
     </Card>
+  );
+}
+
+/** หัวหน้า — เป็นเมนูหลักที่แถบล่าง (นัดหมาย) จึงไม่มีลิงก์ย้อนกลับ */
+function PageTitle() {
+  return (
+    <div className="mb-3">
+      <h1 className="text-lg font-bold zego-text">นัดหมายเคลียร์เงิน</h1>
+      <p className="text-sm zego-text-tertiary">เตรียมเอกสารเคลียร์เงินและจองคิว Finance</p>
+    </div>
   );
 }
