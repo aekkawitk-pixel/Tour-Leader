@@ -537,27 +537,39 @@ function EnvelopePanel({
   // ผู้ที่ฝากได้ — หัวหน้าทัวร์มีกรุ๊ปที่ดูแลอยู่ (ยังไม่จบ) ไว้ระบุว่าไปกับกรุ๊ปไหน · เจ้าหน้าที่แสดงแค่ชื่อ
   const carrierOptions = useMemo(() => {
     const today = toISODate(new Date());
-    const groupsOf = (periodIds: string[]) => [...new Set(periodIds)]
+    /*
+      กรุ๊ปที่ฝากไปด้วยได้ = กรุ๊ปของคนนั้นที่คอนเฟิร์มแล้ว (กรองที่ตัวเรียก) และ "ส่งทัน" ถึงหัวหน้าทัวร์ของกรุ๊ปนี้
+      · เจ้าหน้าที่ส่งกรุ๊ป: วันไปส่ง (วันออกเดินทางของกรุ๊ปนั้น) ตั้งแต่วันนี้ ถึงวันออกเดินทางของกรุ๊ปนี้
+      · หัวหน้าทัวร์ฝากส่ง: ยังไม่จบทริป และออกเดินทางไม่หลังวันกลับของกรุ๊ปนี้ (เจอกันก่อนหรือระหว่างทริปได้)
+    */
+    const ownStart = period?.startDate ?? '9999-12-31';
+    const ownEnd = period?.endDate ?? '9999-12-31';
+    const groupsOf = (periodIds: string[], kind: 'staff' | 'leader') => [...new Set(periodIds)]
       .map((id) => getTourPeriodById(id))
-      .filter((p): p is NonNullable<typeof p> => !!p && p.internalId !== periodId && p.endDate >= today)
+      .filter((p): p is NonNullable<typeof p> => !!p && p.internalId !== periodId && (kind === 'staff'
+        ? p.startDate >= today && p.startDate <= ownStart
+        : p.endDate >= today && p.startDate <= ownEnd))
       .sort((a, b) => a.startDate.localeCompare(b.startDate))
       .map((p) => ({ code: p.groupCode, dates: formatDateRange(p.startDate, p.endDate) }));
-    const leaderAssign = loadActiveGuideAssignments().filter((a) => a.assignmentStatus !== 'DECLINED');
+    // เฉพาะงานที่คอนเฟิร์มแล้ว — งานที่ยังรอคอนเฟิร์มอาจเปลี่ยนคน ซองจะไปผิดมือ
+    const leaderAssign = loadActiveGuideAssignments().filter((a) => a.assignmentStatus === 'CONFIRMED');
+    const staffAssign = loadSendOffAssignments().filter((a) => a.status === 'CONFIRMED');
     const people = [
-      // เจ้าหน้าที่ส่งกรุ๊ป — แสดงแค่ชื่อ ไม่ผูกกรุ๊ป (การส่งกรุ๊ปไม่ใช่การเดินทางไปกับกรุ๊ป)
+      // เจ้าหน้าที่ส่งกรุ๊ป — กรุ๊ปที่เขาไปส่ง (ใช้เลือกว่าฝากไปกับกรุ๊ปไหน)
       ...staffOptions.filter((x) => !x.assigned).map((x) => ({
         key: `staff:${x.id}`, kind: 'staff' as const, id: x.id, name: x.name,
-        groups: [] as { code: string; dates: string }[],
+        groups: groupsOf(staffAssign.filter((a) => a.staffId === x.id).map((a) => a.periodId), 'staff'),
       })),
       ...allLeaders.filter((l) => l.id !== leader?.id).map((l) => ({
         key: `leader:${l.id}`, kind: 'leader' as const, id: l.id, name: `${l.firstName} ${l.lastName}`.trim(),
-        groups: groupsOf(leaderAssign.filter((a) => a.tourLeaderId === l.id).map((a) => a.periodId)),
+        groups: groupsOf(leaderAssign.filter((a) => a.tourLeaderId === l.id).map((a) => a.periodId), 'leader'),
       })),
     ];
     return people.sort((a, b) => Number(b.groups.length > 0) - Number(a.groups.length > 0) || a.name.localeCompare(b.name, 'th'));
-  }, [staffOptions, allLeaders, leader?.id, periodId]);
-  const staffCarrierList = carrierOptions.filter((c) => c.kind === 'staff');
-  const leaderCarrierList = carrierOptions.filter((c) => c.kind === 'leader');
+  }, [staffOptions, allLeaders, leader?.id, periodId, period?.startDate, period?.endDate]);
+  // รายชื่อให้เลือก = เฉพาะคนที่มีกรุ๊ปฝากไปด้วยได้ (คอนเฟิร์มแล้ว + ส่งทัน) — ต้องเลือกกรุ๊ปเสมอ คนที่ไม่มีจึงเลือกไม่ได้
+  const staffCarrierList = carrierOptions.filter((c) => c.kind === 'staff' && c.groups.length > 0);
+  const leaderCarrierList = carrierOptions.filter((c) => c.kind === 'leader' && c.groups.length > 0);
   const [staffId, setStaffId] = useState(() => (pdStaffIsOwn ? pdStaff!.id : assignedStaff[0]?.id ?? ''));
 
   /** ผู้รับจากการเงิน (ช่วงเจ้าหน้าที่) — ไม่ผ่านเจ้าหน้าที่ = undefined */
@@ -567,7 +579,13 @@ function EnvelopePanel({
   /** หัวหน้าทัวร์ที่ฝาก (ช่วงหัวหน้าทัวร์) — ส่งหัวหน้าทัวร์หลักตรง = undefined */
   const leaderCarrier = leaderChoice === 'carrierLeader' ? leaderCarrierList.find((c) => c.key === carrierKeys.carrierLeader) : undefined;
   // ฝากไปกับหัวหน้าทัวร์ — กรุ๊ปที่ไปด้วย = กรุ๊ปถัดไปที่เขาดูแล (บันทึกไว้ตรวจย้อนหลัง)
-  const via = leaderCarrier?.groups[0]?.code ?? '';
+  // กรุ๊ปที่คนที่ฝากไปด้วย — ต้องเลือกเมื่อระบุชื่อ (ทั้งเจ้าหน้าที่และหัวหน้าทัวร์) · บันทึกไว้ตรวจย้อนหลัง
+  const [viaKeys, setViaKeys] = useState<{ carrierStaff: string; carrierLeader: string }>(() => ({
+    carrierStaff: '',
+    carrierLeader: pdLeader?.viaGroup ?? '',
+  }));
+  const staffVia = staffChoice === 'carrierStaff' && staffPerson ? viaKeys.carrierStaff : '';
+  const via = leaderCarrier ? viaKeys.carrierLeader : '';
   const leaderName = leader?.name ?? 'หัวหน้าทัวร์ของกรุ๊ป';
   /*
     เลือกแบบฝากแต่ยังไม่ระบุคน = "รอฝากไปกับกรุ๊ปอื่น" — บันทึกได้ (ยังไม่ส่งมอบ)
@@ -584,13 +602,15 @@ function EnvelopePanel({
   const handoverMissing = [
     staffChoice === 'staff' && !staffPerson && 'เจ้าหน้าที่ส่งกรุ๊ป',
     !!staffPerson && leaderChoice === 'carrierLeader' && !leaderCarrier && 'หัวหน้าทัวร์ที่ฝาก (มีเจ้าหน้าที่รับซองแล้ว ต้องระบุว่าจะส่งให้ใคร)',
+    staffChoice === 'carrierStaff' && !!staffPerson && !staffVia && 'กรุ๊ปที่เจ้าหน้าที่ฝากไปด้วย',
+    leaderChoice === 'carrierLeader' && !!leaderCarrier && !via && 'กรุ๊ปที่หัวหน้าทัวร์ฝากไปด้วย',
     // ส่งตรงถึงหัวหน้าทัวร์หลัก (ไม่ผ่านใคร) ต้องมีหัวหน้าทัวร์ที่คอนเฟิร์มแล้ว
     staffChoice === 'none' && leaderChoice === 'leader' && !leader && 'หัวหน้าทัวร์หลัก (ยังไม่มีที่คอนเฟิร์ม)',
   ].filter(Boolean) as string[];
   /** เส้นทางที่จะเกิดขึ้น — แสดงก่อนกดบันทึก */
   const plannedPath = [
     'การเงิน',
-    staffPerson ? `${staffPerson.name} (เจ้าหน้าที่ส่งกรุ๊ป)` : pendingStaff && 'เจ้าหน้าที่กรุ๊ปอื่น (เลือกภายหลัง)',
+    staffPerson ? `${staffPerson.name} (เจ้าหน้าที่ส่งกรุ๊ป${staffVia ? ` · ${staffVia}` : ''})` : pendingStaff && 'เจ้าหน้าที่กรุ๊ปอื่น (เลือกภายหลัง)',
     leaderCarrier
       ? `${leaderCarrier.name} (หัวหน้าทัวร์ฝากส่ง${via ? ` · ${via}` : ''})`
       : pendingLeader ? 'หัวหน้าทัวร์กรุ๊ปอื่น (เลือกภายหลัง)' : leaderChoice === 'carrierLeader' && 'หัวหน้าทัวร์ที่ฝาก (ยังไม่ได้เลือก)',
@@ -654,7 +674,7 @@ function EnvelopePanel({
     const next: CashEnvelope = {
       ...x,
       handover: staffSide
-        ? { ...base, receiverKind: 'staff', proxyName: staffSide.name, proxyStaffId: staffSide.id, ...(leaderSide ? { nextLeaderCarrier: leaderSide } : {}) }
+        ? { ...base, receiverKind: 'staff', proxyName: staffSide.name, proxyStaffId: staffSide.id, viaGroup: thisGroupCode, ...(leaderSide ? { nextLeaderCarrier: leaderSide } : {}) }
         : leaderSide
           ? { ...base, receiverKind: 'leader', proxyName: leaderSide.name, proxyLeaderId: leaderSide.id, ...(leaderSide.viaGroup ? { viaGroup: leaderSide.viaGroup } : {}) }
           : { ...base, receiverKind: 'leader' },
@@ -690,6 +710,7 @@ function EnvelopePanel({
             receiverKind: 'staff',
             proxyName: staffPerson.name,
             proxyStaffId: staffPerson.id,
+            ...(staffVia ? { viaGroup: staffVia } : {}),
             ...(next ? { nextLeaderCarrier: next } : {}),
           },
         },
@@ -1082,7 +1103,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                       { k: 'staff', label: 'ของกรุ๊ปนี้', disabled: assignedStaff.length === 0,
                         sub: assignedStaff.length > 0 ? assignedStaff.map((s) => s.name).join(', ') : 'ยังไม่ได้ระบุเจ้าหน้าที่ให้กรุ๊ปนี้' },
                       { k: 'carrierStaff', label: 'ฝากไปกับผู้อื่น', disabled: false,
-                        sub: staffChoice === 'carrierStaff' && staffPerson ? staffPerson.name : 'เจ้าหน้าที่ส่งกรุ๊ปคนอื่น' },
+                        sub: staffChoice === 'carrierStaff' && staffPerson ? `${staffPerson.name}${staffVia ? ` · ไปกับกรุ๊ป ${staffVia}` : ''}` : 'เจ้าหน้าที่ส่งกรุ๊ปคนอื่น' },
                       { k: 'none', label: 'ไม่ผ่านเจ้าหน้าที่', disabled: false, sub: 'ส่งให้ฝั่งหัวหน้าทัวร์โดยตรง' },
                     ],
                   },
@@ -1129,16 +1150,43 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                                 aria-label={o.k === 'carrierStaff' ? 'เจ้าหน้าที่ส่งกรุ๊ปที่ฝาก' : 'หัวหน้าทัวร์ที่ฝาก'}
                                 className="w-full rounded-lg border zego-border-color px-3 py-2 text-sm"
                                 value={carrierKeys[o.k]}
-                                onChange={(e) => { const v = e.target.value; const key = o.k as 'carrierStaff' | 'carrierLeader'; setCarrierKeys((m) => ({ ...m, [key]: v })); }}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  const key = o.k as 'carrierStaff' | 'carrierLeader';
+                                  setCarrierKeys((m) => ({ ...m, [key]: v }));
+                                  // เปลี่ยนคน → กรุ๊ปเดิมใช้ไม่ได้ · มีกรุ๊ปเดียวเลือกให้เลย
+                                  const person = carrierOptions.find((c) => c.key === v);
+                                  setViaKeys((m) => ({ ...m, [key]: person?.groups.length === 1 ? person.groups[0].code : '' }));
+                                }}
                               >
                                 {/* ไม่เลือกชื่อ = ตั้ง "รอฝาก" ไว้ก่อน แล้วไปเลือกคนตอนทำส่งมอบของกรุ๊ปอื่น — บอกในตัวเลือกเลย */}
                                 <option value="">{o.k === 'carrierLeader' && staffPerson ? '— เลือกหัวหน้าทัวร์ —' : 'เลือกภายหลัง — ตอนทำส่งมอบของกรุ๊ปที่จะฝากไปด้วย'}</option>
                                 {(o.k === 'carrierStaff' ? staffCarrierList : leaderCarrierList).map((c) => (
-                                  <option key={c.key} value={c.key}>
-                                    {c.name}{c.groups.length > 0 ? ` · ${c.groups[0].code}${c.groups.length > 1 ? ` +${c.groups.length - 1}` : ''}` : ''}
-                                  </option>
+                                  <option key={c.key} value={c.key}>{c.name}</option>
                                 ))}
                               </select>
+                              {/* เลือกคนแล้ว → ต้องเลือกกรุ๊ปที่คนนั้นไปด้วย (เฉพาะกรุ๊ปที่เขาดูแลอยู่) */}
+                              {(() => {
+                                const k = o.k as 'carrierStaff' | 'carrierLeader';
+                                const person = carrierOptions.find((c) => c.key === carrierKeys[k]);
+                                if (!person) return null;
+                                if (person.groups.length === 0) {
+                                  return <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs zego-text-warning">{person.name} ไม่มีกรุ๊ปที่คอนเฟิร์มแล้วและส่งทันก่อนกรุ๊ปนี้ออกเดินทาง — เลือกคนอื่น</p>;
+                                }
+                                return (
+                                  <label className="mt-2 block text-xs">
+                                    <span className="mb-1 block font-medium zego-text-secondary">ฝากไปกับกรุ๊ป <span className="text-rose-600">*</span></span>
+                                    <select
+                                      className={cx('w-full rounded-lg border px-3 py-2 text-sm', viaKeys[k] ? 'zego-border-color' : 'border-amber-300')}
+                                      value={viaKeys[k]}
+                                      onChange={(e) => { const v = e.target.value; setViaKeys((m) => ({ ...m, [k]: v })); }}
+                                    >
+                                      <option value="">— เลือกกรุ๊ปที่ {person.name} ไปด้วย —</option>
+                                      {person.groups.map((g) => <option key={g.code} value={g.code}>{g.code} · {g.dates}</option>)}
+                                    </select>
+                                  </label>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
