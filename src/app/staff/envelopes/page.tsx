@@ -21,13 +21,13 @@ import { formatCurrency, formatDateRange, formatDateTime, toISODate, toISODateTi
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { loadSendOffAssignments } from '@/services/sendOffAssignmentStore';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
-import { envelopeName, envelopeStage, groupEnvelopeStatus, groupLines, returnedToFinanceBy, type CashEnvelope } from '@/lib/logic/cashEnvelope';
+import { envelopeName, envelopeStage, groupEnvelopeStatus, groupLines, returnedToFinanceBy, sumAmounts, type CashEnvelope } from '@/lib/logic/cashEnvelope';
 import { EnvelopeStatusBadge, StatusPill } from '@/components/expenses/CashEnvelopeDrawer';
 
 const fmt = (list: { amount: number; currency: string }[]) => list.map((f) => formatCurrency(f.amount, f.currency)).join(' · ');
 
 export default function StaffEnvelopesPage() {
-  const { currentUser, envelopes, expenses, saveEnvelope, leaders } = useDemo();
+  const { currentUser, envelopes, expenses, saveEnvelope, leaders, noEnvelopeMarks } = useDemo();
   // วันอ้างอิงเดียวกับหน้าตารางงาน (useStaffPortal) — ปีเริ่มต้นของตัวเลือกปีจะได้ตรงกันทั้งพอร์ทัล
   const today = toISODate(new Date());
   const staffId = currentUser.sendOffStaffId ?? '';
@@ -44,20 +44,23 @@ export default function StaffEnvelopesPage() {
       .map((periodId) => {
         const docs = expenses.filter((e) => isGroupAdvanceDoc(e) && e.jobId === periodId);
         const envs = envelopes.filter((e) => e.periodId === periodId);
-        return { periodId, docs, envs, status: groupEnvelopeStatus(groupLines(docs), envs) };
+        return { periodId, docs, envs, status: groupEnvelopeStatus(groupLines(docs), envs, noEnvelopeMarks.find((m) => m.periodId === periodId)) };
       })
       .filter((g) => g.docs.length > 0 && !g.envs.some((e) => e.handover?.proxyStaffId === staffId));
-  }, [staffId, expenses, envelopes]);
+  }, [staffId, expenses, envelopes, noEnvelopeMarks]);
 
   /*
     แบ่งรายเดือนตาม "วันเดินทางของกรุ๊ป" — ซองต้องถึงมือหัวหน้าทัวร์ก่อนกรุ๊ปออก จึงจัดตามเดือนที่กรุ๊ปเดินทาง
     ในแต่ละเดือนเรียง: ซองที่ต้องส่ง → กรุ๊ปที่ซองยังไม่ถึงมือ → ส่งถึงหัวหน้าทัวร์แล้ว · เดือนใกล้สุดก่อน
   */
-  type Row = { key: string; kind: 'todo' | 'waiting' | 'done'; date: string; env?: CashEnvelope; group?: (typeof waiting)[number] };
+  // ซองที่ต้องส่งของกรุ๊ปเดียวกันรวมเป็นการ์ดเดียว (หัวกรุ๊ป/ขั้นตอนแสดงครั้งเดียว · ยืนยันพร้อมกันได้)
+  const todoGroups = [...todo.reduce((m, e) => m.set(e.periodId, [...(m.get(e.periodId) ?? []), e]), new Map<string, CashEnvelope[]>())]
+    .map(([periodId, envs]) => ({ periodId, envs: envs.sort((a, b) => a.no - b.no) }));
+  type Row = { key: string; kind: 'todo' | 'waiting' | 'done'; date: string; env?: CashEnvelope; envs?: CashEnvelope[]; group?: (typeof waiting)[number] };
   const startOf = (periodId: string) => getTourPeriodById(periodId)?.startDate ?? '';
   const KIND_ORDER = { todo: 0, waiting: 1, done: 2 } as const;
   const rows: Row[] = [
-    ...todo.map((env) => ({ key: env.id, kind: 'todo' as const, date: startOf(env.periodId), env })),
+    ...todoGroups.map((g) => ({ key: `t-${g.periodId}`, kind: 'todo' as const, date: startOf(g.periodId), envs: g.envs })),
     ...waiting.map((g) => ({ key: `w-${g.periodId}`, kind: 'waiting' as const, date: startOf(g.periodId), group: g })),
     ...done.map((env) => ({ key: env.id, kind: 'done' as const, date: startOf(env.periodId), env })),
   ].sort((a, b) => (a.date.slice(0, 7).localeCompare(b.date.slice(0, 7))) || (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) || a.date.localeCompare(b.date));
@@ -143,18 +146,18 @@ export default function StaffEnvelopesPage() {
             const mDone = m.items.filter((r) => r.kind === 'done');
             return (
               <section key={m.key} aria-label={m.label} className="space-y-2">
-                <MonthHeader label={m.label} count={mTodo.length} unit="ซองที่ต้องส่ง" />
+                <MonthHeader label={m.label} count={mTodo.reduce((n, r) => n + (r.envs?.length ?? 0), 0)} unit="ซองที่ต้องส่ง" />
 
                 {mTodo.length > 0 && (
                   <ul className="space-y-3">
-                    {mTodo.map((r) => r.env && (
-                      <EnvelopeCard
+                    {mTodo.map((r) => r.envs && (
+                      <GroupEnvelopeCard
                         key={r.key}
-                        env={r.env}
-                        leader={leaderOf(r.env.periodId)}
-                        onReceive={(photo) => receive(r.env!, photo)}
-                        onPassOn={(photo, other) => passOn(r.env!, photo, other)}
-                        onReturn={(reason, photo) => giveBack(r.env!, reason, photo)}
+                        envs={r.envs}
+                        leader={leaderOf(r.envs[0].periodId)}
+                        onReceive={receive}
+                        onPassOn={passOn}
+                        onReturn={giveBack}
                       />
                     ))}
                   </ul>
@@ -182,6 +185,9 @@ export default function StaffEnvelopesPage() {
                               </div>
                               <p className="line-clamp-1 text-xs zego-text-secondary">{p?.displayName}</p>
                               {p && <p className="text-xs zego-text-tertiary">เดินทาง {formatDateRange(p.startDate, p.endDate)}</p>}
+                              {g.status.stage === 'none' && (
+                                <p className="rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-secondary">ไม่มีซองเงินให้รับ — {g.status.awaiting}</p>
+                              )}
                               {returned && (
                                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
                                   ส่งคืน {formatDateTime(returned.at)} · การเงินรับคืนแล้ว {formatDateTime(returned.receivedAt)}
@@ -227,129 +233,194 @@ export default function StaffEnvelopesPage() {
   );
 }
 
-function EnvelopeCard({
-  env,
+/**
+ * ซองที่ต้องส่งของกรุ๊ปเดียว (1 ซองหรือหลายซอง) ในการ์ดเดียว — หัวกรุ๊ปและขั้นตอนแสดงครั้งเดียว
+ * ซองละ 1 แถวสั้น ๆ · ปุ่มยืนยันทำกับทุกซองที่อยู่ขั้นเดียวกันพร้อมกัน ด้วยรูปหลักฐานรูปเดียว (ถ่ายรวมทุกซอง)
+ * แต่ละซองยังบันทึกประวัติ/รูปแยกของตัวเอง
+ */
+function GroupEnvelopeCard({
+  envs,
   leader,
   onReceive,
   onPassOn,
   onReturn,
 }: {
-  env: CashEnvelope;
+  envs: CashEnvelope[];
   /** หัวหน้าทัวร์ที่คอนเฟิร์มแล้วของกรุ๊ป — null = ยังไม่มี ส่งมอบไม่ได้ */
   leader: { id: string; name: string } | null;
-  onReceive: (photo: string) => Promise<void>;
-  onPassOn: (photo: string, other?: { name: string; reason: string }) => Promise<void>;
-  onReturn: (reason: string, photo: string) => Promise<void>;
+  onReceive: (env: CashEnvelope, photo: string) => Promise<void>;
+  onPassOn: (env: CashEnvelope, photo: string, other?: { name: string; reason: string }) => Promise<void>;
+  onReturn: (env: CashEnvelope, reason: string, photo: string) => Promise<void>;
 }) {
-  const p = getTourPeriodById(env.periodId);
-  const h = env.handover!;
-  const stage = envelopeStage(env);
+  const p = getTourPeriodById(envs[0].periodId);
   /** กล่องยืนยันที่เปิดอยู่ — ทุกทอดต้องแนบรูปถ่ายก่อนกดยืนยัน */
   const [mode, setMode] = useState<'receive' | 'handoff' | 'other' | 'return' | null>(null);
   const [otherName, setOtherName] = useState('');
   const [reason, setReason] = useState('');
-  const holding = !!env.staffAck && !env.staffHandoff && !env.staffReturn;
-  const receiverName = leader?.name ?? h.receiverName;
+  const allReceive = envs.filter((e) => envelopeStage(e) === 'handed_over' && !e.staffAck && !e.staffReturn);
+  const allHolding = envs.filter((e) => !!e.staffAck && !e.staffHandoff && !e.staffReturn);
+  /**
+   * ซองที่ไม่เลือก (ทำบางซองได้ เช่น รับมาแค่ซองเดียว / คืนการเงินแค่ซองเดียว) — ค่าเริ่มต้นเลือกทุกซอง
+   * เก็บเป็น "ที่ไม่เลือก" ซองที่เพิ่งเข้าขั้นนี้จึงถูกเลือกเองโดยไม่ต้องรีเซ็ต
+   */
+  const [unpicked, setUnpicked] = useState<Set<string>>(new Set());
+  const togglePick = (id: string) => setUnpicked((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id);
+    else n.add(id);
+    return n;
+  });
+  // มีให้เลือกเฉพาะเมื่อขั้นเดียวกันมีมากกว่า 1 ซอง
+  const pickable = (e: CashEnvelope) => (allReceive.length > 1 && allReceive.includes(e)) || (allHolding.length > 1 && allHolding.includes(e));
+  const toReceive = allReceive.filter((e) => !unpicked.has(e.id));
+  const holding = allHolding.filter((e) => !unpicked.has(e.id));
+  const receiverName = leader?.name ?? envs[0].handover!.receiverName;
   const closeForm = () => { setMode(null); setOtherName(''); setReason(''); };
-  const run = async (fn: () => Promise<void>) => { await fn(); closeForm(); };
+  /** ทำทีละซอง (บันทึกประวัติแยกของแต่ละซอง) แล้วปิดกล่อง */
+  const runAll = async (list: CashEnvelope[], fn: (e: CashEnvelope) => Promise<void>) => {
+    for (const e of list) await fn(e);
+    closeForm();
+  };
+  const many = (list: CashEnvelope[]) => (list.length > 1 ? ` ${list.length} ซอง` : '');
+  const summary = (list: CashEnvelope[]) => list.map((e) => `${envelopeName(e)} · ${fmt(e.sealed?.faceTotals ?? [])}`).join(' | ');
+  const total = fmt(sumAmounts(envs.flatMap((e) => e.sealed?.faceTotals ?? [])));
+  const h0 = envs[0].handover!;
+
   return (
     <li>
       <Card className="space-y-2.5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-sm font-semibold zego-text">{p?.groupCode ?? env.periodId}</p>
+            <p className="text-sm font-semibold zego-text">{p?.groupCode ?? envs[0].periodId}</p>
             <p className="line-clamp-1 text-xs zego-text-secondary">{p?.displayName}</p>
             {p && <p className="text-xs zego-text-tertiary">เดินทาง {formatDateRange(p.startDate, p.endDate)}</p>}
           </div>
-          <EnvelopeStatusBadge env={env} short />
+          {envs.length === 1 ? <EnvelopeStatusBadge env={envs[0]} short /> : <StatusPill label={`${envs.length} ซอง`} tone="violet" />}
         </div>
 
-        <div className="rounded-lg zego-surface-soft-bg px-3 py-2 text-xs">
-          <p className="flex justify-between gap-2">
-            <span className="font-semibold zego-text">{envelopeName(env)}</span>
-            <span className="font-semibold tabular-nums zego-text">{fmt(env.sealed?.faceTotals ?? [])}</span>
-          </p>
-          <p className="mt-1 zego-text-secondary">
-            {env.staffHandoff && h.receiverKind === 'other' ? 'ส่งให้ (ผู้รับคนอื่น): ' : 'ส่งให้หัวหน้าทัวร์: '}
-            <span className="font-medium zego-text">{env.staffHandoff ? h.receiverName : leader ? leader.name : 'ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม'}</span>
-          </p>
-          <p className="zego-text-tertiary">การเงินฝากให้คุณ · {formatDateTime(h.at)}{h.byName ? ` · โดย ${h.byName}` : ''}</p>
-        </div>
+        {/* ซองละแถว — ชื่อ ยอด สถานะ รูปหลักฐานของแต่ละทอด */}
+        <ul className="divide-y divide-[var(--zego-border-soft)] rounded-lg zego-surface-soft-bg text-xs">
+          {envs.map((env) => (
+            <li key={env.id} className="space-y-0.5 px-3 py-2">
+              {pickable(env) ? (
+                <label className="flex cursor-pointer items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <input type="checkbox" className="h-4 w-4 shrink-0 accent-emerald-600" checked={!unpicked.has(env.id)} onChange={() => togglePick(env.id)} />
+                    <span className="truncate font-semibold zego-text">{envelopeName(env)}</span>
+                  </span>
+                  <span className="shrink-0 font-semibold tabular-nums zego-text">{fmt(env.sealed?.faceTotals ?? [])}</span>
+                </label>
+              ) : (
+                <p className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate font-semibold zego-text">{envelopeName(env)}</span>
+                  <span className="shrink-0 font-semibold tabular-nums zego-text">{fmt(env.sealed?.faceTotals ?? [])}</span>
+                </p>
+              )}
+              {envs.length > 1 && (
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                  <EnvelopeStatusBadge env={env} short />
+                  <span className="flex items-center gap-1">
+                    <ProofThumb src={env.staffAck?.photo} label={`รับซองจากการเงิน · ${envelopeName(env)}`} />
+                    <ProofThumb src={env.staffHandoff?.photo} label={`ส่งต่อให้ ${env.handover!.receiverName} · ${envelopeName(env)}`} />
+                  </span>
+                </div>
+              )}
+              {envs.length === 1 && (env.staffAck || env.staffHandoff) && (
+                <span className="flex items-center gap-1">
+                  <ProofThumb src={env.staffAck?.photo} label={`รับซองจากการเงิน · ${envelopeName(env)}`} />
+                  <ProofThumb src={env.staffHandoff?.photo} label={`ส่งต่อให้ ${env.handover!.receiverName} · ${envelopeName(env)}`} />
+                </span>
+              )}
+              {env.staffReturn && (
+                <div className="flex items-start justify-between gap-2 text-amber-900">
+                  <p>ส่งคืนการเงิน {formatDateTime(env.staffReturn.at)} — รอการเงินยืนยันรับคืน (เหตุผล: {env.staffReturn.reason})</p>
+                  <ProofThumb src={env.staffReturn.photo} label={`ส่งซองคืนการเงิน · ${envelopeName(env)}`} />
+                </div>
+              )}
+              {env.staffHandoff && (
+                <p style={{ color: '#5b21b6' }}>
+                  {env.handover!.receiverKind === 'other'
+                    ? `ส่งให้ ${env.handover!.receiverName} แล้ว — รอหัวหน้าทัวร์ยืนยันรับ`
+                    : `รอ ${env.handover!.receiverName} ยืนยันรับในเครื่องของตัวเอง`}
+                </p>
+              )}
+            </li>
+          ))}
+          {envs.length > 1 && (
+            <li className="flex justify-between gap-2 px-3 py-1.5 font-semibold zego-text">
+              <span>รวม</span>
+              <span className="tabular-nums">{total}</span>
+            </li>
+          )}
+        </ul>
 
-        {/* ทอดของเจ้าหน้าที่ — ทีละขั้น */}
-        <ol className="space-y-1 text-xs">
-          <li className={env.staffAck ? 'zego-text-success' : 'zego-text-secondary'}>
-            {env.staffAck ? '✓' : '1.'} รับซองจากการเงิน{env.staffAck ? ` · ${formatDateTime(env.staffAck.at)}` : ''}{' '}
-            <ProofThumb src={env.staffAck?.photo} label="รับซองจากการเงิน" />
-          </li>
-          <li className={env.staffHandoff ? 'zego-text-success' : 'zego-text-secondary'}>
-            {env.staffHandoff ? '✓' : '2.'} ส่งต่อให้หัวหน้าทัวร์{env.staffHandoff ? ` · ${formatDateTime(env.staffHandoff.at)}` : ''}{' '}
-            <ProofThumb src={env.staffHandoff?.photo} label={`ส่งต่อให้ ${h.receiverName}`} />
-          </li>
-          <li className="zego-text-tertiary">3. หัวหน้าทัวร์ยืนยันรับในเครื่องของตัวเอง</li>
-        </ol>
+        <p className="text-xs zego-text-secondary">
+          ส่งให้หัวหน้าทัวร์: <span className="font-medium zego-text">{leader ? leader.name : 'ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม'}</span>
+          <span className="zego-text-tertiary"> · การเงินฝากให้คุณ {formatDateTime(h0.at)}{h0.byName ? ` โดย ${h0.byName}` : ''}</span>
+        </p>
+        {/* ขั้นตอนบรรทัดเดียว — สถานะของแต่ละซองบอกแล้วว่าถึงขั้นไหน */}
+        <p className="text-[11px] zego-text-tertiary">รับซองจากการเงิน → ส่งต่อให้หัวหน้าทัวร์ → หัวหน้าทัวร์ยืนยันรับในเครื่องของตัวเอง</p>
 
-        {stage === 'handed_over' && !env.staffAck && !env.staffReturn && (
-          <Button variant="primary" className="w-full" icon="camera" onClick={() => setMode('receive')}>ยืนยันรับซองจากการเงิน (แนบรูป)</Button>
+        {(allReceive.length > 1 || allHolding.length > 1) && (
+          <p className="text-[11px] zego-text-tertiary">ติ๊กเลือกซองที่จะทำรายการ — ทำบางซองก่อนได้ ที่เหลือทำทีหลัง</p>
+        )}
+        {allReceive.length > 0 && (
+          <Button variant="primary" className="w-full" icon="camera" disabled={toReceive.length === 0} onClick={() => setMode('receive')}>
+            {toReceive.length === 0 ? 'เลือกซองที่ได้รับก่อน' : `ยืนยันรับซองจากการเงิน${many(toReceive)} (แนบรูป)`}
+          </Button>
         )}
         {/* ถือซองอยู่ — ส่งมอบได้เมื่อกรุ๊ปมีหัวหน้าทัวร์ที่คอนเฟิร์มแล้วเท่านั้น */}
-        {holding && !leader && (
+        {allHolding.length > 0 && !leader && (
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
             กรุ๊ปนี้ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม — ยังส่งมอบไม่ได้ ติดต่อผู้จัดสเก็ต หรือส่งซองคืนการเงิน
           </p>
         )}
-        {holding && (
+        {allHolding.length > 0 && (
           <div className="space-y-2">
-            <Button variant="primary" className="w-full" icon="camera" disabled={!leader} onClick={() => setMode('handoff')}>
-              {leader ? `ส่งมอบให้ ${leader.name} (แนบรูป)` : 'ส่งมอบให้หัวหน้าทัวร์'}
+            <Button variant="primary" className="w-full" icon="camera" disabled={!leader || holding.length === 0} onClick={() => setMode('handoff')}>
+              {holding.length === 0 ? 'เลือกซองที่จะส่งมอบก่อน' : leader ? `ส่งมอบ${many(holding)}ให้ ${leader.name} (แนบรูป)` : 'ส่งมอบให้หัวหน้าทัวร์'}
             </Button>
             <div className="flex gap-2">
-              <Button variant="secondary" size="sm" className="flex-1 justify-center" disabled={!leader} onClick={() => setMode('other')}>
+              <Button variant="secondary" size="sm" className="flex-1 justify-center" disabled={!leader || holding.length === 0} onClick={() => setMode('other')}>
                 ผู้รับไม่ใช่คนที่กำหนด
               </Button>
-              <Button variant="secondary" size="sm" className="flex-1 justify-center" onClick={() => setMode('return')}>
+              <Button variant="secondary" size="sm" className="flex-1 justify-center" disabled={holding.length === 0} onClick={() => setMode('return')}>
                 ส่งซองคืนการเงิน
               </Button>
             </div>
           </div>
         )}
-        {env.staffReturn && (
-          <div className="flex items-start justify-between gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            <p>ส่งซองคืนการเงินแล้ว · {formatDateTime(env.staffReturn.at)} — รอการเงินยืนยันรับคืน (เหตุผล: {env.staffReturn.reason})</p>
-            <ProofThumb src={env.staffReturn.photo} label="ส่งซองคืนการเงิน" />
-          </div>
-        )}
 
-        {/* กล่องยืนยันของแต่ละทอด — ต้องแนบรูปถ่ายก่อนจึงกดยืนยันได้ */}
+        {/* กล่องยืนยันของแต่ละทอด — ต้องแนบรูปถ่ายก่อนจึงกดยืนยันได้ · ทำกับทุกซองในขั้นเดียวกัน */}
         {mode === 'receive' && (
           <PhotoConfirmModal
-            title="ยืนยันรับซองจากการเงิน"
-            description={`${envelopeName(env)} · ${fmt(env.sealed?.faceTotals ?? [])}`}
+            title={`ยืนยันรับซองจากการเงิน${many(toReceive)}`}
+            description={summary(toReceive)}
             confirmLabel="ยืนยันรับซอง"
-            photoHint="ถ่ายรูปซองที่ได้รับ ให้เห็นหน้าซองและยอดเงินชัดเจน"
+            photoHint={toReceive.length > 1 ? 'ถ่ายรูปซองทั้งหมดที่ได้รับรวมกัน ให้เห็นหน้าซองและยอดเงินชัดเจน' : 'ถ่ายรูปซองที่ได้รับ ให้เห็นหน้าซองและยอดเงินชัดเจน'}
             onClose={closeForm}
-            onConfirm={(photo) => run(() => onReceive(photo))}
+            onConfirm={(photo) => runAll(toReceive, (e) => onReceive(e, photo))}
           />
         )}
         {mode === 'handoff' && leader && (
           <PhotoConfirmModal
-            title={`ส่งมอบซองให้ ${leader.name}`}
-            description={`${envelopeName(env)} · ${fmt(env.sealed?.faceTotals ?? [])}`}
+            title={`ส่งมอบซอง${many(holding)}ให้ ${leader.name}`}
+            description={summary(holding)}
             confirmLabel="ยืนยันส่งมอบ"
             photoHint="ถ่ายรูปหัวหน้าทัวร์คู่กับซอง ณ จุดส่งมอบ"
             onClose={closeForm}
-            onConfirm={(photo) => run(() => onPassOn(photo))}
+            onConfirm={(photo) => runAll(holding, (e) => onPassOn(e, photo))}
           />
         )}
         {mode === 'other' && (
           <PhotoConfirmModal
             title={`ส่งมอบให้ผู้รับคนอื่น (แทน ${receiverName})`}
-            description={`${envelopeName(env)} · ${fmt(env.sealed?.faceTotals ?? [])}`}
+            description={summary(holding)}
             confirmLabel="ยืนยันส่งมอบ"
             photoHint="ถ่ายรูปผู้รับจริงคู่กับซอง ณ จุดส่งมอบ"
             canConfirm={!!otherName.trim() && !!reason.trim()}
             onClose={closeForm}
-            onConfirm={(photo) => run(() => onPassOn(photo, { name: otherName.trim(), reason: reason.trim() }))}
+            onConfirm={(photo) => runAll(holding, (e) => onPassOn(e, photo, { name: otherName.trim(), reason: reason.trim() }))}
           >
             <TextInput label="ชื่อผู้รับจริง" required value={otherName} onChange={(e) => setOtherName(e.target.value)} placeholder="ชื่อ-นามสกุล ผู้ที่รับซอง" />
             <TextArea label="เหตุผล" required rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="เช่น หัวหน้าทัวร์ฝากเพื่อนร่วมทีมรับแทน" />
@@ -357,23 +428,16 @@ function EnvelopeCard({
         )}
         {mode === 'return' && (
           <PhotoConfirmModal
-            title="ส่งซองคืนการเงิน"
-            description={`${envelopeName(env)} · ${fmt(env.sealed?.faceTotals ?? [])}`}
+            title={`ส่งซองคืนการเงิน${many(holding)}`}
+            description={summary(holding)}
             confirmLabel="ยืนยันส่งคืน"
             photoHint="ถ่ายรูปซองตอนส่งคืน ให้เห็นหน้าซองชัดเจน"
             canConfirm={!!reason.trim()}
             onClose={closeForm}
-            onConfirm={(photo) => run(() => onReturn(reason.trim(), photo))}
+            onConfirm={(photo) => runAll(holding, (e) => onReturn(e, reason.trim(), photo))}
           >
             <TextArea label="เหตุผล" required rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="เช่น กรุ๊ปเลื่อนเดินทาง / ไม่พบหัวหน้าทัวร์ที่สนามบิน" />
           </PhotoConfirmModal>
-        )}
-        {env.staffHandoff && (
-          <p className="rounded-lg bg-violet-50 px-3 py-2 text-xs" style={{ color: '#5b21b6' }}>
-            {h.receiverKind === 'other'
-              ? `ส่งให้ ${h.receiverName} แล้ว — รอหัวหน้าทัวร์ของกรุ๊ปกดยืนยันรับในเครื่องของตัวเอง`
-              : `รอ ${h.receiverName} กดยืนยันรับในเครื่องของตัวเอง`}
-          </p>
         )}
       </Card>
     </li>

@@ -36,7 +36,7 @@ export function GroupAdvanceDocsCard({
   /** ข้อความเมื่อไม่มีเอกสาร (เช่น กรองแล้วไม่พบ) */
   emptyText?: string;
 }) {
-  const { envelopes } = useDemo();
+  const { envelopes, noEnvelopeMarks } = useDemo();
   /*
     ซองปิดแล้วแต่ยังไม่ส่งมอบ ยังไม่มีชื่อผู้รับในซอง — ใช้เจ้าหน้าที่ส่งกรุ๊ปที่ผู้จัดสเก็ตจัดให้กรุ๊ปนั้นแทน
     (คนกลุ่มเดียวกับที่ขึ้นเป็นตัวเลือกแรกตอนกดส่งมอบ) การเงินจะได้รู้ล่วงหน้าว่าใครจะมารับซอง
@@ -82,9 +82,10 @@ export function GroupAdvanceDocsCard({
                 const period = getTourPeriodById(periodId);
                 const lines = groupLines(docs);
                 const envs = envelopes.filter((e) => e.periodId === periodId);
-                const status = groupEnvelopeStatus(lines, envs);
-                // ยังไม่ได้จัด / จัดไม่ครบ / ยังส่งมอบไม่ครบ / ส่งมอบแล้วแต่ยังไม่มีผู้ตอบรับ → การเงินยังเข้าไปจัดการได้
-                const manageable = groupManageable(lines, envs);
+                const noEnv = noEnvelopeMarks.find((m) => m.periodId === periodId);
+                const status = groupEnvelopeStatus(lines, envs, noEnv);
+                // ยังไม่ได้จัด / จัดไม่ครบ / ยังส่งมอบไม่ครบ / ส่งมอบแล้วแต่ยังไม่มีผู้ตอบรับ / ระบุไม่มีซอง → การเงินยังเข้าไปจัดการได้
+                const manageable = groupManageable(lines, envs, noEnv);
                 const hasEvents = envs.some((e) => e.history.length > 0);
                 const forwarded = envs.filter((e) => e.packedLineIds.length > 0 && e.leaderForward).sort((a, b) => a.no - b.no);
                 return (

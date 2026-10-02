@@ -9,7 +9,8 @@
  *
  * ซองเป็นของ "กรุ๊ป" ไม่ผูกกับเอกสารใบเดียว:
  * - กรุ๊ปมีเอกสารเบิกหลายใบ → รวมทุกใบไว้ในซองเดียวได้
- * - หรือแยกหลายซองตามค่าใช้จ่ายที่ถือไป (เช่น ซองค่าแลนด์ / ซองทิป) — 1 รายการเบิกอยู่ได้ซองเดียว
+ * - หรือแยกหลายซองตามค่าใช้จ่ายที่ถือไป (เช่น ซองค่าแลนด์ / ซองทิป)
+ * - 1 รายการเบิกแบ่งใส่หลายซองได้ (splits = ยอดที่ใส่แต่ละซอง) รวมกันไม่เกินยอดรายการ
  * รายการในซองอ้างด้วย lineKey = "<เลข Ref>::<id บรรทัด>" (id บรรทัดซ้ำกันข้ามเอกสารได้)
  *
  * จึงไม่มีขั้น "นับซ้ำ" — ใช้ "ยอดหน้าซอง" (รวมรายการในซองตอนปิดซอง) เป็นยอดอ้างอิงเดียวของทุกฝ่าย
@@ -68,6 +69,11 @@ export interface CashEnvelope {
   label?: string;
   /** รายการเบิกที่ใส่ซองนี้ — lineKey(เลข Ref, id บรรทัด) */
   packedLineIds: string[];
+  /**
+   * แบ่งรายการเดียวไว้หลายซอง: lineKey → ยอดที่ใส่ซองนี้ (สกุลเดียวกับรายการ)
+   * ไม่มีคีย์ = ใส่เต็มจำนวนของรายการ (ข้อมูลเดิมก่อนมีฟิลด์นี้)
+   */
+  splits?: Record<string, number>;
   /** ข้อมูลเดิม (1 เอกสาร = 1 ซอง) — ใช้แปลงข้อมูลเก่าเท่านั้น */
   advanceDocId?: string;
   /** ปิดซอง — ยอดหน้าซองคือยอดที่เขียนบนซองจริง และ snapshot รายการ ณ ตอนปิด (ไว้จับว่าเอกสารถูกแก้ทีหลัง) */
@@ -138,6 +144,19 @@ export interface LandPayment {
 }
 
 export type EnvelopeStage = 'packing' | 'sealed' | 'handed_over' | 'received';
+
+/**
+ * กรุ๊ปที่ไม่มีซองเงินให้รับ (การเงินระบุ) — เช่น โอนจ่ายแลนด์ตรง / ไม่มีค่าใช้จ่ายเงินสด
+ * ระบุได้เฉพาะกรุ๊ปที่ยังไม่มีรายการในซองใดเลย · ยกเลิกได้ (กลับไปเป็นรอจัดซอง)
+ */
+export interface NoEnvelopeMark {
+  periodId: string;
+  reason: string;
+  note?: string;
+  at: string;
+  byName: string;
+}
+export const NO_ENVELOPE_REASONS = ['โอนจ่ายแลนด์/ซัพพลายเออร์โดยตรง', 'ไม่มีค่าใช้จ่ายที่ต้องถือเงินสด', 'หัวหน้าทัวร์สำรองจ่ายแล้วเบิกคืน', 'อื่น ๆ'] as const;
 export type EnvelopeTone = 'slate' | 'amber' | 'blue' | 'violet' | 'green' | 'red';
 
 const STAGE_ORDER: EnvelopeStage[] = ['packing', 'sealed', 'handed_over', 'received'];
@@ -305,32 +324,67 @@ export function groupLines(docs: { id: string; lines: { id: string; amount: numb
   return docs.flatMap((d) => d.lines.map((l) => ({ id: lineKey(d.id, l.id), amount: l.amount, currency: l.currency })));
 }
 
-/** ยอดที่ต้องจัดทั้งหมด และยอดของรายการที่เลือก */
-export function envelopeTotals(lines: GroupLine[], packedLineIds: string[]): { required: EnvelopeAmount[]; packed: EnvelopeAmount[] } {
-  const packed = new Set(packedLineIds);
+/** ปัดเป็นทศนิยม 2 ตำแหน่ง — กันเศษลอยตัวตอนลบ/บวกยอดแบ่งซอง */
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** การจัดของซอง 1 ใบ: lineKey → ยอดที่ใส่ซองนี้ */
+export type Allocation = Record<string, number>;
+type Packing = Pick<CashEnvelope, 'packedLineIds'> & Partial<Pick<CashEnvelope, 'splits'>>;
+
+/** แปลงซองเป็นการจัด (lineKey → ยอด) — ไม่มี splits = เต็มจำนวนรายการ · รายการที่หายจากเอกสารแล้วข้าม */
+export function allocationOf(env: Packing, lines: GroupLine[]): Allocation {
+  const byId = new Map(lines.map((l) => [l.id, l]));
+  const out: Allocation = {};
+  for (const k of env.packedLineIds) {
+    const l = byId.get(k);
+    if (l) out[k] = env.splits?.[k] ?? l.amount;
+  }
+  return out;
+}
+
+/** การจัด → ฟิลด์ที่เก็บในซอง (เต็มจำนวน = ไม่ต้องเก็บใน splits) */
+export function packingFromAllocation(alloc: Allocation, lines: GroupLine[]): { packedLineIds: string[]; splits?: Record<string, number> } {
+  const byId = new Map(lines.map((l) => [l.id, l]));
+  const packedLineIds = Object.keys(alloc);
+  const splits: Record<string, number> = {};
+  for (const k of packedLineIds) if (alloc[k] !== byId.get(k)?.amount) splits[k] = alloc[k];
+  return Object.keys(splits).length ? { packedLineIds, splits } : { packedLineIds };
+}
+
+/** ยอดที่ต้องจัดทั้งหมด และยอดในซองนี้ */
+export function envelopeTotals(lines: GroupLine[], alloc: Allocation): { required: EnvelopeAmount[]; packed: EnvelopeAmount[] } {
   return {
     required: sumAmounts(lines),
-    packed: sumAmounts(lines.filter((l) => packed.has(l.id))),
+    packed: sumAmounts(lines.filter((l) => l.id in alloc).map((l) => ({ amount: alloc[l.id] || 0, currency: l.currency }))), // ช่องว่างระหว่างพิมพ์ (NaN) = 0
   };
 }
 
-/** ปิดซองได้เมื่อมีรายการในซองอย่างน้อย 1 รายการ และทุกรายการยังอยู่ในเอกสาร */
-export function canSeal(lines: GroupLine[], packedLineIds: string[]): boolean {
-  const have = new Set(lines.map((l) => l.id));
-  return packedLineIds.length > 0 && packedLineIds.every((k) => have.has(k));
+/**
+ * ปิดซองได้เมื่อมีรายการในซองอย่างน้อย 1 รายการ ทุกรายการยังอยู่ในเอกสาร ยอดแต่ละรายการ > 0
+ * และไม่เกินยอดที่เหลือของรายการ (others = ยอดที่ซองอื่นจัดรายการเดียวกันไปแล้ว)
+ */
+export function canSeal(lines: GroupLine[], alloc: Allocation, others: Map<string, number> = new Map()): boolean {
+  const byId = new Map(lines.map((l) => [l.id, l]));
+  const keys = Object.keys(alloc);
+  return keys.length > 0 && keys.every((k) => {
+    const l = byId.get(k);
+    return !!l && alloc[k] > 0 && round2(alloc[k] + (others.get(k) ?? 0)) <= l.amount;
+  });
 }
 
-/** เจ้าของรายการ: lineKey → id ซอง (1 รายการอยู่ได้ซองเดียว) */
-export function lineOwners(envs: Pick<CashEnvelope, 'id' | 'packedLineIds'>[]): Map<string, string> {
-  const m = new Map<string, string>();
-  for (const e of envs) for (const k of e.packedLineIds) if (!m.has(k)) m.set(k, e.id);
+/** ยอดที่จัดแล้วต่อรายการ รวมทุกซอง (หรือเฉพาะซองที่ผ่าน filter) */
+export function allocatedTotals(lines: GroupLine[], envs: Packing[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const e of envs) for (const [k, v] of Object.entries(allocationOf(e, lines))) m.set(k, round2((m.get(k) ?? 0) + (v || 0)));
   return m;
 }
 
-/** รายการเบิกที่ยังไม่ได้ใส่ซองใดเลย */
-export function unassignedLines(lines: GroupLine[], envs: Pick<CashEnvelope, 'id' | 'packedLineIds'>[]): GroupLine[] {
-  const owners = lineOwners(envs);
-  return lines.filter((l) => !owners.has(l.id));
+/** รายการเบิกที่ยังจัดใส่ซองไม่ครบยอด — amount = ยอดที่ยังเหลือ */
+export function unassignedLines(lines: GroupLine[], envs: Packing[]): GroupLine[] {
+  const done = allocatedTotals(lines, envs);
+  return lines
+    .map((l) => ({ ...l, amount: round2(l.amount - (done.get(l.id) ?? 0)) }))
+    .filter((l) => l.amount > 0);
 }
 
 /**
@@ -370,9 +424,10 @@ export function canEditHandover(env: CashEnvelope): boolean {
 }
 
 /** การเงินยังเข้าไปจัดการกรุ๊ปนี้ได้ไหม: ยังจัด/ส่งมอบไม่ครบ หรือมีซองที่ส่งมอบแล้วแต่ยังไม่มีผู้ตอบรับ */
-export function groupManageable(lines: GroupLine[], envs: CashEnvelope[]): boolean {
-  const s = groupEnvelopeStatus(lines, envs);
-  return s.stage === 'packing' || s.stage === 'sealed'
+export function groupManageable(lines: GroupLine[], envs: CashEnvelope[], noEnvelope?: NoEnvelopeMark): boolean {
+  const s = groupEnvelopeStatus(lines, envs, noEnvelope);
+  // ระบุว่าไม่มีซอง — ยังเปิดเข้าไปยกเลิกการระบุได้
+  return s.stage === 'none' || s.stage === 'packing' || s.stage === 'sealed'
     || envs.some((e) => e.packedLineIds.length > 0 && (canEditHandover(e) || (!!e.staffReturn && !e.leaderAck)));
 }
 
@@ -395,13 +450,19 @@ export function handoverRank(env: CashEnvelope): number {
  * สถานะรวมของกรุ๊ป (ทุกเอกสาร ทุกซอง) สำหรับตาราง
  * - ยังมีรายการที่ไม่อยู่ในซองที่ปิดแล้ว → รอจัด (ยังไม่มีรายการในซองเลย) / กำลังจัด
  * - จัดครบแล้ว → ขั้นของซองที่ช้าที่สุด · มีซองแจ้งยอดไม่ตรง → ยอดไม่ตรง
+ * - การเงินระบุว่ากรุ๊ปนี้ไม่มีซอง (และยังไม่มีรายการในซองใด) → stage 'none' "ไม่มีซอง"
  */
 export function groupEnvelopeStatus(
   lines: GroupLine[],
   envs: CashEnvelope[],
-): { stage: EnvelopeStage; label: string; tone: EnvelopeTone; mismatch: boolean; envelopeCount: number; unassigned: number; awaiting?: string } {
+  noEnvelope?: NoEnvelopeMark,
+): { stage: EnvelopeStage | 'none'; label: string; tone: EnvelopeTone; mismatch: boolean; envelopeCount: number; unassigned: number; awaiting?: string } {
   const used = envs.filter((e) => e.packedLineIds.length > 0);
-  const sealedKeys = new Set(used.filter((e) => e.sealed).flatMap((e) => e.packedLineIds));
+  if (noEnvelope && used.length === 0) {
+    return { stage: 'none', label: 'ไม่มีซอง', tone: 'slate', mismatch: false, envelopeCount: 0, unassigned: 0, awaiting: noEnvelope.reason };
+  }
+  // รายการที่ซองปิดแล้วรวมกันครบยอด (แบ่งหลายซองได้)
+  const sealedDone = allocatedTotals(lines, used.filter((e) => e.sealed));
   const mismatch = used.some((e) => e.mismatch);
   const unassigned = unassignedLines(lines, used).length;
   const base = { mismatch, envelopeCount: used.length, unassigned };
@@ -411,7 +472,7 @@ export function groupEnvelopeStatus(
   let tone: EnvelopeTone;
   /** ผู้ที่ต้องกดตอบรับในขั้นนี้ (เจ้าหน้าที่ส่งกรุ๊ป / หัวหน้าทัวร์) */
   let awaiting: string | undefined;
-  if (lines.length === 0 || lines.some((l) => !sealedKeys.has(l.id))) {
+  if (lines.length === 0 || lines.some((l) => (sealedDone.get(l.id) ?? 0) < l.amount)) {
     stage = 'packing';
     const started = used.length > 0;
     label = started ? 'กำลังจัด' : 'รอจัด';

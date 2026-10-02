@@ -7,7 +7,7 @@
  */
 
 import { readJson, writeJson } from '@/services/browserStorage';
-import { normalizeEnvelope, type CashEnvelope } from '@/lib/logic/cashEnvelope';
+import { normalizeEnvelope, type CashEnvelope, type NoEnvelopeMark } from '@/lib/logic/cashEnvelope';
 
 const KEY = 'cashEnvelopes';
 const DB_NAME = 'cashEnvelopeMedia';
@@ -80,6 +80,27 @@ export async function removeEnvelope(env: CashEnvelope): Promise<void> {
   writeJson(KEY, loadEnvelopes().filter((e) => e.id !== env.id));
   for (const { key } of MEDIA_FIELDS) await deleteMedia(`${env.id}:${key}`);
   for (const i of env.history.keys()) await deleteMedia(historyKey(env.id, i));
+}
+
+/* กรุ๊ปที่การเงินระบุว่าไม่มีซองเงิน — ข้อมูลเล็ก เก็บ localStorage อย่างเดียว */
+const NO_ENV_KEY = 'cashEnvelopeNone';
+
+export function loadNoEnvelopeMarks(): NoEnvelopeMark[] {
+  const rows = readJson<unknown>(NO_ENV_KEY, []);
+  return Array.isArray(rows) ? (rows as NoEnvelopeMark[]) : [];
+}
+
+/** ระบุ (mark) / ยกเลิก (null) ว่ากรุ๊ปนี้ไม่มีซอง */
+export function persistNoEnvelopeMark(periodId: string, mark: NoEnvelopeMark | null): void {
+  const rest = loadNoEnvelopeMarks().filter((m) => m.periodId !== periodId);
+  writeJson(NO_ENV_KEY, mark ? [mark, ...rest] : rest);
+}
+
+/** ล้างซองทั้งหมด + รูปทุกทอด + การระบุ "ไม่มีซอง" — ใช้รีเซ็ตเพื่อทดสอบใหม่ (เอกสารเบิกที่นำเข้ายังอยู่) */
+export async function clearEnvelopes(): Promise<void> {
+  writeJson(KEY, []);
+  writeJson(NO_ENV_KEY, []);
+  if (canUseIdb()) await tx('readwrite', (s) => s.clear() as IDBRequest<undefined>);
 }
 
 /* ------------------------------ IndexedDB ------------------------------ */

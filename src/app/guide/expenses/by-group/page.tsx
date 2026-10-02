@@ -12,7 +12,7 @@ import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
-import { budgetItemsForGroup, recordedByBudgetLine } from '@/lib/logic/groupBudget';
+import { leaderBudgetItems, recordedByBudgetLine } from '@/lib/logic/groupBudget';
 import { GroupBudgetList } from '../GroupBudgetList';
 import { EXPENSE_STATUS } from '@/lib/labels';
 import { formatDateRange, formatDateTime } from '@/lib/format';
@@ -33,7 +33,7 @@ interface GroupBucket {
 }
 
 export default function GuideExpensesByGroupPage() {
-  const { currentUser, expenses, today } = useDemo();
+  const { currentUser, expenses, today, envelopes, noEnvelopeMarks } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
 
   // ทุกกรุ๊ปที่เคยถูกจัดให้ (ไม่จำกัดเฉพาะคอนเฟิร์มแล้ว) — เพื่อ join หาชื่อกรุ๊ปของค่าใช้จ่ายเก่าได้ครบ
@@ -61,7 +61,7 @@ export default function GuideExpensesByGroupPage() {
       grouped.set(e.jobId, list);
     }
     for (const id of myGroupIds) {
-      if (!grouped.has(id) && budgetItemsForGroup(expenses, id).length > 0) grouped.set(id, []);
+      if (!grouped.has(id) && leaderBudgetItems(expenses, envelopes, noEnvelopeMarks, id).length > 0) grouped.set(id, []);
     }
     return [...grouped.entries()]
       .map(([jobId, list]) => {
@@ -70,7 +70,7 @@ export default function GuideExpensesByGroupPage() {
       })
       .filter((b): b is GroupBucket => Boolean(b))
       .sort((a, b) => b.period.startDate.localeCompare(a.period.startDate));
-  }, [myExpenses, periodById, myGroupIds, expenses]);
+  }, [myExpenses, periodById, myGroupIds, expenses, envelopes, noEnvelopeMarks]);
 
   // กรองตามเดือนที่เลือก — เทียบวันเดินทางเริ่มต้นของกรุ๊ปว่าอยู่เดือนเดียวกับที่เลือกไหม
   const [monthCursor, setMonthCursor] = useState(today);
@@ -110,7 +110,7 @@ export default function GuideExpensesByGroupPage() {
             const activeList = list.filter((e) => e.status !== 'cancelled');
             const totalsByCurrency = sumByCurrency(activeList);
             const expanded = effectiveExpandedId === period.internalId;
-            const budgetItems = budgetItemsForGroup(expenses, period.internalId);
+            const budgetItems = leaderBudgetItems(expenses, envelopes, noEnvelopeMarks, period.internalId);
             const budgetNameById = new Map(budgetItems.map((b) => [b.line.id, b.line.purpose]));
             return (
               <li key={period.internalId}>

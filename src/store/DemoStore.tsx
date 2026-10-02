@@ -42,9 +42,10 @@ import {
   upsertAssignments,
 } from '@/services/assignment-storage';
 import { loadImportedAdvanceDocs, sampleAdvanceDocs, upsertImportedAdvanceDocs } from '@/services/advanceImportStore';
-import { loadEvidenceImages, loadSavedExpenses, persistExpense } from '@/services/expenseStore';
-import { attachMedia, loadEnvelopeMedia, loadEnvelopes, persistEnvelope, removeEnvelope } from '@/services/cashEnvelopeStore';
-import { envelopeName, type CashEnvelope } from '@/lib/logic/cashEnvelope';
+import { clearSavedExpenses, loadEvidenceImages, loadSavedExpenses, persistExpense } from '@/services/expenseStore';
+import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
+import { attachMedia, clearEnvelopes, loadEnvelopeMedia, loadEnvelopes, loadNoEnvelopeMarks, persistEnvelope, persistNoEnvelopeMark, removeEnvelope } from '@/services/cashEnvelopeStore';
+import { envelopeName, type CashEnvelope, type NoEnvelopeMark } from '@/lib/logic/cashEnvelope';
 import { toISODate, toISODateTime } from '@/lib/format';
 
 /** ผู้ใช้ที่สลับไว้ล่าสุด (Demo ไม่มี Login จริง) */
@@ -192,6 +193,14 @@ interface DemoState {
   saveEnvelope: (env: CashEnvelope, action: string, note?: string, photo?: string) => Promise<CashEnvelope>;
   /** ลบซองที่ยังไม่ปิด (เช่น สร้างเกิน) */
   deleteEnvelope: (env: CashEnvelope) => Promise<void>;
+  /** รีเซ็ตซองเงินทั้งหมด (ทุกกรุ๊ปกลับไป "รอจัดซอง") — สำหรับทดสอบใหม่ */
+  resetEnvelopes: () => Promise<void>;
+  /** รีเซ็ตใบเบิกที่ส่งเข้ามา (ค่าใช้จ่ายจริง/ค่าตอบแทน/ค่าส่งกรุ๊ป ฯลฯ) — เอกสารเบิกค่าใช้จ่ายกรุ๊ปยังอยู่ · สำหรับทดสอบใหม่ */
+  resetSubmittedExpenses: () => Promise<void>;
+  /** กรุ๊ปที่การเงินระบุว่าไม่มีซองเงินให้รับ */
+  noEnvelopeMarks: NoEnvelopeMark[];
+  /** ระบุว่ากรุ๊ปนี้ไม่มีซอง (reason) หรือยกเลิกการระบุ (null) — ใช้ชื่อผู้ใช้ปัจจุบันและเวลาจริง */
+  setNoEnvelope: (periodId: string, mark: { reason: string; note?: string } | null) => void;
   /**
    * อนุมัติใบเบิก — ทั้งใบ หรือบางรายการ: rejected = บรรทัดที่ไม่อนุมัติ (line id → เหตุผล)
    * ว่าง = อนุมัติเต็มจำนวน · ยอดบาท (totalTHB) คิดใหม่จากบรรทัดที่อนุมัติเท่านั้น
@@ -317,6 +326,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const [jobs, setJobs] = useState<TourJob[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRequest[]>([]);
   const [envelopes, setEnvelopes] = useState<CashEnvelope[]>([]);
+  const [noEnvelopeMarks, setNoEnvelopeMarks] = useState<NoEnvelopeMark[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [custodyBatches, setCustodyBatches] = useState<CashCustodyBatch[]>([]);
   /* งบประมาณต่อกรุ๊ป — ยังไม่มีหน้าให้โอพีสร้างเอง จึงเป็นข้อมูลตัวอย่างคงที่ (อ่านอย่างเดียว ไม่มี setter) */
@@ -372,6 +382,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         // รูปหลักฐานอยู่ IndexedDB (อ่านแบบ async) — เติมเข้าไปทีหลัง ไม่ทำให้หน้ารอ
         // ซองเงิน — ตัวข้อมูลจาก localStorage ทันที · ลายเซ็น/รูปผู้รับจาก IndexedDB ตามมา
         setEnvelopes(loadEnvelopes());
+        setNoEnvelopeMarks(loadNoEnvelopeMarks());
         void loadEnvelopeMedia().then((media) => {
           if (cancelled || media.size === 0) return;
           setEnvelopes((prev) => prev.map((e) => attachMedia(e, media)));
@@ -1084,6 +1095,48 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     [pushToast],
   );
 
+  const resetSubmittedExpenses = useCallback(async () => {
+    let removed: string[];
+    try {
+      removed = await clearSavedExpenses(isGroupAdvanceDoc);
+    } catch (err) {
+      pushToast('error', 'รีเซ็ตใบเบิกไม่สำเร็จ', saveErrorMessage(err));
+      throw err;
+    }
+    // ตัดใบที่ไม่ใช่เอกสารเบิกกรุ๊ปออกทั้งหมด (รวมใบที่ยังไม่เคยถูกเก็บ) ให้ตรงกับหลังรีเฟรช
+    setExpenses((prev) => prev.filter(isGroupAdvanceDoc));
+    pushToast('success', 'รีเซ็ตใบเบิกแล้ว', `ลบ ${removed.length} ใบ · เอกสารเบิกค่าใช้จ่ายกรุ๊ปยังอยู่`);
+  }, [pushToast]);
+
+  const resetEnvelopes = useCallback(async () => {
+    try {
+      await clearEnvelopes();
+    } catch (err) {
+      pushToast('error', 'รีเซ็ตซองเงินไม่สำเร็จ', saveErrorMessage(err));
+      throw err;
+    }
+    setEnvelopes([]);
+    setNoEnvelopeMarks([]);
+    pushToast('success', 'รีเซ็ตซองเงินแล้ว', 'ทุกกรุ๊ปกลับไปสถานะรอจัดซอง');
+  }, [pushToast]);
+
+  const setNoEnvelope = useCallback(
+    (periodId: string, mark: { reason: string; note?: string } | null) => {
+      const full: NoEnvelopeMark | null = mark
+        ? { periodId, reason: mark.reason, ...(mark.note ? { note: mark.note } : {}), at: toISODateTime(new Date()), byName: currentUser.name }
+        : null;
+      try {
+        persistNoEnvelopeMark(periodId, full);
+      } catch (err) {
+        pushToast('error', 'บันทึกไม่สำเร็จ', saveErrorMessage(err));
+        throw err;
+      }
+      setNoEnvelopeMarks((prev) => [...(full ? [full] : []), ...prev.filter((m) => m.periodId !== periodId)]);
+      pushToast('success', full ? 'ระบุว่ากรุ๊ปนี้ไม่มีซองแล้ว' : 'ยกเลิกการระบุ "ไม่มีซอง" แล้ว', full?.reason);
+    },
+    [currentUser.name, pushToast],
+  );
+
   const importAdvanceDocs = useCallback(
     (docs: ExpenseRequest[]) => {
       try {
@@ -1638,6 +1691,10 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     envelopes,
     saveEnvelope,
     deleteEnvelope,
+    resetEnvelopes,
+    resetSubmittedExpenses,
+    noEnvelopeMarks,
+    setNoEnvelope,
     approveExpenseLines,
     changeExpenseStatus,
     reviewSettlementItem,

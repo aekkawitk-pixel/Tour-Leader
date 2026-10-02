@@ -3,7 +3,7 @@
 /**
  * Chrome ของพอร์ทัลหัวหน้าทัวร์ (/guide/*) — แยกจาก AppShell ฝั่งผู้จัดโดยสิ้นเชิง
  *
- * ออกแบบมือถือเป็นหลัก (ตามที่ผู้บริหารต้องการ): แถบล่างคงที่ 5 ปุ่ม แทน Sidebar,
+ * ออกแบบมือถือเป็นหลัก (ตามที่ผู้บริหารต้องการ): แถบล่างคงที่ 4 ปุ่ม แทน Sidebar,
  * ไม่มีตารางกว้าง ไม่มีเมนูย่อยหลายชั้น — ทุกอย่างเข้าถึงได้ใน 1 แตะจากแถบล่าง
  * จำกัดความกว้างเนื้อหาไว้ที่ขนาดจอมือถือ (max-w-md) แม้เปิดจากจอเดสก์ท็อป
  * เพื่อให้ตรงกับสิ่งที่จะเห็นจริงตอนใช้งานบนมือถือเสมอ ไม่ใช่ responsive แบบขยายเต็มจอ
@@ -24,13 +24,15 @@ interface GuideNavItem {
   href: string;
   label: string;
   icon: IconName;
+  /** path อื่นที่นับเป็นเมนูนี้ด้วย (หน้าย่อยที่อยู่ path เดิม) */
+  also?: string[];
 }
 
 const GUIDE_NAV: GuideNavItem[] = [
   { href: '/guide', label: 'หน้าหลัก', icon: 'dashboard' },
   { href: '/guide/jobs', label: 'งานของฉัน', icon: 'briefcase' },
-  { href: '/guide/expenses', label: 'ค่าใช้จ่าย', icon: 'receipt' },
-  { href: '/guide/settlement', label: 'เคลียร์เงิน', icon: 'money' },
+  // "ค่าใช้จ่าย" + "เคลียร์เงิน" เดิมรวมเป็นเมนูเดียว — หน้าย่อยยังอยู่ path เดิม
+  { href: '/guide/finance', label: 'การเงิน', icon: 'money', also: ['/guide/expenses', '/guide/settlement'] },
   { href: '/guide/profile', label: 'โปรไฟล์', icon: 'guide' },
 ];
 
@@ -52,7 +54,7 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
 
   /** แท็บที่ active — ใช้ href ยาวสุดที่ตรงกับ path ปัจจุบัน กัน "/guide" จับคู่ผิดกับ "/guide/xxx" */
   const activeHref = [...GUIDE_NAV]
-    .filter((item) => (item.href === '/guide' ? pathname === '/guide' : pathname.startsWith(item.href)))
+    .filter((item) => (item.href === '/guide' ? pathname === '/guide' : [item.href, ...(item.also ?? [])].some((h) => pathname.startsWith(h))))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
   /** ออกจากมุมมองหัวหน้าทัวร์ — สลับกลับบทบาทผู้จัด (ใช้ทดสอบ/สาธิตเท่านั้น ไม่ใช่ระบบ Login จริง) */
@@ -156,7 +158,7 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
         <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-4">{children}</main>
 
         {/* แถบเมนูล่าง — คงที่ ใช้นิ้วโป้งแตะได้ตลอดโดยไม่ต้องเลื่อนขึ้น */}
-        <nav className="zego-guide-bottomnav sticky bottom-0 z-30 grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
+        <nav className="zego-guide-bottomnav sticky bottom-0 z-30 grid grid-cols-4 pb-[env(safe-area-inset-bottom)]">
           {GUIDE_NAV.map((item) => {
             const active = item.href === activeHref;
             return (

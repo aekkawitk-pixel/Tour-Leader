@@ -21,7 +21,7 @@ import { makeStatusEvent } from '@/lib/logic/workflow';
 import { compressImageToDataUrl } from '@/lib/image/compressImage';
 import { scanReceipt, ReceiptScanClientError, type ReceiptScanResult } from '@/services/receiptScan';
 import { formatCurrency, toISODate, toISODateTime } from '@/lib/format';
-import { budgetItemsForGroup, recordedByBudgetLine } from '@/lib/logic/groupBudget';
+import { advanceDocsReleased, leaderBudgetItems, recordedByBudgetLine } from '@/lib/logic/groupBudget';
 import { Button, Card, cx } from '@/components/ui/Primitives';
 import { baseControl, SelectInput, TextArea } from '@/components/ui/FormField';
 import { DateField } from '@/components/ui/DateInput';
@@ -143,7 +143,7 @@ export function ExpenseQuickForm({
   /** เปิดฟอร์มที่หน้าเลือกรายการเบิกทันที (กด "ทำรายการต่อไป" หลังบันทึกรายการเบิกก่อนหน้า) */
   initialPickBudget?: boolean;
 }) {
-  const { currentUser, leaders, master, saveExpense, createExpenseId, expenses } = useDemo();
+  const { currentUser, leaders, master, saveExpense, createExpenseId, expenses, envelopes, noEnvelopeMarks } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
   const leader = leaders.find((l) => l.id === leaderId);
 
@@ -152,7 +152,12 @@ export function ExpenseQuickForm({
    * รายการตามงบของกรุ๊ป (ใบเบิกเงินทดรองที่คนทำเบิกเตรียมไว้) — เลือกได้ว่าใบเสร็จนี้เป็นของรายการไหน
    * '' = นอกรายการงบ · เลือกแล้วเติมประเภท/รายละเอียด/สกุลเงินให้ (แก้ต่อได้) และผูกทุกบรรทัดกับรายการนั้น
    */
-  const budgetItems = useMemo(() => budgetItemsForGroup(expenses, period.internalId), [expenses, period.internalId]);
+  // เอกสารเบิกกรุ๊ปที่การเงินยังจัดซองไม่เสร็จ ยังไม่ให้หัวหน้าทัวร์เห็น/เลือก (ยอดยังเปลี่ยนได้)
+  const budgetItems = useMemo(
+    () => leaderBudgetItems(expenses, envelopes, noEnvelopeMarks, period.internalId),
+    [expenses, envelopes, noEnvelopeMarks, period.internalId],
+  );
+  const docsPending = !advanceDocsReleased(expenses, envelopes, noEnvelopeMarks, period.internalId);
   const usedByBudget = useMemo(() => recordedByBudgetLine(expenses, period.internalId), [expenses, period.internalId]);
   const [budgetLineId, setBudgetLineId] = useState('');
   /** ใบเบิกที่มีรายการงบ — ใช้แสดงแบบเอกสาร (หัวเอกสาร + หมวด) ในวิธี "ตามรายการเบิก" */
@@ -414,7 +419,7 @@ export function ExpenseQuickForm({
             method={SCOPE_BUDGET}
             onClick={() => chooseScope('budget')}
             disabled={noBudget}
-            subtitle={noBudget ? 'ยังไม่มีรายการเบิกของกรุ๊ปนี้' : undefined}
+            subtitle={noBudget ? (docsPending ? 'การเงินกำลังจัดซอง — เลือกรายการเบิกได้เมื่อจัดซองเสร็จ' : 'ยังไม่มีรายการเบิกของกรุ๊ปนี้') : undefined}
           />
           <MethodButton method={SCOPE_OUTSIDE} onClick={() => chooseScope('outside')} />
         </ul>

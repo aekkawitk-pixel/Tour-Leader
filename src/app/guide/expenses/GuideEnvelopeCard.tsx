@@ -34,7 +34,7 @@ import { PhotoConfirmModal, ProofThumb } from '@/components/expenses/EnvelopePro
  */
 export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 'receive' | 'use' }) {
   const receiving = mode === 'receive';
-  const { expenses, envelopes, saveEnvelope, currentUser, leaders } = useDemo();
+  const { expenses, envelopes, saveEnvelope, currentUser, leaders, noEnvelopeMarks } = useDemo();
   const [landOpen, setLandOpen] = useState(false);
   const [mismatchOpen, setMismatchOpen] = useState(false);
   /** ซองที่กำลังยืนยันรับ — ยืนยันอย่างเดียว ไม่บังคับแนบรูป */
@@ -53,7 +53,8 @@ export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 
   const all = envelopes.filter((e) => e.periodId === periodId && e.packedLineIds.length > 0).sort((a, b) => a.no - b.no);
   // หัวหน้าทัวร์เห็นเฉพาะซองที่การเงินปิดแล้ว (ยอดหน้าซองนิ่งแล้ว)
   const envs = all.filter((e) => e.sealed);
-  const status = groupEnvelopeStatus(groupLines(docs), all);
+  const noEnv = noEnvelopeMarks.find((m) => m.periodId === periodId);
+  const status = groupEnvelopeStatus(groupLines(docs), all, noEnv);
   const received = envs.filter((e) => e.leaderAck);
   const leader = leaders.find((l) => l.id === currentUser.leaderId);
   const leaderName = leader ? `${leader.firstName} ${leader.lastName}`.trim() : currentUser.name;
@@ -121,14 +122,17 @@ export function GuideEnvelopeCard({ periodId, mode }: { periodId: string; mode: 
           </span>
           <div>
             <p className="text-sm font-semibold zego-text">ซองเงินของกรุ๊ป{envs.length > 1 ? ` · ${envs.length} ซอง` : ''}</p>
-            <p className="text-[11px] zego-text-tertiary">ตามเอกสารเบิก {docs.map((d) => d.id).join(', ')}</p>
+            {/* ระหว่างรอจัด/กำลังจัด ยังไม่บอกเลขเอกสารเบิก — เห็นรายละเอียดเมื่อการเงินจัดซองเสร็จ */}
+            {status.stage !== 'packing' && <p className="text-[11px] zego-text-tertiary">ตามเอกสารเบิก {docs.map((d) => d.id).join(', ')}</p>}
           </div>
         </div>
         <StatusPill label={status.label} tone={status.tone} />
       </div>
 
       {envs.length === 0 ? (
-        <p className="rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-secondary">การเงินกำลังจัดเงินใส่ซอง</p>
+        <p className="rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-secondary">
+          {noEnv && status.stage === 'none' ? `กรุ๊ปนี้ไม่มีซองเงินให้รับ — ${noEnv.reason}${noEnv.note ? ` · ${noEnv.note}` : ''}` : 'การเงินกำลังจัดเงินใส่ซอง — รายละเอียดเอกสารเบิกจะแสดงเมื่อจัดซองเสร็จ'}
+        </p>
       ) : (
         <ul className="space-y-2">
           {envs.map((env) => {

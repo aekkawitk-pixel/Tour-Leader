@@ -27,7 +27,7 @@ import { ExpenseQuickForm } from '../ExpenseQuickForm';
 import { ExpensesBackHeader } from '../ExpensesBackHeader';
 import { CurrencyStack } from '../CurrencyStack';
 import { expenseOriginalTotals, sumByCurrency } from '../expenseAmounts';
-import { budgetItemsForGroup, type BudgetItem } from '@/lib/logic/groupBudget';
+import { leaderBudgetItems, type BudgetItem } from '@/lib/logic/groupBudget';
 import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import type { ExpenseRequest } from '@/types';
 
@@ -37,7 +37,7 @@ const TRAVEL_FILTERS: { value: 'before' | 'after'; label: string }[] = [
 ];
 
 export default function GuideExpensesRecordPage() {
-  const { currentUser, expenses } = useDemo();
+  const { currentUser, expenses, envelopes, noEnvelopeMarks } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
 
   const myJobs = useMemo(() => {
@@ -155,7 +155,7 @@ export default function GuideExpensesRecordPage() {
               </button>
             </div>
           </div>
-          <SpendSummaryCard recorded={jobExpenses} budgetItems={budgetItemsForGroup(expenses, selectedPeriod.internalId)} />
+          <SpendSummaryCard recorded={jobExpenses} budgetItems={leaderBudgetItems(expenses, envelopes, noEnvelopeMarks, selectedPeriod.internalId)} />
           <GuideEnvelopeCard periodId={selectedPeriod.internalId} mode="use" />
           {justSaved ? (
             <SavedPrompt

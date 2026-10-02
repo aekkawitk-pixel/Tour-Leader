@@ -54,7 +54,9 @@ function expenseTypeOf(expense: ExpenseRequest): StatusMeta {
 }
 
 export default function ExpensesPage() {
-  const { expenses, jobs, leaders, currentUser } = useDemo();
+  const { expenses, jobs, leaders, currentUser, resetSubmittedExpenses } = useDemo();
+  const [resetting, setResetting] = useState(false);
+  const submittedCount = expenses.filter((e) => !isGroupAdvanceDoc(e)).length;
 
   const [tab, setTab] = useState<'all' | MoneyCategory>('all');
   const [query, setQuery] = useState('');
@@ -248,6 +250,26 @@ export default function ExpensesPage() {
         description="ตรวจ อนุมัติ และบันทึกการจ่าย — ค่าตอบแทน เงินทดรอง ค่าใช้จ่ายจริง และเงินคืน/จ่ายเพิ่ม"
         actions={
           <div className="flex flex-wrap gap-2">
+            {/* ล้างใบเบิกที่ส่งเข้ามาทั้งหมด เพื่อทดสอบ flow ใหม่ — เอกสารเบิกค่าใช้จ่ายกรุ๊ป/ซองเงินไม่ถูกแตะ */}
+            {submittedCount > 0 && (
+              <Button
+                variant="secondary"
+                loading={resetting}
+                onClick={async () => {
+                  if (!window.confirm(`รีเซ็ตใบเบิกทั้งหมด ${submittedCount} ใบ?\nใบเบิกที่หัวหน้าทัวร์/เจ้าหน้าที่ส่งมา (และรูปหลักฐาน) จะถูกลบ — เอกสารเบิกค่าใช้จ่ายกรุ๊ปและซองเงินยังอยู่ · ย้อนกลับไม่ได้`)) return;
+                  setResetting(true);
+                  try {
+                    await resetSubmittedExpenses();
+                  } catch {
+                    /* แจ้งผ่าน toast แล้ว */
+                  } finally {
+                    setResetting(false);
+                  }
+                }}
+              >
+                รีเซ็ตใบเบิก (ทดสอบใหม่)
+              </Button>
+            )}
             {/* เอกสารเบิกค่าใช้จ่ายกรุ๊ป (นำเข้า .xls / จัดซองเงิน) ย้ายไปเมนู "จัดการค่าใช้จ่ายกรุ๊ป" */}
             {canManageGroup && (
               <Link href="/group-expenses" className="zego-button">

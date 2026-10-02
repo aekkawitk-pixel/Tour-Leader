@@ -43,6 +43,15 @@ export async function persistExpense(expense: ExpenseRequest): Promise<void> {
   else await deleteEvidence(expense.id);
 }
 
+/** ลบใบที่เก็บไว้ทุกใบที่ keep ไม่เก็บ (พร้อมรูปหลักฐาน) — ใช้รีเซ็ตเพื่อทดสอบใหม่ · คืน id ที่ลบ */
+export async function clearSavedExpenses(keep: (e: ExpenseRequest) => boolean): Promise<string[]> {
+  const all = loadSavedExpenses();
+  const removed = all.filter((e) => !keep(e)).map((e) => e.id);
+  writeJson(EXPENSE_STORAGE_KEY, all.filter(keep));
+  for (const id of removed) await deleteEvidence(id);
+  return removed;
+}
+
 /* ------------------------------ IndexedDB ------------------------------ */
 
 function canUseIdb(): boolean {

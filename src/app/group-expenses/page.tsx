@@ -18,7 +18,7 @@ import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import { groupEnvelopeStatus, groupLines } from '@/lib/logic/cashEnvelope';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
 
-type Filter = 'all' | 'packing' | 'sealed' | 'handed_over' | 'received' | 'mismatch';
+type Filter = 'all' | 'packing' | 'sealed' | 'handed_over' | 'received' | 'mismatch' | 'none';
 
 const FILTERS: { key: Filter; label: string; hint: string; tone: string }[] = [
   { key: 'all', label: 'ทั้งหมด', hint: 'กรุ๊ปที่มีเอกสารเบิก', tone: '#475569' },
@@ -27,6 +27,7 @@ const FILTERS: { key: Filter; label: string; hint: string; tone: string }[] = [
   { key: 'handed_over', label: 'ระหว่างส่งมอบ', hint: 'รอเจ้าหน้าที่ / หัวหน้าทัวร์ยืนยันรับ', tone: '#6d28d9' },
   { key: 'received', label: 'หัวหน้าทัวร์รับแล้ว', hint: 'อยู่ในมือหัวหน้าทัวร์', tone: '#15803d' },
   { key: 'mismatch', label: 'แจ้งยอดไม่ตรง', hint: 'ต้องตรวจสอบ', tone: '#be123c' },
+  { key: 'none', label: 'ไม่มีซอง', hint: 'การเงินระบุว่าไม่ต้องจัดซอง', tone: '#475569' },
 ];
 
 function matches(s: { stage: string; mismatch: boolean }, f: Filter): boolean {
@@ -36,10 +37,24 @@ function matches(s: { stage: string; mismatch: boolean }, f: Filter): boolean {
 }
 
 export default function GroupExpensesPage() {
-  const { expenses, envelopes, currentUser } = useDemo();
+  const { expenses, envelopes, currentUser, resetEnvelopes, noEnvelopeMarks } = useDemo();
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [importOpen, setImportOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  // ล้างซองทั้งหมด (จัดซอง/ส่งมอบ/รับ/ส่งแลนด์ + รูป) — เอกสารเบิกที่นำเข้ายังอยู่ ใช้ทดสอบ flow ใหม่ตั้งแต่ต้น
+  const onReset = async () => {
+    if (!window.confirm(`รีเซ็ตซองเงินทั้งหมด ${envelopes.length} ซอง?\nทุกกรุ๊ปจะกลับไปสถานะ "รอจัดซอง" (เอกสารเบิกที่นำเข้ายังอยู่) — ย้อนกลับไม่ได้`)) return;
+    setResetting(true);
+    try {
+      await resetEnvelopes();
+    } catch {
+      /* แจ้งผ่าน toast แล้ว */
+    } finally {
+      setResetting(false);
+    }
+  };
   const canImport = can(currentUser.role, 'expense.create') || can(currentUser.role, 'expense.approve');
 
   // 1 แถว = 1 กรุ๊ป (เอกสารเบิกหลายใบของกรุ๊ปเดียวกันรวมกัน — ซองเงินเป็นของกรุ๊ป)
@@ -52,7 +67,7 @@ export default function GroupExpensesPage() {
     }
     return [...m.values()];
   }, [expenses]);
-  const statusOf = (g: GroupDocs) => groupEnvelopeStatus(groupLines(g.docs), envelopes.filter((e) => e.periodId === g.periodId));
+  const statusOf = (g: GroupDocs) => groupEnvelopeStatus(groupLines(g.docs), envelopes.filter((e) => e.periodId === g.periodId), noEnvelopeMarks.find((m) => m.periodId === g.periodId));
 
   const q = query.trim().toLowerCase();
   const shown = groups
@@ -71,16 +86,23 @@ export default function GroupExpensesPage() {
         title="จัดการค่าใช้จ่ายกรุ๊ป"
         description="เอกสารเบิกค่าใช้จ่ายกรุ๊ป · การเงินจัดซอง → เจ้าหน้าที่ส่งกรุ๊ป → หัวหน้าทัวร์ → ส่งแลนด์ / ใช้ตามรายการ"
         actions={
-          canImport && (
-            <Button variant="primary" icon="download" onClick={() => setImportOpen(true)}>
-              นำเข้าเอกสารเบิก (.xls)
-            </Button>
-          )
+          <>
+            {(envelopes.length > 0 || noEnvelopeMarks.length > 0) && (
+              <Button variant="secondary" loading={resetting} onClick={onReset}>
+                รีเซ็ตซองเงิน (ทดสอบใหม่)
+              </Button>
+            )}
+            {canImport && (
+              <Button variant="primary" icon="download" onClick={() => setImportOpen(true)}>
+                นำเข้าเอกสารเบิก (.xls)
+              </Button>
+            )}
+          </>
         }
       />
 
       {/* สรุปสถานะซอง — แตะเพื่อกรอง */}
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-7">
         {FILTERS.map((f) => {
           const count = groups.filter((g) => matches(statusOf(g), f.key)).length;
           const active = filter === f.key;

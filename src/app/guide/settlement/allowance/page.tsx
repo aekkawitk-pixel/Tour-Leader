@@ -130,7 +130,7 @@ export default function GuideAllowancePage() {
                       {receipts.length > 0 ? `บันทึกแล้ว ${receipts.length} ใบเสร็จ` : 'ยังไม่มีใบเสร็จ'}
                     </span>
                   </span>
-                  <Link href="/guide/expenses" className="shrink-0 text-xs font-medium zego-text-info hover:underline">ไปที่ค่าใช้จ่าย →</Link>
+                  <Link href="/guide/finance?tab=during" className="shrink-0 text-xs font-medium zego-text-info hover:underline">ไปที่ค่าใช้จ่าย →</Link>
                 </li>
                 {(['per_diem', 'tip'] as LeaderClaimKind[]).map((kind) => {
                   const existing = leaderId ? activeLeaderClaim(expenses, period.internalId, leaderId, kind) : null;

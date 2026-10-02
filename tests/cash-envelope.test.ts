@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  canSeal, docChangedSinceSeal, envelopeShortLabel, envelopeStage, envelopeStatusLabel, envelopeTotals, groupEnvelopeStatus,
-  groupLines, lineKey, lineOwners, newEnvelope, normalizeEnvelope, unassignedLines, type CashEnvelope,
+  allocatedTotals, allocationOf, canSeal, docChangedSinceSeal, envelopeShortLabel, envelopeStage, envelopeStatusLabel, envelopeTotals, groupEnvelopeStatus,
+  groupLines, lineKey, newEnvelope, normalizeEnvelope, packingFromAllocation, unassignedLines, type CashEnvelope,
 } from '../src/lib/logic/cashEnvelope';
 
 // กรุ๊ป G1 มีเอกสารเบิก 2 ใบ — id บรรทัดซ้ำกันข้ามเอกสารได้ (R-1)
@@ -12,11 +12,13 @@ const docs = [
 ];
 const lines = groupLines(docs);
 const K = (doc: string, id: string) => lineKey(doc, id);
+/** ใส่เต็มจำนวนทุกรายการ */
+const full = (keys: string[]) => allocationOf({ packedLineIds: keys }, lines);
 
 const sealedWith = (env: CashEnvelope, keys: string[]): CashEnvelope => ({
   ...env,
   packedLineIds: keys,
-  sealed: { at: 't', byName: 'x', faceTotals: envelopeTotals(lines, keys).packed, lineSnapshot: lines.filter((l) => keys.includes(l.id)) },
+  sealed: { at: 't', byName: 'x', faceTotals: envelopeTotals(lines, full(keys)).packed, lineSnapshot: lines.filter((l) => keys.includes(l.id)) },
 });
 
 test('รายการของทุกเอกสารในกรุ๊ปรวมเป็นชุดเดียว — id บรรทัดซ้ำข้ามเอกสารไม่ชนกัน', () => {
@@ -26,15 +28,15 @@ test('รายการของทุกเอกสารในกรุ๊�
 });
 
 test('ยอดที่ต้องจัด vs ยอดในซอง — แยกสกุลเงิน ไม่บวกข้ามสกุล', () => {
-  const t = envelopeTotals(lines, [K('EXPOP1', 'R-1'), K('EXPOP1', 'R-3')]);
+  const t = envelopeTotals(lines, full([K('EXPOP1', 'R-1'), K('EXPOP1', 'R-3')]));
   assert.deepEqual(t.required, [{ currency: 'JPY', amount: 497000 }, { currency: 'THB', amount: 2000 }]);
   assert.deepEqual(t.packed, [{ currency: 'JPY', amount: 17000 }, { currency: 'THB', amount: 2000 }]);
 });
 
 test('ปิดซองได้เมื่อมีรายการอย่างน้อย 1 รายการ (แยกหลายซองได้ ไม่ต้องครบทั้งใบ)', () => {
-  assert.equal(canSeal(lines, []), false);
-  assert.equal(canSeal(lines, [K('EXPOP1', 'R-2')]), true);
-  assert.equal(canSeal(lines, [K('EXPOP9', 'R-1')]), false); // รายการไม่อยู่ในเอกสารแล้ว
+  assert.equal(canSeal(lines, {}), false);
+  assert.equal(canSeal(lines, full([K('EXPOP1', 'R-2')])), true);
+  assert.equal(canSeal(lines, { [K('EXPOP9', 'R-1')]: 100 }), false); // รายการไม่อยู่ในเอกสารแล้ว
 });
 
 test('ซองใหม่ของกรุ๊ปเรียงลำดับต่อกัน', () => {
@@ -45,12 +47,37 @@ test('ซองใหม่ของกรุ๊ปเรียงลำดั�
   assert.notEqual(a.id, b.id);
 });
 
-test('1 รายการอยู่ได้ซองเดียว · รายการที่ยังไม่ได้จัด', () => {
+test('รายการที่ยังไม่ได้จัด', () => {
   const a = { ...newEnvelope('G1', []), packedLineIds: [K('EXPOP1', 'R-1'), K('EXPOP1', 'R-2')] };
   const b = { ...newEnvelope('G1', [a]), packedLineIds: [K('EXPOP2', 'R-1')] };
-  const owners = lineOwners([a, b]);
-  assert.equal(owners.get(K('EXPOP2', 'R-1')), b.id);
+  assert.equal(allocatedTotals(lines, [a, b]).get(K('EXPOP2', 'R-1')), 30000);
   assert.deepEqual(unassignedLines(lines, [a, b]).map((l) => l.id), [K('EXPOP1', 'R-3')]);
+});
+
+test('1 รายการแบ่งใส่หลายซองได้ — ยอดรวมไม่เกินรายการ · ยังไม่ครบ = เหลือให้จัด', () => {
+  const k = K('EXPOP1', 'R-2'); // 450,000 JPY
+  const a = { ...newEnvelope('G1', []), ...packingFromAllocation({ [k]: 300000 }, lines) };
+  assert.deepEqual(a.splits, { [k]: 300000 });
+  // เต็มจำนวน = ไม่เก็บ splits
+  assert.equal(packingFromAllocation({ [k]: 450000 }, lines).splits, undefined);
+  const left = unassignedLines(lines.filter((l) => l.id === k), [a]);
+  assert.deepEqual(left.map((l) => l.amount), [150000]);
+  assert.deepEqual(envelopeTotals(lines, allocationOf(a, lines)).packed, [{ currency: 'JPY', amount: 300000 }]);
+  // ซอง 2 ใส่ได้ไม่เกินที่เหลือ
+  const others = allocatedTotals(lines, [a]);
+  assert.equal(canSeal(lines, { [k]: 150000 }, others), true);
+  assert.equal(canSeal(lines, { [k]: 150001 }, others), false);
+  assert.equal(canSeal(lines, { [k]: 0 }, others), false);
+});
+
+test('สถานะกรุ๊ป: รายการที่แบ่ง 2 ซอง ต้องปิดครบทั้ง 2 ซองจึงพ้น "กำลังจัด"', () => {
+  const k = K('EXPOP2', 'R-1'); // 30,000 JPY
+  const one = lines.filter((l) => l.id === k);
+  const seal = (e: CashEnvelope): CashEnvelope => ({ ...e, sealed: { at: 't', byName: 'x', faceTotals: [], lineSnapshot: one } });
+  const a = seal({ ...newEnvelope('G1', []), ...packingFromAllocation({ [k]: 10000 }, lines) });
+  const b = { ...newEnvelope('G1', [a]), ...packingFromAllocation({ [k]: 20000 }, lines) };
+  assert.equal(groupEnvelopeStatus(one, [a, b]).stage, 'packing');
+  assert.equal(groupEnvelopeStatus(one, [a, seal(b)]).stage, 'sealed');
 });
 
 test('สถานะกรุ๊ป: รวมทุกเอกสารในซองเดียว', () => {
@@ -240,4 +267,13 @@ test('Timeline: ตัดชื่อซอง (รวมชื่อที่�
     { at: '2026-09-30T17:26:00', byName: 'อรวรรณ', action: 'ส่งมอบซองให้เจ้าหน้าที่ส่งกรุ๊ป', note: 'ซอง 1 · ทดสอบ · ธนกฤต นำส่ง ชัยมงคล · รอเจ้าหน้าที่ยืนยันรับ' },
   ] };
   assert.deepEqual(envelopeTimeline([env])[0].details, ['ธนกฤต นำส่ง ชัยมงคล', 'รอเจ้าหน้าที่ยืนยันรับ']);
+});
+
+test('กรุ๊ปที่การเงินระบุว่าไม่มีซอง — สถานะ "ไม่มีซอง" · มีรายการในซองแล้วการระบุไม่มีผล', () => {
+  const mark = { periodId: 'G1', reason: 'โอนจ่ายแลนด์/ซัพพลายเออร์โดยตรง', at: 't', byName: 'x' };
+  const s = groupEnvelopeStatus(lines, [], mark);
+  assert.equal(s.stage, 'none');
+  assert.equal(s.label, 'ไม่มีซอง');
+  const a = { ...newEnvelope('G1', []), packedLineIds: [K('EXPOP1', 'R-1')] };
+  assert.equal(groupEnvelopeStatus(lines, [a], mark).stage, 'packing');
 });
