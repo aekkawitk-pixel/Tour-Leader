@@ -18,7 +18,7 @@ import { PhotoConfirmModal, ProofThumb } from './EnvelopeProofPhoto';
 import { useDemo } from '@/store/DemoStore';
 import { Drawer } from '@/components/ui/Modal';
 import { Button, cx } from '@/components/ui/Primitives';
-import { TextInput } from '@/components/ui/FormField';
+import { SearchBox, TextInput } from '@/components/ui/FormField';
 import { Icon } from '@/components/ui/Icon';
 import { formatCurrency, formatDate, formatDateRange, formatDateTime, formatTime, toISODate, toISODateTime } from '@/lib/format';
 import {
@@ -652,24 +652,56 @@ function EnvelopePanel({
     รอเจ้าหน้าที่ → ต้องมีเจ้าหน้าที่ในการส่งมอบครั้งนี้ · รอหัวหน้าทัวร์ → ใช้หัวหน้าทัวร์หลักของกรุ๊ปนี้ (ต้องมี)
   */
   const thisGroupCode = period?.groupCode ?? periodId;
-  const attachable = allEnvelopes.filter((x) => x.periodId !== periodId && x.pendingDeposit && x.sealed && !x.handover
-    && (x.pendingDeposit.staff !== 'pending' || !!staffPerson)
-    && (x.pendingDeposit.leader !== 'pending' || !!leader));
+  /*
+    คนของกรุ๊ปนี้ที่จะถือซองฝาก — ยังไม่ส่งมอบ = ตามที่เลือกในฟอร์ม · ส่งมอบแล้ว = ผู้ถือซองของกรุ๊ปนี้ (ฝากเพิ่มตามไปได้)
+  */
+  const handedCarrier = carrierOf(env.handover);
+  const attachStaff = env.handover
+    ? (handedCarrier?.kind === 'staff' ? { id: handedCarrier.id, name: handedCarrier.name } : undefined)
+    : staffPerson && { id: staffPerson.id, name: staffPerson.name };
+  /** ซองของกรุ๊ปอื่นที่รอฝากทั้งหมด + เหตุผลถ้ายังฝากกับกรุ๊ปนี้ไม่ได้ (null = ติ๊กได้) */
+  const waitingOthers = allEnvelopes
+    .filter((x) => x.periodId !== periodId && x.pendingDeposit && x.sealed && !x.handover)
+    .map((x) => {
+      const pd = x.pendingDeposit!;
+      const xp = getTourPeriodById(x.periodId);
+      const myStart = period?.startDate ?? '';
+      const reason =
+        pd.staff === 'pending' && !attachStaff ? (env.handover ? 'ซองกรุ๊ปนี้ไม่ได้ฝากเจ้าหน้าที่ส่งกรุ๊ป' : 'เลือกเจ้าหน้าที่ส่งกรุ๊ปของกรุ๊ปนี้ก่อน')
+          : pd.leader === 'pending' && !leader ? 'กรุ๊ปนี้ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม'
+            // ส่งทันไหม — เจ้าหน้าที่ไปส่งกรุ๊ปนี้ก่อน/วันเดียวกับกรุ๊ปเจ้าของซองออกเดินทาง · หัวหน้าทัวร์ออกเดินทางไม่หลังวันกลับของกรุ๊ปเจ้าของซอง
+            : xp && myStart && pd.staff === 'pending' && myStart > xp.startDate ? `กรุ๊ปนี้ออกเดินทางหลังกรุ๊ป ${xp.groupCode} — ส่งไม่ทัน`
+              : xp && myStart && pd.staff !== 'pending' && pd.leader === 'pending' && myStart > xp.endDate ? `กรุ๊ปนี้ออกเดินทางหลังกรุ๊ป ${xp.groupCode} กลับแล้ว — ส่งไม่ทัน`
+                : null;
+      return { env: x, period: xp, reason };
+    });
+  const attachable = waitingOthers.filter((w) => !w.reason).map((w) => w.env);
   const [attachIds, setAttachIds] = useState<Set<string>>(new Set());
+  // ค้นหารหัสกรุ๊ปในซองที่รอฝาก — ซองที่ติ๊กไว้แล้วยังแสดงอยู่เสมอ ไม่หายไปตอนเปลี่ยนคำค้น
+  const [attachQuery, setAttachQuery] = useState('');
+  const attachQ = attachQuery.trim().toUpperCase();
+  const waitingShown = attachQ
+    ? waitingOthers.filter((w) => attachIds.has(w.env.id) || (w.period?.groupCode ?? w.env.periodId).toUpperCase().includes(attachQ))
+    : waitingOthers;
   const toggleAttach = (id: string) => setAttachIds((s0) => {
     const n = new Set(s0);
     if (n.has(id)) n.delete(id);
     else n.add(id);
     return n;
   });
-  /** ฝากซองของกรุ๊ปอื่นไปกับคนของกรุ๊ปนี้ — ผู้รับปลายทาง = หัวหน้าทัวร์ของกรุ๊ปเจ้าของซอง */
-  const handOverAttached = async (x: CashEnvelope) => {
+  /** คนที่ถือซองฝากแต่ละทอด — เจ้าหน้าที่ / หัวหน้าทัวร์ที่ฝากส่ง / หัวหน้าทัวร์หลักของกรุ๊ปเจ้าของซอง */
+  const attachRoute = (x: CashEnvelope) => {
     const pd = x.pendingDeposit!;
     const owner = leaderOfPeriod(x.periodId);
-    const staffSide = pd.staff === 'pending' ? staffPerson && { id: staffPerson.id, name: staffPerson.name } : pd.staff === 'none' ? undefined : pd.staff;
+    const staffSide = pd.staff === 'pending' ? attachStaff : pd.staff === 'none' ? undefined : pd.staff;
     const leaderSide = pd.leader === 'pending'
       ? leader && { id: leader.id, name: leader.name, viaGroup: thisGroupCode }
       : pd.leader === 'main' ? undefined : pd.leader;
+    return { owner, staffSide, leaderSide };
+  };
+  /** ฝากซองของกรุ๊ปอื่นไปกับคนของกรุ๊ปนี้ — ผู้รับปลายทาง = หัวหน้าทัวร์ของกรุ๊ปเจ้าของซอง */
+  const handOverAttached = async (x: CashEnvelope) => {
+    const { owner, staffSide, leaderSide } = attachRoute(x);
     const base = { at: toISODateTime(new Date()), byName: '', ...(owner ? { receiverId: owner.id } : {}), receiverName: owner?.name ?? 'หัวหน้าทัวร์ของกรุ๊ป' };
     const next: CashEnvelope = {
       ...x,
@@ -690,10 +722,13 @@ function EnvelopePanel({
       return;
     }
     await handOverMain();
-    // ซองของกรุ๊ปอื่นที่ติ๊กไว้ — ฝากไปพร้อมกัน
+  };
+  /** ฝากซองของกรุ๊ปอื่นที่ติ๊กไว้ไปกับคนของกรุ๊ปนี้ */
+  const handOverAttachedPicked = async () => {
     for (const x of attachable.filter((e) => attachIds.has(e.id))) await handOverAttached(x);
     setAttachIds(new Set());
   };
+  const pickedCount = attachable.filter((x) => attachIds.has(x.id)).length;
 
   const handOverMain = () => {
     // ส่งมอบจริงแล้ว — ล้างสถานะรอฝาก (ถ้ามี)
@@ -825,6 +860,63 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
 </body></html>`);
     w.document.close();
   };
+
+  /* หัวข้อ 3 แสดงเมื่อมีซองกรุ๊ปอื่นรอฝาก / ฝากมากับกรุ๊ปนี้แล้ว — ไม่แสดงตอนซองนี้เองยังรอเลือกคนฝาก หรือถูกส่งคืนการเงิน */
+  const depositedHere = allEnvelopes.filter((x) => x.periodId !== periodId && x.handover?.viaGroup === thisGroupCode);
+  const showAttach = stage !== 'packing' && !env.staffReturn && !(!env.handover && pending)
+    && (waitingOthers.length > 0 || depositedHere.length > 0);
+  const attachCarrierText = attachStaff ? ` ${attachStaff.name} (เจ้าหน้าที่ส่งกรุ๊ป)` : leader ? ` ${leader.name} (หัวหน้าทัวร์ของกรุ๊ปนี้)` : 'คนของกรุ๊ปนี้';
+  /* ซองของกรุ๊ปอื่นที่ตั้ง "รอฝาก · เลือกภายหลัง" — ถามว่าจะฝากไปกับคนของกรุ๊ปนี้ด้วยไหม (ผู้รับปลายทาง = หัวหน้าทัวร์ของกรุ๊ปเจ้าของซอง) */
+  const attachBox = waitingOthers.length > 0 && (
+    <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2">
+      <p className="text-xs font-semibold text-amber-900">
+        มีซองของกรุ๊ปอื่นรอฝาก {waitingOthers.length} ซอง — ฝากไปกับกรุ๊ปนี้ด้วยไหม?
+      </p>
+      <p className="text-[11px] text-amber-800">ติ๊กซองที่จะฝากไปด้วย · ไม่ติ๊ก = ซองยังรอฝากต่อ เลือกกรุ๊ปอื่นภายหลังได้</p>
+      <SearchBox
+        value={attachQuery}
+        onChange={setAttachQuery}
+        onClear={() => setAttachQuery('')}
+        label="ค้นหารหัสกรุ๊ป"
+        placeholder="ค้นหารหัสกรุ๊ป เช่น CAN-261102G"
+      />
+      {waitingShown.length === 0 && <p className="px-2 py-1.5 text-xs zego-text-tertiary">ไม่พบกรุ๊ปที่ตรงกับ “{attachQuery.trim()}”</p>}
+      {waitingShown.map(({ env: x, period: xp, reason }) => {
+        const { owner, staffSide, leaderSide } = attachRoute(x);
+        const ownerCode = xp?.groupCode ?? x.periodId;
+        // เส้นทางเต็มของซองฝาก — ให้เห็นว่าผ่านใคร และปลายทางคือหัวหน้าทัวร์ของกรุ๊ปเจ้าของซอง (ไม่ใช่ของกรุ๊ปนี้)
+        const route = [
+          staffSide && `${staffSide.name} (เจ้าหน้าที่ส่งกรุ๊ป)`,
+          leaderSide && `${leaderSide.name} (หัวหน้าทัวร์${leader && leaderSide.id === leader.id ? `กรุ๊ป ${thisGroupCode}` : ''} ฝากส่ง)`,
+          `${owner?.name ?? 'หัวหน้าทัวร์ (ยังไม่คอนเฟิร์ม)'} (หัวหน้าทัวร์หลักของ ${ownerCode})`,
+        ].filter(Boolean) as string[];
+        return (
+          <label key={x.id} className={cx('flex items-start gap-2 rounded-md bg-white/70 px-2 py-1.5 text-xs', reason ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')}>
+            <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" disabled={!!reason} checked={!reason && attachIds.has(x.id)} onChange={() => toggleAttach(x.id)} />
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium zego-text">{xp?.groupCode ?? x.periodId} · {envelopeName(x)}</span>
+              <span className="block zego-text-secondary">
+                {xp && `ออกเดินทาง ${formatDateRange(xp.startDate, xp.endDate)} · `}{pendingDepositLabel(x.pendingDeposit!)}
+              </span>
+              {!reason && (
+                <span className="mt-0.5 flex flex-wrap items-center gap-1 zego-text">
+                  <span className="zego-text-tertiary">เส้นทาง:</span>
+                  {route.map((step, i) => (
+                    <span key={i} className="flex items-center gap-1">
+                      {i > 0 && <Icon name="chevronRight" className="h-3 w-3 zego-text-tertiary" />}
+                      <span className={i === route.length - 1 ? 'font-semibold' : undefined}>{step}</span>
+                    </span>
+                  ))}
+                </span>
+              )}
+              {reason && <span className="block zego-text-warning">ฝากไม่ได้: {reason}</span>}
+            </span>
+            <span className="shrink-0 font-semibold tabular-nums zego-text">{fmtTotals(x.sealed?.faceTotals ?? [])}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div className="space-y-5 rounded-xl border zego-border-color p-3 sm:p-4">
@@ -1196,45 +1288,11 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                 ))}
               </div>
 
-              {/* เส้นทางที่จะเกิดขึ้น — ทุกทอดกดรับในแอปของตัวเอง ตรวจย้อนหลังได้ */}
-              <div className="rounded-lg zego-surface-soft-bg px-3 py-2 text-xs">
-                <p className="mb-1 font-semibold zego-text-secondary">เส้นทางซอง</p>
-                <p className="flex flex-wrap items-center gap-1 zego-text">
-                  {plannedPath.map((step, i) => (
-                    <span key={i} className="flex items-center gap-1">
-                      {i > 0 && <Icon name="chevronRight" className="h-3 w-3 zego-text-tertiary" />}
-                      <span className={i === 0 ? 'zego-text-tertiary' : 'font-medium'}>{step}</span>
-                    </span>
-                  ))}
-                </p>
-                {pending ? (
-                  // ยังไม่ระบุคนที่ฝาก — อธิบายให้ชัดว่าบันทึกแล้วเกิดอะไรขึ้น และไปเลือกคนที่ไหน
-                  <div className="mt-2 space-y-0.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-900">
-                    <p className="font-semibold">ยังไม่ส่งมอบ — ยังไม่ได้เลือก{pendingStaff && pendingLeader ? 'เจ้าหน้าที่และหัวหน้าทัวร์' : pendingStaff ? 'เจ้าหน้าที่' : 'หัวหน้าทัวร์'}ที่จะฝากไป</p>
-                    <p>บันทึกไว้ก่อน แล้วตอนทำส่งมอบของกรุ๊ปที่จะฝากไปด้วย ซองนี้จะขึ้นในกล่อง “ซองของกรุ๊ปอื่นที่รอฝาก” ให้ติ๊ก — ซองจะไปกับ{pendingStaff ? 'เจ้าหน้าที่' : ''}{pendingStaff && pendingLeader ? 'และ' : ''}{pendingLeader ? 'หัวหน้าทัวร์' : ''}ของกรุ๊ปนั้น แล้วนำส่ง {leaderName}</p>
-                  </div>
-                ) : (
-                  <p className="mt-1 zego-text-tertiary">แต่ละคนกด “ยืนยันรับซอง” ในแอปของตัวเอง แล้วส่งต่อคนถัดไป — บันทึกชื่อ เวลา และรูปทุกทอด</p>
-                )}
-              </div>
-              {/* ซองของกรุ๊ปอื่นที่รอฝาก — ติ๊กแล้วฝากไปกับคนของกรุ๊ปนี้พร้อมกัน (ผู้รับปลายทาง = หัวหน้าทัวร์ของกรุ๊ปเจ้าของซอง) */}
-              {!pending && attachable.length > 0 && (
-                <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2">
-                  <p className="text-xs font-semibold text-amber-900">ซองของกรุ๊ปอื่นที่รอฝาก · ฝากไปกับกรุ๊ปนี้ได้ {attachable.length} ซอง</p>
-                  {attachable.map((x) => {
-                    const xp = getTourPeriodById(x.periodId);
-                    const owner = leaderOfPeriod(x.periodId);
-                    return (
-                      <label key={x.id} className="flex cursor-pointer items-start gap-2 text-xs">
-                        <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" checked={attachIds.has(x.id)} onChange={() => toggleAttach(x.id)} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-medium zego-text">{xp?.groupCode ?? x.periodId} · {envelopeName(x)}</span>
-                          <span className="block zego-text-secondary">{pendingDepositLabel(x.pendingDeposit!)} → นำส่ง {owner?.name ?? 'หัวหน้าทัวร์ของกรุ๊ปนั้น'}</span>
-                        </span>
-                        <span className="shrink-0 font-semibold tabular-nums zego-text">{fmtTotals(x.sealed?.faceTotals ?? [])}</span>
-                      </label>
-                    );
-                  })}
+              {pending && (
+                // ยังไม่ระบุคนที่ฝาก — อธิบายให้ชัดว่าบันทึกแล้วเกิดอะไรขึ้น และไปเลือกคนที่ไหน
+                <div className="space-y-0.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                  <p className="font-semibold">ยังไม่ส่งมอบ — ยังไม่ได้เลือก{pendingStaff && pendingLeader ? 'เจ้าหน้าที่และหัวหน้าทัวร์' : pendingStaff ? 'เจ้าหน้าที่' : 'หัวหน้าทัวร์'}ที่จะฝากไป</p>
+                  <p>บันทึกไว้ก่อน แล้วตอนทำส่งมอบของกรุ๊ปที่จะฝากไปด้วย ซองนี้จะขึ้นให้ติ๊กฝากไปด้วย — ซองจะไปกับ{pendingStaff ? 'เจ้าหน้าที่' : ''}{pendingStaff && pendingLeader ? 'และ' : ''}{pendingLeader ? 'หัวหน้าทัวร์' : ''}ของกรุ๊ปนั้น แล้วนำส่ง {leaderName}</p>
                 </div>
               )}
               {handoverMissing.length > 0 && <p className="text-xs zego-text-warning">ยังขาด: {handoverMissing.join(' · ')}</p>}
@@ -1242,9 +1300,41 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                 <Button variant="primary" onClick={() => void handOver()} disabled={handoverMissing.length > 0 || changed}>
                   {pending
                     ? `${env.pendingDeposit ? 'บันทึกการแก้ไข' : 'บันทึกไว้ก่อน'} · ยังไม่ส่งมอบ (รอเลือกคนที่ฝาก)`
-                    : `บันทึกส่งมอบ${name}${attachIds.size > 0 ? ` + ซองกรุ๊ปอื่น ${[...attachIds].filter((id) => attachable.some((x) => x.id === id)).length} ซอง` : ''}`}
+                    : `บันทึกส่งมอบ${name}`}
                 </Button>
               </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* 3) ซองของกรุ๊ปอื่นที่ฝากไปด้วย — แยกหัวข้อจากซองของกรุ๊ปนี้ ไม่ให้สับสน */}
+      {showAttach && (
+        <section className="space-y-2">
+          <div>
+            <h4 className="text-sm font-semibold zego-text">3. ซองของกรุ๊ปอื่นที่ฝากไปด้วย</h4>
+            <p className="text-xs zego-text-secondary">
+              ไม่ใช่ซองของกรุ๊ปนี้ — ฝากไปกับ{attachCarrierText} แล้วนำส่งหัวหน้าทัวร์ของกรุ๊ปเจ้าของซอง
+            </p>
+          </div>
+          {attachBox}
+          {depositedHere.length > 0 && (
+            <div className="space-y-1 rounded-lg border zego-border-color px-3 py-2">
+              <p className="text-xs font-semibold zego-text-secondary">ฝากไปกับกรุ๊ปนี้แล้ว {depositedHere.length} ซอง</p>
+              {depositedHere.map((x) => (
+                <div key={x.id} className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="min-w-0 flex-1 font-medium zego-text">{getTourPeriodById(x.periodId)?.groupCode ?? x.periodId} · {envelopeName(x)}</span>
+                  <EnvelopeStatusBadge env={x} />
+                  <span className="shrink-0 font-semibold tabular-nums zego-text">{fmtTotals(x.sealed?.faceTotals ?? [])}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {attachable.length > 0 && (
+            <div className="flex justify-end">
+              <Button variant="primary" onClick={() => void handOverAttachedPicked()} disabled={pickedCount === 0}>
+                ฝากซองกรุ๊ปอื่นไปด้วย{pickedCount > 0 ? ` ${pickedCount} ซอง` : ''}
+              </Button>
             </div>
           )}
         </section>
@@ -1261,10 +1351,10 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
         />
       )}
 
-      {/* 3) ผู้รับยืนยันในเครื่องของตัวเอง — เจ้าหน้าที่ (ถ้าฝาก) → หัวหน้าทัวร์ */}
+      {/* 3/4) ผู้รับยืนยันในเครื่องของตัวเอง — เจ้าหน้าที่ (ถ้าฝาก) → หัวหน้าทัวร์ */}
       {env.handover && (
         <section className="space-y-1">
-          <h4 className="text-sm font-semibold zego-text">3. ยืนยันการรับ (ในเครื่องของผู้รับ)</h4>
+          <h4 className="text-sm font-semibold zego-text">{showAttach ? 4 : 3}. ยืนยันการรับ (ในเครื่องของผู้รับ)</h4>
           <ul className="space-y-1 rounded-lg zego-surface-soft-bg px-3 py-2 text-sm">
             {carrierOf(env.handover) && (
               <>
