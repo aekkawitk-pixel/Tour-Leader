@@ -177,7 +177,8 @@ describe('บุคคลสัญชาติไทย', () => {
     );
     assert.equal(record.passportNumber, undefined);
     assert.equal(record.visaStatus, undefined);
-    assert.equal(record.birthCountryId, undefined);
+    // ประเทศที่เกิดเก็บได้ทุกคน (คนไทยไม่บังคับ) — ไม่ใช่ข้อมูลเฉพาะชาวต่างชาติแล้ว
+    assert.equal(record.birthCountryId, 'C-JP');
     assert.equal(record.homeCountryAddress, undefined);
   });
 });

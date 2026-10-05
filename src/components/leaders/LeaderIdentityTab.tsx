@@ -27,12 +27,13 @@ import {
   PERSON_TYPE, PAY_TYPE, PAY_UNIT, RELIGION, MARITAL_STATUS, DOC_HOLDING_STATUS,
 } from '@/lib/labels';
 import { formatDate } from '@/lib/format';
+import { Icon } from '@/components/ui/Icon';
 import { formatAddress } from '@/modules/tour-leaders/utils';
 import { getPassportBooks } from '@/services/passportBookStore';
 import { getTourLeaderById, getIdentityDocument } from '@/services/tourLeaderMaster';
 import { isMasterPassportHidden } from '@/services/masterPassportHidden';
 import { buildPassportCards, masterIdentityToCard } from '@/lib/logic/passportCardModel';
-import { getPrimaryDocument } from '@/services/documentStore';
+import { getDocuments, getPrimaryDocument } from '@/services/documentStore';
 import type { AnyLeaderDocumentRecord } from '@/data/leaders/documentRecordTypes';
 import { bookToCard } from '@/lib/logic/passportCardModel';
 import { PassportEditModal } from '@/components/leaders/passport/PassportEditModal';
@@ -119,6 +120,7 @@ export function LeaderIdentityTab({
   sections = ['personal', 'documents'],
   onGoStatus,
   onGoDocuments,
+  onGoOtherDocs,
 }: {
   leader: TourLeader;
   /** แสดงเฉพาะกลุ่มที่ระบุ (ค่าเริ่มต้น = ครบทุกกลุ่ม) */
@@ -127,6 +129,8 @@ export function LeaderIdentityTab({
   onGoStatus: () => void;
   /** ลิงก์ไปแท็บ "เอกสารประจำตัว" — เอกสารประจำตัวทุกใบกรอก/แก้ที่นั่นที่เดียว */
   onGoDocuments: () => void;
+  /** ไปแท็บ “เอกสารอื่น ๆ” — บัตรประชาชนแนบเป็นไฟล์ที่แท็บนั้น */
+  onGoOtherDocs?: () => void;
 }) {
   const showPersonal = sections.includes('personal');
   const showDocuments = sections.includes('documents');
@@ -155,6 +159,12 @@ export function LeaderIdentityTab({
   }, [leader.id, rev, canViewIdentity, today]);
   /* บัตรประชาชนฉบับหลัก — ต้นทางเดียวของ "ข้อมูลตามบัตร" (แท็บนี้แสดงอย่างเดียว ไม่แก้) */
   const idCard = useMemo(() => { void rev; return getPrimaryDocument(leader.id, 'id_card'); }, [leader.id, rev]);
+  /* บัตรประชาชนที่แนบเป็นไฟล์ในแท็บ “เอกสารอื่น ๆ” (ชื่อเอกสาร = บัตรประชาชน) — วิธีเพิ่มบัตรปัจจุบัน
+     (การ์ดบัตรประชาชนแบบกรอกช่องในแท็บเอกสารประจำตัวไม่มีแล้ว — idCard ด้านบนเหลือไว้อ่านข้อมูลเดิม) */
+  const idCardFiles = useMemo(() => {
+    void rev;
+    return getDocuments(leader.id, 'other').filter((d) => (d.fields.docTitle ?? '').trim() === 'บัตรประชาชน' && d.lifecycle === 'ACTIVE');
+  }, [leader.id, rev]);
 
   const canViewFullNo = can(currentUser.role, 'passport.viewFull');
   const canEdit = can(currentUser.role, 'leader.edit');
@@ -171,7 +181,6 @@ export function LeaderIdentityTab({
   // §3 ใช้ค่า default เสมอ — กันข้อมูลที่รูปแบบไม่ครบ (null/undefined) ทำให้เรนเดอร์ล้ม
   const contacts = leader.contacts ?? [];
   const emergencyContacts = leader.emergencyContacts ?? [];
-  const assignedCountries = leader.assignedCountries ?? [];
   const address = leader.address ?? null;
 
   const contactOf = (type: string) => contacts.filter((c) => c.type === type).map((c) => c.value).join(' · ');
@@ -201,17 +210,16 @@ export function LeaderIdentityTab({
                   <button type="button" onClick={onGoStatus} className="text-[11px] font-medium zego-text-info hover:underline">จัดการความพร้อมและการลา</button>
                 </span>
               </Cell>
-              <Cell label="ชื่อ–นามสกุล (ชื่อเล่น)"><V value={displayName} /></Cell>
+              <Cell label="เพศ"><V value={GENDER[leader.gender]?.label} /></Cell>
+              {/* ลำดับช่องตรงกับฟอร์ม “แก้ไขข้อมูลทั่วไป” (GeneralInfoEditModal) — แก้ที่หนึ่งต้องแก้อีกที่ด้วย */}
               <Cell label="คำนำหน้า (ไทย)"><V value={leader.title} /></Cell>
               <Cell label="ชื่อ (ไทย)"><V value={leader.firstName} /></Cell>
               <Cell label="นามสกุล (ไทย)"><V value={leader.lastName} /></Cell>
-              {/* คำนำหน้า/ชื่อเล่นภาษาอังกฤษ เก็บแยกจากภาษาไทย — เดิมกรอกได้ตอนสร้างแต่ไม่เคยแสดงที่ไหน */}
               <Cell label="คำนำหน้า (อังกฤษ)"><V value={leader.titleEn} /></Cell>
               <Cell label="ชื่อ (อังกฤษ)"><V value={leader.firstNameEn} /></Cell>
               <Cell label="นามสกุล (อังกฤษ)"><V value={leader.lastNameEn} /></Cell>
               <Cell label="ชื่อเล่น"><V value={leader.nickname} /></Cell>
               <Cell label="ชื่อเล่น (อังกฤษ)"><V value={leader.nicknameEn} /></Cell>
-              <Cell label="เพศ"><V value={GENDER[leader.gender]?.label} /></Cell>
               <Cell label="วันเกิด"><V value={leader.birthDate ? formatDate(leader.birthDate) : ''} /></Cell>
               <Cell label="สัญชาติ"><V value={nationality ? `${nationality.nameEn} (${nationality.nameTh})` : ''} /></Cell>
               <Cell label="ประเทศที่เกิด"><V value={birthCountry ? `${birthCountry.nameEn} (${birthCountry.nameTh})` : ''} /></Cell>
@@ -219,9 +227,6 @@ export function LeaderIdentityTab({
                 <V value={leader.religion ? (leader.religion === 'other' ? `${RELIGION.other} (${leader.religionOther ?? '—'})` : RELIGION[leader.religion]) : ''} />
               </Cell>
               <Cell label="สถานภาพสมรส"><V value={leader.maritalStatus ? MARITAL_STATUS[leader.maritalStatus] : ''} /></Cell>
-              <Cell label="ประเทศประจำ">
-                <V value={assignedCountries.length === 0 ? '' : assignedCountries.map((a) => countries.find((c) => c.id === a.countryId)?.nameEn ?? a.countryId).join(' · ')} />
-              </Cell>
               <Cell label="วันที่เริ่มร่วมงาน"><V value={leader.joinedAt ? formatDate(leader.joinedAt) : ''} /></Cell>
               <Cell label="แหล่งที่มาของข้อมูล">
                 <V value={leader.sourceType ? (leader.sourceType === 'other' ? `${LEADER_SOURCE_TYPE.other} (${leader.sourceOther ?? '—'})` : LEADER_SOURCE_TYPE[leader.sourceType]) : ''} />
@@ -244,9 +249,15 @@ export function LeaderIdentityTab({
               <p className="text-sm font-semibold zego-text">
                 {isForeigner ? 'เอกสารประจำตัว (บุคคลต่างชาติ)' : 'ข้อมูลบัตรประชาชน'}
               </p>
-              <Button size="sm" variant="ghost" icon="file" onClick={onGoDocuments}>
-                ไปที่เอกสารประจำตัว
-              </Button>
+              {isForeigner || !onGoOtherDocs ? (
+                <Button size="sm" variant="ghost" icon="file" onClick={onGoDocuments}>
+                  ไปที่เอกสารประจำตัว
+                </Button>
+              ) : (
+                <Button size="sm" variant="ghost" icon="file" onClick={onGoOtherDocs}>
+                  ไปที่เอกสารอื่น ๆ
+                </Button>
+              )}
             </div>
 
             {isForeigner ? (
@@ -303,9 +314,31 @@ export function LeaderIdentityTab({
                   </button>
                 )}
               </>
+            ) : idCardFiles.length > 0 ? (
+              /* บัตรประชาชนแบบแนบไฟล์ (แท็บเอกสารอื่น ๆ) — แสดงว่ามีแล้ว + วันที่ออก/หมดอายุ (ถ้ากรอก) */
+              <ul className="divide-y divide-[var(--zego-border-soft)] rounded-lg border zego-border-color">
+                {idCardFiles.map((d) => (
+                  <li key={d.docId} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1.5 font-medium zego-text">
+                        <Icon name="file" className="h-4 w-4 zego-text-tertiary" />
+                        บัตรประชาชน{d.sourceFileName ? ` · ${d.sourceFileName}` : ''}
+                      </span>
+                      <span className="block text-xs zego-text-tertiary">
+                        {[
+                          d.fields.issuedDate ? `ออก ${formatDate(d.fields.issuedDate)}` : null,
+                          d.fields.expiryDate ? `หมดอายุ ${formatDate(d.fields.expiryDate)}` : null,
+                          d.fileUploadedAt ? `แนบเมื่อ ${formatDate(d.fileUploadedAt.slice(0, 10))}` : null,
+                        ].filter(Boolean).join(' · ') || 'แนบไฟล์แล้ว'}
+                      </span>
+                    </span>
+                    <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">แนบแล้ว</span>
+                  </li>
+                ))}
+              </ul>
             ) : (
               <p className="rounded-lg zego-surface-soft-bg px-3 py-2 text-sm zego-text-tertiary">
-                ยังไม่มีบัตรประชาชนในระบบ — เพิ่มได้ที่แท็บ “เอกสารประจำตัว” แล้วข้อมูลตามบัตรจะขึ้นที่นี่
+                ยังไม่มีบัตรประชาชนในระบบ — แนบไฟล์ได้ที่แท็บ “เอกสารอื่น ๆ” (เลือกชื่อเอกสาร “บัตรประชาชน”)
               </p>
             )}
           </div>
@@ -391,20 +424,22 @@ export function LeaderIdentityTab({
               เป็นคนละมิติ — ห้ามรวมเป็น Field เดียว
             */}
             <dl className="grid gap-x-8 sm:grid-cols-2">
-              {/* §6 รูปแบบการร่วมงาน = ประเภทหัวหน้าทัวร์ — Field เดียว Master เดียว */}
-              <Row
-                label="รูปแบบการร่วมงาน"
-                value={LEADER_TYPE[leader.leaderType] ? <StatusBadge meta={LEADER_TYPE[leader.leaderType]} size="sm" dot={false} /> : ''}
-              />
+              {/* ลำดับช่องตรงกับฟอร์ม “แก้ไขข้อมูลการร่วมงาน” (LeaderSectionEditModal) — แก้ที่หนึ่งต้องแก้อีกที่ด้วย */}
+              <Row label="ประเภทบุคคล" value={leader.personType ? PERSON_TYPE[leader.personType] : ''} emptyText="ยังไม่ระบุ" />
+              <Row label="วันที่เริ่มร่วมงาน" value={leader.joinedAt ? formatDate(leader.joinedAt) : ''} emptyText="ยังไม่ระบุ" />
               {/* สถานะโปรไฟล์ = คุมว่ายังใช้งานในระบบได้หรือไม่ (ใช้งาน / ระงับ / สิ้นสุด)
                   คนละมิติกับ “ความพร้อมรับงาน” ในการ์ดที่ 1 — ห้ามรวมเป็น Field เดียว */}
               <Row
                 label="สถานะโปรไฟล์"
                 value={<StatusBadge meta={LEADER_USAGE_STATUS[leader.usageStatus]} size="sm" />}
               />
-              <Row label="ประเภทบุคคล" value={leader.personType ? PERSON_TYPE[leader.personType] : ''} emptyText="ยังไม่ระบุ" />
-              <Row label="หน่วยงาน / ฝ่ายที่ดูแล" value={leader.team} emptyText="ยังไม่ระบุ" />
-              <Row label="หมายเหตุภายใน" value={canEdit ? leader.internalNote : ''} emptyText="ยังไม่ระบุ" />
+              {/* §6 รูปแบบการร่วมงาน = ประเภทหัวหน้าทัวร์ — Field เดียว Master เดียว */}
+              <Row
+                label="รูปแบบการร่วมงาน"
+                value={LEADER_TYPE[leader.leaderType] ? <StatusBadge meta={LEADER_TYPE[leader.leaderType]} size="sm" dot={false} /> : ''}
+              />
+              {/* หน่วยงาน / ฝ่ายที่ดูแล — มีเฉพาะหัวหน้าทัวร์ประจำ (ตรงกับฟอร์มและการบันทึก) */}
+              {leader.leaderType === 'regular' && <Row label="หน่วยงาน / ฝ่ายที่ดูแล" value={leader.team} emptyText="ยังไม่ระบุ" />}
 
               {leader.leaderType === 'freelance' && (
                 <>
@@ -428,6 +463,7 @@ export function LeaderIdentityTab({
                   <Row label="รหัสอ้างอิงเอเจนซี่" value={leader.agencyRefCode} mono />
                 </>
               )}
+              <Row label="หมายเหตุการร่วมงาน" value={leader.typeNote} emptyText="ไม่มี" />
             </dl>
 
             {leader.leaderType === 'general' && (

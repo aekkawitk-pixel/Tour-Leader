@@ -37,6 +37,8 @@ import { Icon } from '@/components/ui/Icon';
 import { LeaderStatusModal } from '@/components/leaders/LeaderStatusModal';
 import { LeaderTable, LeaderTableEmpty } from '@/components/leaders/LeaderTable';
 import { useFavoriteGuides } from '@/lib/useFavoriteGuides';
+import { useLeaderTrips } from '@/lib/useLeaderTrips';
+import { toISODate } from '@/lib/format';
 import { StatusDonut, RankBarChart } from '@/components/leaders/overviewCharts';
 import type {
   ExperienceLevelFilter,
@@ -122,7 +124,9 @@ export default function LeadersOverviewPage() {
     setPage(1);
   }
 
-  const kpis = useMemo(() => leaderKpis(filtered, jobs, today), [filtered, jobs, today]);
+  // ติดงาน = กรุ๊ปที่จัดหัวหน้าทัวร์จริง ณ วันนี้จริง (ไม่ใช่งานตัวอย่าง / วันจำลอง)
+  const trips = useLeaderTrips();
+  const kpis = useMemo(() => leaderKpis(filtered, trips, toISODate(new Date())), [filtered, trips]);
   const statusData = useMemo(() => statusGroupCounts(filtered), [filtered]);
   const langData = useMemo(() => languageCounts(filtered), [filtered]);
   const countryData = useMemo(() => countryCounts(filtered, countries), [filtered, countries]);
@@ -234,7 +238,8 @@ export default function LeadersOverviewPage() {
         <>
           {/* ------------------------------ 1. ตัวกรอง ------------------------------ */}
           <Card className="mb-5">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {/* จอกว้าง = แถวเดียว (ช่องค้นหากว้างกว่า) · จอแคบลงค่อยตัดเป็น 3 / 2 / 1 คอลัมน์ */}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(0,1.5fr)_repeat(4,minmax(0,1fr))]">
               <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-1">
                 <label className="zego-text-secondary text-sm font-medium">ค้นหา</label>
                 <SearchBox
@@ -403,7 +408,7 @@ export default function LeadersOverviewPage() {
           <LeaderTable
             leaders={paged}
             countries={countries}
-            jobs={jobs}
+            trips={trips}
             availabilityRecords={availabilityRecords}
             today={today}
             startIndex={startIndex}

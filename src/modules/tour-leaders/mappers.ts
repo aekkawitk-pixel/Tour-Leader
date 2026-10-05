@@ -477,7 +477,8 @@ export function formToLeader(form: LeaderFormState, ctx: BuildContext): TourLead
       isForeigner && form.passportNumber.trim()
         ? maskDocumentNumber('passport', form.passportNumber)
         : undefined,
-    birthCountryId: isForeigner ? form.birthCountryId || undefined : undefined,
+    // ประเทศที่เกิด — เก็บได้ทุกคน (ต่างชาติบังคับกรอก · คนไทยไม่บังคับ)
+    birthCountryId: form.birthCountryId || undefined,
     passportCountryId: isForeigner ? form.passportCountryId || undefined : undefined,
     passportIssuedAt: isForeigner ? form.passportIssuedAt || undefined : undefined,
     passportExpiresAt: isForeigner ? form.passportExpiresAt || undefined : undefined,

@@ -8,9 +8,9 @@
  *  • ประสบการณ์ใช้ค่ารวมที่คำนวณจากประวัติงาน (ไม่นับช่วงซ้อนซ้ำ · งานปัจจุบันถึงวันนี้)
  */
 
-import type { Country, ExperienceLevelFilter, LeaderStatus, TourJob, TourLeader } from '@/types';
+import type { Country, ExperienceLevelFilter, LeaderStatus, TourLeader } from '@/types';
 import { TONE_HEX } from '@/lib/labels';
-import { isBlockingJob } from './conflicts';
+import type { LeaderTrip } from './leaderTrips';
 import { experienceBandOf, leaderExperienceMonths } from './leaderProfile';
 
 /* ------------------------------- กลุ่มสถานะ ------------------------------- */
@@ -49,15 +49,11 @@ export function statusGroupCounts(leaders: TourLeader[]): StatusGroupCount[] {
 /* --------------------------------- KPI ---------------------------------- */
 
 /**
- * “ติดงาน” เป็นสถานะประกอบ — นับจากงานที่ได้รับมอบหมาย (เมนูการจัดสเก็ต / Schedule)
- * ที่ครอบวันที่อ้างอิง ไม่ใช่จากสถานะหลักของหัวหน้าทัวร์
+ * “ติดงาน” เป็นสถานะประกอบ — นับจากกรุ๊ปที่จัดหัวหน้าทัวร์จริง (เมนูการจัดสเก็ต) ที่ครอบวันที่อ้างอิง
+ * ไม่ใช่จากสถานะหลักของหัวหน้าทัวร์
  */
-export function onJobLeaderCount(leaders: TourLeader[], jobs: TourJob[], today: string): number {
-  const ids = new Set(
-    jobs
-      .filter((j) => j.leaderId && isBlockingJob(j) && j.departDate <= today && j.returnDate >= today)
-      .map((j) => j.leaderId as string),
-  );
+export function onJobLeaderCount(leaders: TourLeader[], trips: LeaderTrip[], today: string): number {
+  const ids = new Set(trips.filter((t) => t.start <= today && t.end >= today).map((t) => t.leaderId));
   return leaders.filter((l) => ids.has(l.id)).length;
 }
 
@@ -76,11 +72,11 @@ export interface LeaderKpis {
   usageBlocked: number;
 }
 
-export function leaderKpis(leaders: TourLeader[], jobs: TourJob[], today: string): LeaderKpis {
+export function leaderKpis(leaders: TourLeader[], trips: LeaderTrip[], today: string): LeaderKpis {
   return {
     total: leaders.length,
     available: leaders.filter((l) => l.status === 'available').length,
-    onJob: onJobLeaderCount(leaders, jobs, today),
+    onJob: onJobLeaderCount(leaders, trips, today),
     usageBlocked: usageBlockedCount(leaders),
   };
 }

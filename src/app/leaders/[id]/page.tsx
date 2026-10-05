@@ -43,7 +43,6 @@ import {
 } from '@/lib/format';
 import { summarizeSettlement } from '@/lib/logic/settlement';
 import {
-  primaryAssignedCountryName,
   primaryContact,
 } from '@/lib/logic/leaderProfile';
 import {
@@ -74,6 +73,7 @@ import { LeaderSectionEditModal, type LeaderSectionKey } from '@/components/lead
 import { LeaderStatusModal } from '@/components/leaders/LeaderStatusModal';
 import { LeaderStatusTab } from '@/components/leaders/LeaderStatusTab';
 import { LeaderLeaveTab } from '@/components/leaders/LeaderLeaveTab';
+import { LeaderAccountTab } from '@/components/leaders/LeaderAccountTab';
 import { LeaderOverviewTab } from '@/components/leaders/LeaderOverviewTab';
 import { LeaderIdentityTab } from '@/components/leaders/LeaderIdentityTab';
 import { LeaderScheduleTab, useLeaderScheduleRows } from '@/components/leaders/LeaderScheduleTab';
@@ -114,7 +114,7 @@ const OTHER_LEGACY_KINDS: DocumentKind[] = ['certificate', 'health', 'other'];
 const TAB_KEYS = [
   'summary', 'identity', 'skills',
   'idDocs', 'otherDocs', 'financeDocs',
-  'schedule', 'survey', 'leave',
+  'schedule', 'survey', 'leave', 'account',
 ] as const;
 
 type TabKey = (typeof TAB_KEYS)[number];
@@ -450,6 +450,8 @@ export default function LeaderDetailPage() {
       label: 'สถานะ / การลา',
       badge: activeOrUpcomingLeaveCount(availabilityRecords, leader.id, today),
     },
+    // บัญชีผู้ใช้ (User name สำหรับ login) — เฉพาะเจ้าหน้าที่ที่แก้ข้อมูลหัวหน้าทัวร์ได้
+    ...(can(currentUser.role, 'leader.edit') ? [{ key: 'account' as const, label: 'บัญชีผู้ใช้' }] : []),
   ];
 
   const salaryText = (entry: EmploymentHistory) => {
@@ -567,16 +569,9 @@ export default function LeaderDetailPage() {
                 <StatusBadge meta={LEADER_USAGE_STATUS[leader.usageStatus]} />
               )}
             </div>
-            {/* บรรทัด 2: รหัสหัวหน้าทัวร์ | ประเทศประจำหลัก */}
+            {/* บรรทัด 2: รหัสหัวหน้าทัวร์ */}
             <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm zego-text-tertiary">
               <span className="font-mono">{leader.id}</span>
-              <span className="zego-text-disabled">·</span>
-              <span>
-                ประเทศประจำหลัก:{' '}
-                <strong className="zego-text-secondary">
-                  {primaryAssignedCountryName(leader, countries)}
-                </strong>
-              </span>
             </p>
             {/* บรรทัด 3: เบอร์โทรศัพท์ | คะแนนเฉลี่ย */}
             <div className="mt-1.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
@@ -687,6 +682,7 @@ export default function LeaderDetailPage() {
             sections={['personal']}
             onGoStatus={() => requestTab('leave')}
             onGoDocuments={() => requestTab('idDocs')}
+            onGoOtherDocs={() => requestTab('otherDocs')}
           />
         {/* ---- ประวัติการทำงาน (สถานประกอบการ) — รวมมาไว้แท็บนี้ตาม §1 ---- */}
         <div className="mt-6 zego-divider-top pt-5">
@@ -1082,6 +1078,11 @@ export default function LeaderDetailPage() {
         </div>
       </TabPanel>
 
+      {/* บัญชีผู้ใช้ — User name สำหรับ login (ไม่เก็บรหัสผ่าน) */}
+      <TabPanel active={tab === 'account'}>
+        <LeaderAccountTab leader={leader} />
+      </TabPanel>
+
       {/* ====================== 4. เอกสารประจำตัว ======================
           Passport (หลายเล่ม + เล่มหลัก) · การตรวจสอบข้อมูล · บัตรหัวหน้าทัวร์/วีซ่า/บัตรประชาชน
           Passport อยู่ที่นี่ที่เดียว — ไม่แสดงซ้ำในแท็บ "ข้อมูลส่วนตัว" */}
@@ -1094,6 +1095,7 @@ export default function LeaderDetailPage() {
             sections={['documents']}
             onGoStatus={() => requestTab('leave')}
             onGoDocuments={() => requestTab('idDocs')}
+            onGoOtherDocs={() => requestTab('otherDocs')}
           />
 
           <LeaderDocumentsCard

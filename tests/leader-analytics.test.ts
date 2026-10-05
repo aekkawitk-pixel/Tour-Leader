@@ -15,13 +15,13 @@ import {
   statusGroupCounts,
   usageBlockedCount,
 } from '@/lib/logic/leaderAnalytics';
+import type { LeaderTrip } from '@/lib/logic/leaderTrips';
 import { experienceBandOf } from '@/lib/logic/leaderProfile';
 import type {
   Country,
   EmploymentHistory,
   LanguageSkill,
   LeaderStatus,
-  TourJob,
   TourLeader,
   TourLeaderRouteSkill,
 } from '@/types';
@@ -93,12 +93,11 @@ describe('statusGroupCounts / leaderKpis', () => {
     leader('f', { usageStatus: 'suspended', status: 'unavailable' }),
   ];
 
-  /** งานที่มอบหมายให้ 'c' และครอบวันนี้ → ติดงาน (สถานะประกอบ ไม่ใช่สถานะหลัก) */
-  const jobs = [
-    { id: 'J1', leaderId: 'c', status: 'traveling', departDate: '2026-07-10', returnDate: '2026-07-20' },
-    { id: 'J2', leaderId: 'a', status: 'accepted', departDate: '2026-08-01', returnDate: '2026-08-05' }, // อนาคต → ยังไม่ติดงาน
-    { id: 'J3', leaderId: 'b', status: 'draft', departDate: '2026-07-10', returnDate: '2026-07-20' }, // ร่าง → ไม่จองตัว
-  ] as unknown as TourJob[];
+  /** กรุ๊ปที่จัดให้ 'c' และครอบวันนี้ → ติดงาน (สถานะประกอบ ไม่ใช่สถานะหลัก) · loadLeaderTrips คัดปฏิเสธ/ต้องเปลี่ยนคนออกแล้ว */
+  const trips: LeaderTrip[] = [
+    { leaderId: 'c', periodId: 'P1', groupCode: 'G1', programName: '', start: '2026-07-10', end: '2026-07-20', pending: false },
+    { leaderId: 'a', periodId: 'P2', groupCode: 'G2', programName: '', start: '2026-08-01', end: '2026-08-05', pending: false }, // อนาคต → ยังไม่ติดงาน
+  ];
 
   test('donut = มิติความพร้อมรับงาน 2 กลุ่ม (ไม่ปนสถานะการใช้งาน)', () => {
     const g = statusGroupCounts(pool);
@@ -110,10 +109,10 @@ describe('statusGroupCounts / leaderKpis', () => {
   });
 
   test('KPI: onJob คำนวณจากงานที่มอบหมาย · usageBlocked นับจากสถานะการใช้งาน', () => {
-    const k = leaderKpis(pool, jobs, TODAY);
+    const k = leaderKpis(pool, trips, TODAY);
     assert.equal(k.total, 6);
     assert.equal(k.available, 3);
-    assert.equal(k.onJob, 1); // เฉพาะ 'c' — งานอนาคต/งานร่างไม่นับ
+    assert.equal(k.onJob, 1); // เฉพาะ 'c' — กรุ๊ปอนาคตไม่นับ
     assert.equal(k.usageBlocked, 1); // เฉพาะ 'f' ที่ระงับการใช้งาน
   });
 

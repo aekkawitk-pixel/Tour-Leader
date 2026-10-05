@@ -10,7 +10,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
-import { Button, Pill, StatusBadge, cx } from '@/components/ui/Primitives';
+import { Button, Pill, StatusBadge } from '@/components/ui/Primitives';
 import { SelectInput, TextInput } from '@/components/ui/FormField';
 import { DateField } from '@/components/ui/DateInput';
 import { Combobox } from '@/components/ui/Combobox';
@@ -19,11 +19,12 @@ import { useDemo } from '@/store/DemoStore';
 import {
   GENDER, GENDER_ORDER, LEADER_STATUS,
   LEADER_SOURCE_TYPE, LEADER_SOURCE_TYPE_ORDER,
+  MARITAL_STATUS, MARITAL_STATUS_ORDER, RELIGION, RELIGION_ORDER,
 } from '@/lib/labels';
-import { TITLE_OPTIONS, NAME_EN_PATTERN } from '@/modules/tour-leaders/constants';
+import { TITLE_OPTIONS, TITLE_OPTIONS_EN, NAME_EN_PATTERN } from '@/modules/tour-leaders/constants';
 import { leaderToForm, type LeaderFormState } from '@/modules/tour-leaders/mappers';
 import { saveErrorMessage } from '@/services/browserStorage';
-import type { AssignedCountry, Country, Gender, LeaderSourceType, TourLeader } from '@/types';
+import type { Country, Gender, LeaderSourceType, MaritalStatus, Religion, TourLeader } from '@/types';
 
 /* --------------------------------- draft --------------------------------- */
 
@@ -35,17 +36,21 @@ export interface GeneralDraft {
   nickname: string;
   firstNameEn: string;
   lastNameEn: string;
+  titleEn: string;
+  nicknameEn: string;
   gender: Gender;
   birthDate: string;
   nationalityCountryId: string;
-  assignedCountryId: string;
+  birthCountryId: string;
+  religion: Religion | undefined;
+  religionOther: string;
+  maritalStatus: MaritalStatus | undefined;
   joinedAt: string;
   sourceType: LeaderSourceType | undefined;
   sourceOther: string;
 }
 
 function makeDraft(form: LeaderFormState): GeneralDraft {
-  const primary = form.assignedCountries.find((a) => a.isPrimary) ?? form.assignedCountries[0];
   return {
     photoUrl: form.photoUrl ?? null,
     title: form.title,
@@ -54,24 +59,21 @@ function makeDraft(form: LeaderFormState): GeneralDraft {
     nickname: form.nickname,
     firstNameEn: form.firstNameEn,
     lastNameEn: form.lastNameEn,
+    titleEn: form.titleEn,
+    nicknameEn: form.nicknameEn,
     gender: form.gender,
     birthDate: form.birthDate,
     nationalityCountryId: form.nationalityCountryId,
-    assignedCountryId: primary?.countryId ?? '',
+    birthCountryId: form.birthCountryId,
+    religion: form.religion,
+    religionOther: form.religionOther,
+    maritalStatus: form.maritalStatus,
     joinedAt: form.joinedAt,
     sourceType: form.sourceType,
     sourceOther: form.sourceOther,
   };
 }
 
-/** อัปเดตประเทศประจำหลัก โดยไม่ทำลายรายการอื่น (§10) */
-function applyPrimaryCountry(list: AssignedCountry[], countryId: string): AssignedCountry[] {
-  if (!countryId) return list;
-  if (list.length === 0) return [{ id: `AC-${Date.now()}`, countryId, isPrimary: true, active: true }];
-  const idx = list.findIndex((a) => a.isPrimary);
-  const target = idx >= 0 ? idx : 0;
-  return list.map((a, i) => (i === target ? { ...a, countryId, isPrimary: true } : a));
-}
 
 /** Searchable Dropdown ประเทศ (Country Master §5) */
 function CountryPicker({
@@ -135,6 +137,7 @@ function GeneralInfoForm({
 
   const displayName = `${leader.firstName} ${leader.lastName}`.trim() || leader.id;
   const titleOptions = leader.title && !TITLE_OPTIONS.includes(leader.title) ? [...TITLE_OPTIONS, leader.title] : TITLE_OPTIONS;
+  const titleEnOptions = draft.titleEn && !TITLE_OPTIONS_EN.includes(draft.titleEn) ? [...TITLE_OPTIONS_EN, draft.titleEn] : TITLE_OPTIONS_EN;
 
   const focusField = (field: string) => {
     window.setTimeout(() => {
@@ -151,9 +154,11 @@ function GeneralInfoForm({
     if (!draft.lastName.trim()) e.lastName = 'กรุณากรอกนามสกุลภาษาไทย';
     if (draft.firstNameEn.trim() && !NAME_EN_PATTERN.test(draft.firstNameEn.trim())) e.firstNameEn = 'รูปแบบชื่อภาษาอังกฤษไม่ถูกต้อง';
     if (draft.lastNameEn.trim() && !NAME_EN_PATTERN.test(draft.lastNameEn.trim())) e.lastNameEn = 'รูปแบบนามสกุลภาษาอังกฤษไม่ถูกต้อง';
+    if (draft.nicknameEn.trim() && !NAME_EN_PATTERN.test(draft.nicknameEn.trim())) e.nicknameEn = 'รูปแบบชื่อเล่นภาษาอังกฤษไม่ถูกต้อง';
     if (draft.birthDate && draft.birthDate > today) e.birthDate = 'วันเกิดต้องไม่เป็นวันในอนาคต';
     if (draft.nationalityCountryId && !countries.some((c) => c.id === draft.nationalityCountryId)) e.nationality = 'กรุณาเลือกสัญชาติจากรายการ';
-    if (draft.assignedCountryId && !countries.some((c) => c.id === draft.assignedCountryId)) e.assignedCountry = 'กรุณาเลือกประเทศประจำจากรายการ';
+    // ชาวต่างชาติบังคับประเทศที่เกิด (ตรงกับการสร้างข้อมูล)
+    if (leader.personType === 'foreigner' && !draft.birthCountryId) e.birthCountry = 'กรุณาเลือกประเทศที่เกิด';
     return e;
   };
 
@@ -180,13 +185,18 @@ function GeneralInfoForm({
         nickname: draft.nickname.trim(),
         firstNameEn: draft.firstNameEn.trim().toUpperCase(),
         lastNameEn: draft.lastNameEn.trim().toUpperCase(),
+        titleEn: draft.titleEn,
+        nicknameEn: draft.nicknameEn.trim().toUpperCase(),
         gender: draft.gender,
         birthDate: draft.birthDate,
         nationalityCountryId: draft.nationalityCountryId,
+        birthCountryId: draft.birthCountryId,
+        religion: draft.religion,
+        religionOther: draft.religionOther,
+        maritalStatus: draft.maritalStatus,
         joinedAt: draft.joinedAt,
         sourceType: draft.sourceType,
         sourceOther: draft.sourceOther,
-        assignedCountries: applyPrimaryCountry(base.assignedCountries, draft.assignedCountryId),
       };
       // แจ้งผลสำเร็จที่ saveLeaderForm จุดเดียว (กัน Toast ซ้ำ) — ปิด Modal หลังบันทึกสำเร็จเท่านั้น
       await saveLeaderForm(next, leader, 'แก้ไขข้อมูลทั่วไป');
@@ -233,7 +243,8 @@ function GeneralInfoForm({
           </div>
 
           <div className="grid min-w-0 flex-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {/* แถว 1 — อ่านอย่างเดียว: รหัส + สถานะพร้อมรับงาน (§4 ห้ามแก้ที่นี่) */}
+            {/* ลำดับช่องตรงกับหน้าแสดง “ข้อมูลทั่วไป” (LeaderIdentityTab) — แก้ที่หนึ่งต้องแก้อีกที่ด้วย */}
+            {/* แถว 1 — รหัส + ความพร้อมรับงาน (อ่านอย่างเดียว §4) · เพศ */}
             <div>
               <TextInput label="รหัสหัวหน้าทัวร์" value={leader.id} readOnly disabled hint="ระบบสร้างให้อัตโนมัติ" />
             </div>
@@ -247,6 +258,10 @@ function GeneralInfoForm({
                 จัดการความพร้อมและการลา
               </button>
             </div>
+            <div data-field="gender">
+              <SelectInput label="เพศ" value={draft.gender} onChange={(e) => set('gender', e.target.value as Gender)} options={GENDER_ORDER.map((g) => ({ value: g, label: GENDER[g].label }))} />
+            </div>
+
             {/* แถว 2 — ชื่อไทย */}
             <div data-field="title">
               <SelectInput label="คำนำหน้า (ไทย)" value={draft.title} onChange={(e) => set('title', e.target.value)} options={titleOptions.map((t) => ({ value: t, label: t }))} />
@@ -258,36 +273,62 @@ function GeneralInfoForm({
               <TextInput label="นามสกุล (ไทย)" required lang="th" value={draft.lastName} error={errs.lastName} onChange={(e) => set('lastName', e.target.value)} />
             </div>
 
-            {/* แถว 3 — ชื่ออังกฤษ + ชื่อเล่น */}
+            {/* แถว 3 — ชื่ออังกฤษ */}
+            <div data-field="titleEn">
+              <SelectInput label="คำนำหน้า (อังกฤษ)" optional placeholder="ไม่ระบุ" value={draft.titleEn} onChange={(e) => set('titleEn', e.target.value)} options={titleEnOptions.map((t) => ({ value: t, label: t }))} />
+            </div>
             <div data-field="firstNameEn">
               <TextInput label="ชื่อ (อังกฤษ)" optional lang="en" value={draft.firstNameEn} error={errs.firstNameEn} onChange={(e) => set('firstNameEn', e.target.value.toUpperCase())} />
             </div>
             <div data-field="lastNameEn">
               <TextInput label="นามสกุล (อังกฤษ)" optional lang="en" value={draft.lastNameEn} error={errs.lastNameEn} onChange={(e) => set('lastNameEn', e.target.value.toUpperCase())} />
             </div>
+
+            {/* แถว 4 — ชื่อเล่น / ชื่อเล่น (อังกฤษ) / วันเกิด */}
             <div data-field="nickname">
               <TextInput label="ชื่อเล่น" optional value={draft.nickname} onChange={(e) => set('nickname', e.target.value)} />
             </div>
-
-            {/* แถว 4 — เพศ / วันเกิด / สัญชาติ */}
-            <div data-field="gender">
-              <SelectInput label="เพศ" value={draft.gender} onChange={(e) => set('gender', e.target.value as Gender)} options={GENDER_ORDER.map((g) => ({ value: g, label: GENDER[g].label }))} />
+            <div data-field="nicknameEn">
+              <TextInput label="ชื่อเล่น (อังกฤษ)" optional lang="en" value={draft.nicknameEn} error={errs.nicknameEn} onChange={(e) => set('nicknameEn', e.target.value.toUpperCase())} />
             </div>
             <div data-field="birthDate">
               <DateField label="วันเกิด" max={today} value={draft.birthDate} error={errs.birthDate} onChange={(v) => set('birthDate', v)} />
             </div>
+
+            {/* แถว 5 — สัญชาติ / ประเทศที่เกิด / ศาสนา */}
             <div data-field="nationality">
               <CountryPicker label="สัญชาติ" value={draft.nationalityCountryId} countries={countries} error={errs.nationality} onSelect={(id) => set('nationalityCountryId', id)} />
             </div>
+            <div data-field="birthCountry">
+              <CountryPicker label="ประเทศที่เกิด" value={draft.birthCountryId} countries={countries} error={errs.birthCountry} onSelect={(id) => set('birthCountryId', id)} />
+            </div>
+            <div data-field="religion">
+              <SelectInput
+                label="ศาสนา" optional placeholder="ไม่ระบุ"
+                value={draft.religion ?? ''}
+                onChange={(e) => set('religion', (e.target.value || undefined) as Religion | undefined)}
+                options={RELIGION_ORDER.map((r) => ({ value: r, label: RELIGION[r] }))}
+              />
+              {draft.religion === 'other' && (
+                <div className="mt-2">
+                  <TextInput label="ระบุศาสนา" value={draft.religionOther} onChange={(e) => set('religionOther', e.target.value)} />
+                </div>
+              )}
+            </div>
 
-            {/* แถว 5 — ประเทศประจำ / วันที่เริ่มร่วมงาน / แหล่งที่มา */}
-            <div data-field="assignedCountry">
-              <CountryPicker label="ประเทศประจำ" value={draft.assignedCountryId} countries={countries} error={errs.assignedCountry} onSelect={(id) => set('assignedCountryId', id)} placeholder="ค้นหาประเทศประจำ" />
+            {/* แถว 6 — สถานภาพสมรส / วันที่เริ่มร่วมงาน / แหล่งที่มา */}
+            <div data-field="maritalStatus">
+              <SelectInput
+                label="สถานภาพสมรส" optional placeholder="ไม่ระบุ"
+                value={draft.maritalStatus ?? ''}
+                onChange={(e) => set('maritalStatus', (e.target.value || undefined) as MaritalStatus | undefined)}
+                options={MARITAL_STATUS_ORDER.map((m) => ({ value: m, label: MARITAL_STATUS[m] }))}
+              />
             </div>
             <div data-field="joinedAt">
               <DateField label="วันที่เริ่มร่วมงาน" value={draft.joinedAt} onChange={(v) => set('joinedAt', v)} />
             </div>
-            <div data-field="sourceType" className={cx(draft.sourceType === 'other' && 'sm:col-span-2 lg:col-span-1')}>
+            <div data-field="sourceType">
               <SelectInput
                 label="แหล่งที่มาของข้อมูล"
                 optional

@@ -9,13 +9,12 @@ import type {
   AvailabilityApproval,
   AvailabilityRecordType,
   LeaderAvailabilityRecord,
-  TourJob,
   TourLeader,
 } from '@/types';
 import type { StatusMeta } from '@/lib/labels';
 import { LEADER_STATUS, LEADER_USAGE_STATUS } from '@/lib/labels';
 import { formatDate, formatDateRange } from '@/lib/format';
-import { isBlockingJob } from './conflicts';
+import { nextTrip, tripOn, type LeaderTrip } from './leaderTrips';
 
 export const AVAILABILITY_TYPE: Record<AvailabilityRecordType, StatusMeta> = {
   sick_leave: { label: 'ลาป่วย', tone: 'amber' },
@@ -102,16 +101,17 @@ export type AvailabilityStatusKey =
   | 'available';
 
 /**
- * สถานะความพร้อม คำนวณตามวันปัจจุบัน (ลำดับความสำคัญ)
+ * สถานะความพร้อม คำนวณตามวันปัจจุบัน (วันจริง) — ลำดับความสำคัญ
  *   ระงับการใช้งาน > สิ้นสุดการใช้งาน > ไม่พร้อมรับงาน (ค่าหลัก)
- *   > ติดงานบริษัท/ลา/ไม่พร้อม (จากรายการตามช่วงวัน) > ติดงาน(ทัวร์) > พร้อมรับงาน
+ *   > ติดงานบริษัท/ลา/ไม่พร้อม (จากรายการตามช่วงวัน) > ติดกรุ๊ป (จากการจัดหัวหน้าทัวร์ลงกรุ๊ปจริง) > พร้อมรับงาน
+ * span = ช่วงที่ไม่พร้อม (ถ้ามีช่วงชัดเจน) เช่น "ติดกรุ๊ป NRT-261008J-NH · 08/10/26–12/10/26"
  */
 export function computeAvailabilityStatus(
   leader: TourLeader,
-  jobs: TourJob[],
+  trips: LeaderTrip[],
   records: LeaderAvailabilityRecord[],
   today: string,
-): { key: AvailabilityStatusKey; label: string; tone: StatusMeta['tone'] } {
+): { key: AvailabilityStatusKey; label: string; tone: StatusMeta['tone']; span?: string } {
   if (leader.usageStatus === 'suspended')
     return { key: 'suspended', label: LEADER_USAGE_STATUS.suspended.label, tone: 'red' };
   if (leader.usageStatus === 'ended')
@@ -122,21 +122,24 @@ export function computeAvailabilityStatus(
   const activeRecords = records.filter(
     (r) => r.leaderId === leader.id && r.approval === 'approved' && isActiveOn(r, today),
   );
-  if (activeRecords.some((r) => r.type === 'company_work'))
-    return { key: 'company_work', label: 'ติดงานบริษัท', tone: 'blue' };
-  if (activeRecords.some((r) => r.type === 'sick_leave' || r.type === 'personal_leave'))
-    return { key: 'leave', label: 'ลา', tone: 'amber' };
-  if (activeRecords.some((r) => r.type === 'unavailable'))
-    return { key: 'unavailable', label: 'ไม่พร้อมรับงาน', tone: 'orange' };
+  const recSpan = (pred: (r: LeaderAvailabilityRecord) => boolean) => {
+    const r = activeRecords.find(pred);
+    return r ? `${recordTypeLabel(r)} · ${formatRecordSchedule(r)}${r.reason ? ` · ${r.reason}` : ''}` : null;
+  };
+  const company = recSpan((r) => r.type === 'company_work');
+  if (company) return { key: 'company_work', label: 'ติดงานบริษัท', tone: 'blue', span: company };
+  const leave = recSpan((r) => r.type === 'sick_leave' || r.type === 'personal_leave');
+  if (leave) return { key: 'leave', label: 'ลา', tone: 'amber', span: leave };
+  const unavailable = recSpan((r) => r.type === 'unavailable');
+  if (unavailable) return { key: 'unavailable', label: 'ไม่พร้อมรับงาน', tone: 'orange', span: unavailable };
 
-  const onJob = jobs.some(
-    (j) =>
-      j.leaderId === leader.id &&
-      isBlockingJob(j) &&
-      j.departDate <= today &&
-      j.returnDate >= today,
-  );
-  if (onJob) return { key: 'on_job', label: 'ติดงาน', tone: 'blue' };
+  const trip = tripOn(trips, leader.id, today);
+  if (trip) {
+    return {
+      key: 'on_job', label: 'ติดงาน', tone: 'blue',
+      span: `ติดกรุ๊ป ${trip.groupCode} · ${formatDateRange(trip.start, trip.end)}${trip.pending ? ' (รอคอนเฟิร์ม)' : ''}`,
+    };
+  }
 
   return { key: 'available', label: 'พร้อมรับงาน', tone: 'green' };
 }
@@ -147,12 +150,15 @@ export function computeAvailabilityStatus(
  */
 export function readinessStatus(
   leader: TourLeader,
-  jobs: TourJob[],
+  trips: LeaderTrip[],
   records: LeaderAvailabilityRecord[],
   today: string,
-): { label: string; tone: StatusMeta['tone']; reason: string } {
-  const s = computeAvailabilityStatus(leader, jobs, records, today);
-  if (s.key === 'available') return { label: 'พร้อมรับงาน', tone: 'green', reason: '' };
+): { label: string; tone: StatusMeta['tone']; reason: string; span?: string; next?: string } {
+  const s = computeAvailabilityStatus(leader, trips, records, today);
+  // งานถัดไป — ให้เห็นว่าพร้อมถึงเมื่อไร
+  const nt = nextTrip(trips, leader.id, today);
+  const next = nt ? `กรุ๊ปถัดไป ${nt.groupCode} · ${formatDateRange(nt.start, nt.end)}${nt.pending ? ' (รอคอนเฟิร์ม)' : ''}` : undefined;
+  if (s.key === 'available') return { label: 'พร้อมรับงาน', tone: 'green', reason: '', ...(next ? { next } : {}) };
   const reasonMap: Partial<Record<AvailabilityStatusKey, string>> = {
     leave: 'อยู่ในช่วงวันลา',
     company_work: 'ติดงานบริษัท',
@@ -162,7 +168,7 @@ export function readinessStatus(
     suspended: LEADER_USAGE_STATUS.suspended.label,
     inactive: LEADER_USAGE_STATUS.ended.label,
   };
-  return { label: 'ไม่พร้อมรับงาน', tone: 'orange', reason: reasonMap[s.key] ?? '' };
+  return { label: 'ไม่พร้อมรับงาน', tone: 'orange', reason: reasonMap[s.key] ?? '', ...(s.span ? { span: s.span } : {}), ...(next ? { next } : {}) };
 }
 
 /** จำนวนรายการวันลา "กำลังมีผลหรือในอนาคต" (ใช้ทำ Badge แท็บ §6) */

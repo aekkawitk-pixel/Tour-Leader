@@ -12,20 +12,24 @@ import { useDemo } from '@/store/DemoStore';
 import { can } from '@/lib/permissions';
 import { AVAILABILITY_MENU_TERM, READINESS_TERM, USAGE_STATUS_TERM } from '@/lib/labels';
 import { readinessStatus, usageStatus } from '@/lib/logic/availabilityStatus';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, toISODate } from '@/lib/format';
+import { useLeaderTrips } from '@/lib/useLeaderTrips';
 import { Avatar, Button, Card, StatusBadge } from '@/components/ui/Primitives';
 import { LeaderUsageModal } from '@/components/leaders/LeaderUsageModal';
 import type { TourLeader } from '@/types';
 
 export function LeaderStatusTab({ leader }: { leader: TourLeader }) {
-  const { jobs, availabilityRecords, today, currentUser } = useDemo();
+  const { availabilityRecords, currentUser } = useDemo();
+  // ความพร้อมคำนวณจากวันจริง + กรุ๊ปที่จัดหัวหน้าทัวร์จริง (ไม่ใช่งานตัวอย่าง / วันจำลองของ Demo)
+  const trips = useLeaderTrips();
+  const today = toISODate(new Date());
   const isSelf = currentUser.role === 'leader' && currentUser.leaderId === leader.id;
   const canChangeUsage = can(currentUser.role, 'leader.changeStatus') && !isSelf;
 
   const [usageOpen, setUsageOpen] = useState(false);
 
   const usage = usageStatus(leader);
-  const readiness = readinessStatus(leader, jobs, availabilityRecords, today);
+  const readiness = readinessStatus(leader, trips, availabilityRecords, today);
   const statusHistory = leader.auditLog.filter(
     (a) => a.category === 'workStatus' || a.category === 'activation',
   );
@@ -35,9 +39,14 @@ export function LeaderStatusTab({ leader }: { leader: TourLeader }) {
     {
       label: `${READINESS_TERM}ปัจจุบัน (คำนวณ)`,
       value: (
-        <span className="inline-flex items-center gap-1.5">
-          <StatusBadge meta={{ label: readiness.label, tone: readiness.tone }} size="sm" />
-          {readiness.reason && <span className="text-xs zego-text-tertiary">({readiness.reason})</span>}
+        <span className="inline-flex flex-col items-end gap-0.5">
+          <span className="inline-flex items-center gap-1.5">
+            <StatusBadge meta={{ label: readiness.label, tone: readiness.tone }} size="sm" />
+            {readiness.reason && <span className="text-xs zego-text-tertiary">({readiness.reason})</span>}
+          </span>
+          {/* ช่วงที่ไม่พร้อม — ตั้งแต่เมื่อไรถึงเมื่อไร */}
+          {readiness.span && <span className="text-xs font-medium zego-text-secondary">{readiness.span}</span>}
+          {readiness.next && <span className="text-xs zego-text-tertiary">{readiness.next}</span>}
         </span>
       ),
     },

@@ -466,6 +466,9 @@ export function DocumentFormModal({
                 label="ชื่อเอกสาร"
                 required
                 wrapperClassName="sm:col-span-2"
+                /* ต้องมี placeholder — ไม่งั้นค่าว่างจะโชว์ตัวเลือกแรก (บัตรประชาชน) ทั้งที่ยังไม่ได้เลือก
+                   และเลือกตัวแรกซ้ำก็ไม่เกิด onChange → บันทึกไม่ได้ “กรุณาระบุชื่อเอกสาร” */
+                placeholder="เลือกชื่อเอกสาร"
                 value={otherTitleChoice}
                 options={[
                   ...OTHER_DOC_TITLE_PRESETS.map((label) => ({ value: label, label })),
@@ -489,6 +492,7 @@ export function DocumentFormModal({
                   label="ประเภทบัตรนำเที่ยว"
                   required
                   wrapperClassName="sm:col-span-2"
+                  placeholder="เลือกประเภทบัตร"
                   value={tourLicenseSub}
                   options={TOUR_LICENSE_SUBTYPES.map((label) => ({ value: label, label }))}
                   error={errors.docTitle}

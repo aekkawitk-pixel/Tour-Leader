@@ -12,14 +12,14 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { ConfirmDialog, Modal } from '@/components/ui/Modal';
-import { Button, Callout, cx } from '@/components/ui/Primitives';
+import { Button, Callout, cx, StatusBadge } from '@/components/ui/Primitives';
 import { SelectInput, TextArea, TextInput } from '@/components/ui/FormField';
 import { useDemo } from '@/store/DemoStore';
 import { formatDate } from '@/lib/format';
 import {
   LEADER_TYPE, LEADER_TYPE_DESC, LEADER_TYPE_ORDER,
   PAY_TYPE, PAY_TYPE_ORDER, PAY_UNIT, PAY_UNIT_ORDER,
-  PERSON_TYPE, PERSON_TYPE_ORDER,
+  PERSON_TYPE, PERSON_TYPE_ORDER, LEADER_USAGE_STATUS,
 } from '@/lib/labels';
 import { leaderToForm, type LeaderFormState } from '@/modules/tour-leaders/mappers';
 import { DEFAULT_PERSON_TYPE } from '@/modules/tour-leaders/constants';
@@ -257,6 +257,7 @@ function SectionForm({
             errors={errors}
             originalLeaderType={leader.leaderType}
             joinedAt={leader.joinedAt}
+            usageStatus={leader.usageStatus}
             onChange={set}
           />
         )}
@@ -322,12 +323,13 @@ function SectionForm({
  * ใช้ Field เดียว (leaderType) และ Master เดียว (LEADER_TYPE) ตลอดทั้งระบบ
  */
 function EmploymentFields({
-  form, errors, originalLeaderType, joinedAt, onChange,
+  form, errors, originalLeaderType, joinedAt, usageStatus, onChange,
 }: {
   form: LeaderFormState;
   errors: Record<string, string>;
   originalLeaderType: LeaderType;
   joinedAt: string;
+  usageStatus: keyof typeof LEADER_USAGE_STATUS;
   onChange: <K extends keyof LeaderFormState>(key: K, value: LeaderFormState[K]) => void;
 }) {
   const typeChanged = originalLeaderType !== form.leaderType;
@@ -361,7 +363,8 @@ function EmploymentFields({
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/* ลำดับช่องตรงกับการ์ด “ข้อมูลการร่วมงาน” (LeaderIdentityTab) — แก้ที่หนึ่งต้องแก้อีกที่ด้วย */}
+      <div className="grid gap-4 sm:grid-cols-3">
         <div data-field="personType">
           {/* ไม่มีตัวเลือกว่าง — ฟิลด์นี้ต้องมีค่าเสมอ · แก้ไขข้อมูลเดิมจะแสดงค่าที่บันทึกไว้จริง */}
           <SelectInput
@@ -382,6 +385,14 @@ function EmploymentFields({
             disabled
             hint="แก้ไขได้ที่ Card “ข้อมูลทั่วไป”"
           />
+        </div>
+        {/* สถานะโปรไฟล์ — อ่านอย่างเดียว (ปรับที่แท็บสถานะ) · ให้ฟอร์มกับหน้าแสดงมีช่องเดียวกัน */}
+        <div>
+          <span className="mb-1.5 block text-sm font-medium zego-text-secondary">สถานะโปรไฟล์</span>
+          <div className="flex min-h-[41px] items-center rounded-lg border zego-border-color zego-surface-soft-bg px-3">
+            <StatusBadge meta={LEADER_USAGE_STATUS[usageStatus]} size="sm" />
+          </div>
+          <p className="mt-1 text-xs zego-text-tertiary">ปรับได้ที่แท็บ “สถานะ / การลา”</p>
         </div>
       </div>
 
@@ -438,11 +449,22 @@ function EmploymentFields({
            Card “รายละเอียดการร่วมงาน (หัวหน้าทัวร์ประจำ)” ถูกนำออกจากหน้าจอ — รหัสพนักงาน ·
            วันที่เริ่มรูปแบบนี้ · หน่วยงาน/ทีมที่สังกัด · สถานะการร่วมงาน ไม่ต้องกรอกอีกต่อไป
            ข้อมูลเดิมของหัวหน้าทัวร์ที่เคยกรอกไว้ยังคงอยู่ครบ (ไม่ถูกล้างตอนบันทึก) */}
-      {form.leaderType === 'general' || form.leaderType === 'regular' ? (
+      {form.leaderType === 'regular' ? (
+        /* หัวหน้าทัวร์ประจำ — หน่วยงาน / ฝ่ายที่ดูแล (แสดงในหน้าโปรไฟล์ · บันทึกเฉพาะรูปแบบประจำ) */
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div data-field="team">
+            <TextInput
+              label="หน่วยงาน / ฝ่ายที่ดูแล"
+              optional
+              placeholder="เช่น ฝ่ายทัวร์ญี่ปุ่น"
+              value={form.team}
+              onChange={(e) => onChange('team', e.target.value)}
+            />
+          </div>
+        </div>
+      ) : form.leaderType === 'general' ? (
         <p className="rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-tertiary">
-          {form.leaderType === 'regular'
-            ? 'ไม่ต้องกรอกรายละเอียดเพิ่มสำหรับหัวหน้าทัวร์ประจำ'
-            : 'ยังไม่ได้กำหนดรูปแบบการร่วมงานเฉพาะ — ไม่ต้องกรอกรายละเอียดเพิ่ม'}
+          ยังไม่ได้กำหนดรูปแบบการร่วมงานเฉพาะ — ไม่ต้องกรอกรายละเอียดเพิ่ม
         </p>
       ) : (
         <div className="rounded-xl border zego-border-color zego-surface-soft-bg p-3">

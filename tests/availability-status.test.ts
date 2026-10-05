@@ -18,6 +18,7 @@ import {
 } from '@/lib/logic/availabilityStatus';
 import { checkProgramAvailability, leaderUnavailability } from '@/lib/logic/leaderAvailability';
 import type { LeaderAvailabilityRecord, TourJob, TourLeader } from '@/types';
+import type { LeaderTrip } from '@/lib/logic/leaderTrips';
 
 const TODAY = '2026-07-13';
 
@@ -53,6 +54,10 @@ const mkRecord = (over: Partial<LeaderAvailabilityRecord>): LeaderAvailabilityRe
 });
 
 const flight = { flightNo: 'X', route: 'X', departAt: '', arriveAt: '' };
+const mkTrip = (over: Partial<LeaderTrip>): LeaderTrip => ({
+  leaderId: 'TL-1', periodId: 'P-1', groupCode: 'G-1', programName: 'โปรแกรมทดสอบ', start: TODAY, end: TODAY, pending: false, ...over,
+});
+
 const mkJob = (over: Partial<TourJob>): TourJob => {
   const departDate = over.departDate ?? '2026-08-01';
   const returnDate = over.returnDate ?? '2026-08-05';
@@ -98,9 +103,15 @@ describe('§9 computeAvailabilityStatus — ลำดับความสำค
     const rec = mkRecord({ type: 'unavailable', startDate: TODAY, endDate: TODAY });
     assert.equal(computeAvailabilityStatus(mkLeader(), [], [rec], TODAY).key, 'unavailable');
   });
-  test('ติดงาน (มีงานคาบวันนี้)', () => {
-    const job = mkJob({ leaderId: 'TL-1', status: 'traveling', departDate: '2026-07-10', returnDate: '2026-07-20' });
-    assert.equal(computeAvailabilityStatus(mkLeader(), [job], [], TODAY).key, 'on_job');
+  test('ติดงาน (มีกรุ๊ปคาบวันนี้) + บอกช่วงวันที่ติด', () => {
+    const s = computeAvailabilityStatus(mkLeader(), [mkTrip({ start: '2026-07-10', end: '2026-07-20' })], [], TODAY);
+    assert.equal(s.key, 'on_job');
+    assert.match(s.span ?? '', /ติดกรุ๊ป G-1 · 10\/07\/26/);
+  });
+  test('กรุ๊ปที่ยังไม่ถึงไม่ทำให้ไม่พร้อม แต่บอกกรุ๊ปถัดไป', () => {
+    const r = readinessStatus(mkLeader(), [mkTrip({ start: '2026-08-01', end: '2026-08-05' })], [], TODAY);
+    assert.equal(r.label, 'พร้อมรับงาน');
+    assert.match(r.next ?? '', /กรุ๊ปถัดไป G-1/);
   });
   test('พร้อมรับงาน (ไม่มีเงื่อนไข)', () => {
     assert.equal(computeAvailabilityStatus(mkLeader(), [], [], TODAY).key, 'available');

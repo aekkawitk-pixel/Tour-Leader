@@ -4,7 +4,7 @@
  * รายการหัวหน้าทัวร์ — ค้นหา/กรอง/เรียง/แบ่งหน้า ดูรายละเอียด แก้ไข และปิดใช้งาน (ไม่ลบถาวร)
  *
  * ตาราง 8 คอลัมน์ (ดู components/leaders/LeaderTable.tsx) — Desktop ตาราง · Mobile การ์ด
- * ตัวกรองยุบไว้ในปุ่ม "ตัวกรอง (N)" เพื่อคืนพื้นที่ให้ตาราง — ตรรกะการกรองไม่เปลี่ยน
+ * ค้นหา + ตัวกรองพื้นฐานอยู่แถวเดียว (จอกว้าง) · ตัวกรองขั้นสูงยุบไว้ — ตรรกะการกรองไม่เปลี่ยน
  *
  * ปุ่ม "ไกด์ของฉัน" กรองเฉพาะคนที่ปักดาวไว้ (ส่วนตัวของแต่ละ User) — ปักดาวได้จากแถวในตารางนี้เลย
  *
@@ -40,6 +40,7 @@ import { EXPERIENCE_BAND_LABEL, EXPERIENCE_BAND_ORDER } from '@/lib/logic/leader
 import { expertiseSearchText } from '@/lib/logic/expertiseSummary';
 import { getExpertiseScopes } from '@/services/expertiseScopeStore';
 import { useFavoriteGuides } from '@/lib/useFavoriteGuides';
+import { useLeaderTrips } from '@/lib/useLeaderTrips';
 import { usePreferredGuideOrder } from '@/lib/usePreferredGuideOrder';
 import { fullPreferredOrder, reorderWithinSubset } from '@/lib/logic/preferredGuideOrder';
 import { Button, Card, cx } from '@/components/ui/Primitives';
@@ -100,8 +101,8 @@ export function LeaderListView() {
   } = useDemo();
 
   const [filter, setFilter] = useState<LeaderFilter>(EMPTY_LEADER_FILTER);
-  const [showFilters, setShowFilters] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const trips = useLeaderTrips();
 
   /*
    * โหมด "ไกด์ของฉัน" + เลขหน้า อ่านค่าเริ่มต้นจาก URL แล้ว sync กลับทุกครั้งที่เปลี่ยน (router.replace
@@ -247,50 +248,19 @@ export function LeaderListView() {
   return (
     <>
       <Card className="mb-5">
-        {/* ค้นหา + ปุ่มเปิดตัวกรอง */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <label className="text-sm font-medium zego-text-secondary">ค้นหา</label>
-            <SearchBox
-              value={filter.query}
-              onChange={(v) => set('query', v)}
-              placeholder="รหัส ชื่อ ชื่อเล่น โทรศัพท์ อีเมล หรือเส้นทาง"
-              label="ค้นหาหัวหน้าทัวร์"
-            />
-          </div>
+        {/* ค้นหา + ตัวกรองพื้นฐาน — จอกว้างอยู่แถวเดียว (ช่องค้นหากว้างกว่า) · จอแคบตัดเป็น 3 / 2 / 1 คอลัมน์ */}
+        <div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(0,1.6fr)_repeat(5,minmax(0,1fr))]">
+              <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2 lg:col-span-3 xl:col-span-1">
+                <label className="text-sm font-medium zego-text-secondary">ค้นหา</label>
+                <SearchBox
+                  value={filter.query}
+                  onChange={(v) => set('query', v)}
+                  placeholder="รหัส ชื่อ ชื่อเล่น โทรศัพท์ อีเมล หรือเส้นทาง"
+                  label="ค้นหาหัวหน้าทัวร์"
+                />
+              </div>
 
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowFilters((v) => !v)}
-              aria-expanded={showFilters}
-              className={cx(
-                'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
-                activeFilterCount > 0
-                  ? 'zego-badge--info'
-                  : 'zego-border-color zego-surface-bg zego-text-secondary zego-hover-surface',
-              )}
-            >
-              <Icon name="filter" className="h-4 w-4" />
-              ตัวกรอง{activeFilterCount > 0 && ` (${activeFilterCount})`}
-              <Icon
-                name="chevronDown"
-                className={cx('h-4 w-4 transition-transform', showFilters && 'rotate-180')}
-              />
-            </button>
-
-            {hasFilter && (
-              <Button variant="ghost" size="sm" onClick={reset}>
-                ล้างตัวกรอง
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {showFilters && (
-          <div className="mt-4 zego-divider-top pt-4">
-            {/* ตัวกรองพื้นฐาน */}
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               <SelectInput
                 label="ความพร้อมรับงาน"
                 value={filter.status}
@@ -349,19 +319,26 @@ export function LeaderListView() {
 
             {/* ตัวกรองขั้นสูง */}
             <div className="mt-3 zego-divider-top pt-3">
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((v) => !v)}
-                aria-expanded={showAdvanced}
-                className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium zego-text-info zego-hover-surface"
-              >
-                <Icon name="filter" className="h-4 w-4" />
-                ตัวกรองขั้นสูง (จังหวัด ระดับภาษา เส้นทาง ใบรับรอง ความถนัด เอกสาร ตารางว่าง)
-                <Icon
-                  name="chevronDown"
-                  className={cx('h-4 w-4 transition-transform', showAdvanced && 'rotate-180')}
-                />
-              </button>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced((v) => !v)}
+                  aria-expanded={showAdvanced}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium zego-text-info zego-hover-surface"
+                >
+                  <Icon name="filter" className="h-4 w-4" />
+                  ตัวกรองขั้นสูง (จังหวัด ระดับภาษา เส้นทาง ใบรับรอง ความถนัด เอกสาร ตารางว่าง)
+                  <Icon
+                    name="chevronDown"
+                    className={cx('h-4 w-4 transition-transform', showAdvanced && 'rotate-180')}
+                  />
+                </button>
+                {hasFilter && (
+                  <Button variant="ghost" size="sm" onClick={reset}>
+                    ล้างตัวกรอง{activeFilterCount > 0 && ` (${activeFilterCount})`}
+                  </Button>
+                )}
+              </div>
 
               {showAdvanced && (
                 <div className="mt-3 space-y-3">
@@ -373,17 +350,6 @@ export function LeaderListView() {
                       options={[
                         { value: 'all', label: 'ทุกจังหวัด' },
                         ...provinces.map((p) => ({ value: p, label: p })),
-                      ]}
-                    />
-                    <SelectInput
-                      label="ประเทศประจำ"
-                      value={filter.assignedCountryId}
-                      onChange={(e) => set('assignedCountryId', e.target.value)}
-                      options={[
-                        { value: 'all', label: 'ทุกประเทศ' },
-                        ...countries
-                          .filter((c) => c.isActive)
-                          .map((c) => ({ value: c.id, label: `${c.nameEn} — ${c.nameTh}` })),
                       ]}
                     />
                     <SelectInput
@@ -522,8 +488,7 @@ export function LeaderListView() {
                 </div>
               )}
             </div>
-          </div>
-        )}
+        </div>
 
         {/* ผลลัพธ์ + ตัวเลือกแสดงคนไม่พร้อม + เรียงลำดับ */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 zego-divider-top pt-3">
@@ -619,7 +584,7 @@ export function LeaderListView() {
           <LeaderTable
             leaders={paged}
             countries={countries}
-            jobs={jobs}
+            trips={trips}
             availabilityRecords={availabilityRecords}
             today={today}
             startIndex={startIndex}

@@ -40,13 +40,15 @@ import { LanguageChip, LanguageLevelTag } from './LanguageBadge';
 import { DragHandle, RowMenu, useDragReorder, type RowMenuItem } from './reorderControls';
 import { FavoriteStarButton } from './FavoriteStarButton';
 import { moveIdToRank } from '@/lib/logic/preferredGuideOrder';
-import type { Country, LeaderAvailabilityRecord, TourJob, TourLeader } from '@/types';
+import type { Country, LeaderAvailabilityRecord, TourLeader } from '@/types';
+import type { LeaderTrip } from '@/lib/logic/leaderTrips';
+import { toISODate } from '@/lib/format';
 
 export interface LeaderTableProps {
   leaders: TourLeader[];
   countries: Country[];
-  /** ใช้คำนวณสถานะประกอบ “ติดงาน” จากงานที่ได้รับมอบหมาย */
-  jobs: TourJob[];
+  /** ใช้คำนวณสถานะประกอบ “ติดงาน” จากกรุ๊ปที่จัดหัวหน้าทัวร์จริง (useLeaderTrips) */
+  trips: LeaderTrip[];
   /** ใช้คำนวณสถานะประกอบ “ลา / ติดงานบริษัท / ไม่พร้อมรับงาน” ตามช่วงวัน */
   availabilityRecords: LeaderAvailabilityRecord[];
   today: string;
@@ -304,16 +306,14 @@ const DERIVED_KEYS = new Set<AvailabilityStatusKey>(['on_job', 'leave', 'company
 
 function StatusCell({
   leader,
-  jobs,
+  trips,
   availabilityRecords,
-  today,
   canChangeStatus,
   onChangeStatus,
 }: {
   leader: TourLeader;
-  jobs: TourJob[];
+  trips: LeaderTrip[];
   availabilityRecords: LeaderAvailabilityRecord[];
-  today: string;
   canChangeStatus: boolean;
   onChangeStatus: (l: TourLeader) => void;
 }) {
@@ -323,7 +323,8 @@ function StatusCell({
    * สถานะประกอบตามช่วงวัน — ติดงาน (จากงานที่มอบหมายในการจัดสเก็ต) · ลา/ติดงานบริษัท
    * (จากเมนูสถานะและการลา) · แสดงควบคู่สถานะหลัก ไม่เปลี่ยนสถานะหลักอัตโนมัติ
    */
-  const derived = computeAvailabilityStatus(leader, jobs, availabilityRecords, today);
+  // วันจริง (ไม่ใช่วันจำลองของ Demo) — ความพร้อมต้องตรงกับวันนี้จริง
+  const derived = computeAvailabilityStatus(leader, trips, availabilityRecords, toISODate(new Date()));
   const extra = DERIVED_KEYS.has(derived.key) ? (
     <StatusBadge meta={{ label: derived.label, tone: derived.tone }} size="sm" dot />
   ) : null;
@@ -397,7 +398,7 @@ const COLS: { key: string; label: string; className: string; center?: boolean }[
 export function LeaderTable({
   leaders,
   countries,
-  jobs,
+  trips,
   availabilityRecords,
   today,
   startIndex,
@@ -557,9 +558,8 @@ export function LeaderTable({
                 <td className="px-3 py-3">
                   <StatusCell
                     leader={leader}
-                    jobs={jobs}
+                    trips={trips}
                     availabilityRecords={availabilityRecords}
-                    today={today}
                     canChangeStatus={canChangeStatus}
                     onChangeStatus={onChangeStatus}
                   />
@@ -580,7 +580,7 @@ export function LeaderTable({
             key={leader.id}
             leader={leader}
             countries={countries}
-            jobs={jobs}
+            trips={trips}
             availabilityRecords={availabilityRecords}
             today={today}
             no={startIndex + i + 1}
@@ -608,7 +608,7 @@ export function LeaderTable({
 function LeaderCardMobile({
   leader,
   countries,
-  jobs,
+  trips,
   availabilityRecords,
   today,
   no,
@@ -627,7 +627,7 @@ function LeaderCardMobile({
 }: {
   leader: TourLeader;
   countries: Country[];
-  jobs: TourJob[];
+  trips: LeaderTrip[];
   availabilityRecords: LeaderAvailabilityRecord[];
   today: string;
   no: number;
@@ -682,9 +682,8 @@ function LeaderCardMobile({
         <div className="flex shrink-0 items-center gap-2">
           <StatusCell
             leader={leader}
-            jobs={jobs}
+            trips={trips}
             availabilityRecords={availabilityRecords}
-            today={today}
             canChangeStatus={canChangeStatus}
             onChangeStatus={onChangeStatus}
           />

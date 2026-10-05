@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { can } from '@/lib/permissions';
+import { toISODate } from '@/lib/format';
 import {
   AVAILABILITY_APPROVAL,
   AVAILABILITY_TYPE,
@@ -30,7 +31,9 @@ import { useWideContent } from '@/components/layout/AppShell';
 import type { LeaderAvailabilityRecord, TourLeader } from '@/types';
 
 export function LeaderLeaveTab({ leader }: { leader: TourLeader }) {
-  const { availabilityRecords, today, currentUser, setAvailabilityApproval, saving } = useDemo();
+  const { availabilityRecords, currentUser, setAvailabilityApproval, saving } = useDemo();
+  // วันจริง (ไม่ใช่วันจำลองของ Demo) — ปฏิทินเปิดที่เดือนปัจจุบัน · กำลังมีผล/กำลังจะถึงนับจากวันนี้จริง
+  const today = toISODate(new Date());
   const canApprove = can(currentUser.role, 'leader.changeStatus');
 
   // ปฏิทิน/รายการวันลาต้องใช้พื้นที่กว้าง — ขยายเนื้อหาเต็มจอตลอดที่อยู่แท็บนี้

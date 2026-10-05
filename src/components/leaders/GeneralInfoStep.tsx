@@ -248,7 +248,6 @@ export function GeneralInfoStep({
       onChange('idCardAddress', { ...EMPTY_ADDRESS });
       onChange('idCardSameAsCurrent', false);
     } else if (form.personType === 'foreigner') {
-      onChange('birthCountryId', '');
       onChange('passportNumber', '');
       onChange('passportCountryId', '');
       onChange('passportIssuedAt', '');
@@ -766,21 +765,21 @@ export function GeneralInfoStep({
               options={nationalityOptions}
             />
           </div>
-          {isForeigner && (
-            <div data-field="birthCountryId">
-              <SelectInput
-                label="ประเทศที่เกิด"
-                required
-                placeholder="เลือกประเทศ"
-                value={form.birthCountryId}
-                error={errors.birthCountryId}
-                onChange={(e) => onChange('birthCountryId', e.target.value)}
-                options={countries
-                  .filter((c) => c.isActive || c.id === form.birthCountryId)
-                  .map((c) => ({ value: c.id, label: `${c.nameTh} (${c.nameEn})` }))}
-              />
-            </div>
-          )}
+          {/* ประเทศที่เกิด — ทุกคน · ชาวต่างชาติบังคับ คนไทยไม่บังคับ (ตรงกับหน้าแสดง / ฟอร์มแก้ไข) */}
+          <div data-field="birthCountryId">
+            <SelectInput
+              label="ประเทศที่เกิด"
+              required={isForeigner}
+              optional={!isForeigner}
+              placeholder="เลือกประเทศ"
+              value={form.birthCountryId}
+              error={errors.birthCountryId}
+              onChange={(e) => onChange('birthCountryId', e.target.value)}
+              options={countries
+                .filter((c) => c.isActive || c.id === form.birthCountryId)
+                .map((c) => ({ value: c.id, label: `${c.nameTh} (${c.nameEn})` }))}
+            />
+          </div>
         </div>
 
         {/* ข้อมูลรอง — ซ่อนไว้จนกว่าจะกด (ไม่บังคับกรอกทั้งหมด) */}
