@@ -233,7 +233,8 @@ export function LeaderScheduleCalendar({
           ชุดสีความพร้อม (วันลา/ติดงานบริษัท/ไม่พร้อมรับงาน) แยกออกจากกันชัดเจน
         */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] zego-text-tertiary">
-          {BOARD_STATUS_ORDER.map((s) => (
+          {/* ไม่แสดง “ปฏิเสธ” — สถานะนี้ไม่เกิดในขั้นตอนปัจจุบัน (จัดแล้วคอนเฟิร์มทันที) */}
+          {BOARD_STATUS_ORDER.filter((s) => s !== 'DECLINED').map((s) => (
             <span key={s} className="inline-flex items-center gap-1">
               <span className={cx('h-2.5 w-2.5 rounded-sm', BOARD_STATUS[s].dot)} />
               {BOARD_STATUS[s].label}

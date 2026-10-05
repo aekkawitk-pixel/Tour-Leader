@@ -277,7 +277,7 @@ export function ConfirmDialog({
         </>
       }
     >
-      <p className="zego-text-secondary text-sm leading-relaxed">{message}</p>
+      <p className="zego-text-secondary whitespace-pre-line text-sm leading-relaxed">{message}</p>
     </Modal>
   );
 }

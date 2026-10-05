@@ -16,7 +16,7 @@
 import { useMemo, useState } from 'react';
 import { PhotoConfirmModal, ProofThumb } from './EnvelopeProofPhoto';
 import { useDemo } from '@/store/DemoStore';
-import { Drawer } from '@/components/ui/Modal';
+import { Drawer, Modal } from '@/components/ui/Modal';
 import { Button, cx } from '@/components/ui/Primitives';
 import { SearchBox, TextInput } from '@/components/ui/FormField';
 import { Icon } from '@/components/ui/Icon';
@@ -238,6 +238,14 @@ export function GroupEnvelopeDrawer({ periodId, docs, onClose }: { periodId: str
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const active = envs.find((e) => e.id === activeId) ?? envs.find((e) => !e.sealed) ?? envs[0];
+  /** เพิ่งปิดซองนี้ — ถามต่อว่าจะจัดซองถัดไป (ถ้ายังมีรายการเหลือ) หรือส่งมอบซองนี้เลย */
+  const [justSealed, setJustSealed] = useState<CashEnvelope | null>(null);
+  const goHandover = (env: CashEnvelope) => {
+    setActiveId(env.id);
+    setJustSealed(null);
+    // รอแผงซองวาดส่วน "ส่งมอบซอง" ก่อน แล้วค่อยเลื่อนไปหา
+    window.setTimeout(() => document.getElementById(`envelope-handover-${env.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+  };
 
   const status = groupEnvelopeStatus(lines, envs, noEnv);
 
@@ -387,18 +395,46 @@ export function GroupEnvelopeDrawer({ periodId, docs, onClose }: { periodId: str
               return rest;
             })}
             onDeleted={() => setActiveId(null)}
+            onSealed={setJustSealed}
             leader={leader}
             periodId={periodId}
           />
         )}
       </div>
+
+      {/* หลังปิดซอง — ทำต่อได้ทันที: จัดซองถัดไป (ถ้ายังมีรายการที่ไม่ได้ใส่ซอง) หรือส่งมอบซองนี้ */}
+      {justSealed && (
+        <Modal
+          open
+          onClose={() => setJustSealed(null)}
+          title={`ปิด${envelopeName(justSealed)}แล้ว`}
+          description={free.length > 0
+            ? `ยังมีรายการที่ไม่ได้ใส่ซอง ${free.length} รายการ · ${fmtTotals(sumAmounts(free))} — ต้องการทำอะไรต่อ?`
+            : 'จัดใส่ซองครบทุกรายการแล้ว — ต้องการส่งมอบซองนี้เลยไหม?'}
+          footer={(
+            <div className="flex w-full flex-wrap justify-end gap-2">
+              <Button variant="ghost" onClick={() => setJustSealed(null)}>ไว้ทีหลัง</Button>
+              <Button variant={free.length > 0 ? 'secondary' : 'primary'} onClick={() => goHandover(justSealed)}>ส่งมอบซองนี้</Button>
+              {free.length > 0 && (
+                <Button variant="primary" icon="plus" onClick={() => { setJustSealed(null); void addEnvelope(); }}>จัดซองถัดไป</Button>
+              )}
+            </div>
+          )}
+        >
+          <ul className="space-y-1.5 text-sm zego-text-secondary">
+            {free.length > 0 && <li>• <b className="zego-text">จัดซองถัดไป</b> — สร้างซองใหม่แล้วเลือกรายการที่เหลือใส่ต่อได้เลย</li>}
+            <li>• <b className="zego-text">ส่งมอบซองนี้</b> — ไปที่ขั้น “2. ส่งมอบซอง” เลือกเจ้าหน้าที่ส่งกรุ๊ป / หัวหน้าทัวร์ที่รับ</li>
+            <li>• <b className="zego-text">ไว้ทีหลัง</b> — ปิดหน้าต่างนี้ กลับมาทำต่อเมื่อไรก็ได้</li>
+          </ul>
+        </Modal>
+      )}
     </Drawer>
   );
 }
 
 /** ซองใบเดียว: จัดรายการ → ปิดซอง → ส่งมอบ → หัวหน้าทัวร์รับ · ประวัติ */
 function EnvelopePanel({
-  env, docs, info, lines, allocs, envs, alloc, setAlloc, clearDraft, onDeleted, leader, periodId,
+  env, docs, info, lines, allocs, envs, alloc, setAlloc, clearDraft, onDeleted, onSealed, leader, periodId,
 }: {
   env: CashEnvelope;
   docs: ExpenseRequest[];
@@ -411,6 +447,8 @@ function EnvelopePanel({
   setAlloc: (a: Allocation) => void;
   clearDraft: () => void;
   onDeleted: () => void;
+  /** ปิดซองสำเร็จ — ให้แผงหลักถามต่อ (จัดซองถัดไป / ส่งมอบ) */
+  onSealed?: (env: CashEnvelope) => void;
   leader: { id: string; name: string } | null;
   periodId: string;
 }) {
@@ -497,12 +535,10 @@ function EnvelopePanel({
   };
   const seal = async () => {
     const snap = lines.filter((l) => mine.has(l.id));
-    await saveEnvelope(
-      withLabel({ ...withPacking(env), sealed: { at: toISODateTime(new Date()), byName: '', faceTotals: totals.packed, lineSnapshot: snap } }),
-      'ปิดซอง',
-      `${name} · ยอดหน้าซอง ${fmtTotals(totals.packed)}`,
-    );
+    const sealedEnv = withLabel({ ...withPacking(env), sealed: { at: toISODateTime(new Date()), byName: '', faceTotals: totals.packed, lineSnapshot: snap } });
+    await saveEnvelope(sealedEnv, 'ปิดซอง', `${name} · ยอดหน้าซอง ${fmtTotals(totals.packed)}`);
     clearDraft();
+    onSealed?.(sealedEnv);
   };
   const unseal = () => {
     const rest: CashEnvelope = { ...env };
@@ -514,6 +550,24 @@ function EnvelopePanel({
   const remove = async () => {
     if (packed.length > 0 && !window.confirm(`ลบ${name}? รายการในซองจะกลับไปเป็น "ยังไม่ได้จัด"`)) return;
     await deleteEnvelope(env);
+    clearDraft();
+    onDeleted();
+  };
+  /**
+   * ยกเลิกซองนี้ (กดเดียว) — ทำได้จนกว่าจะส่งมอบ · ซองที่ปิดแล้วจะถูกเปิดก่อนแล้วลบ (store ห้ามลบซองที่ปิดอยู่)
+   * รายการในซองกลับไปเป็น "ยังไม่ได้จัด" · ส่งมอบแล้วต้องยกเลิกการส่งมอบก่อน
+   */
+  const cancelEnvelope = async () => {
+    if (!window.confirm(`ยกเลิก${name}? ซองนี้จะถูกลบ และรายการในซองจะกลับไปเป็น "ยังไม่ได้จัด"`)) return;
+    let target = env;
+    if (env.sealed) {
+      const rest: CashEnvelope = { ...env };
+      delete rest.sealed;
+      delete rest.pendingDeposit;
+      await saveEnvelope(rest, 'เปิดซองเพื่อยกเลิก', name);
+      target = rest;
+    }
+    await deleteEnvelope(target);
     clearDraft();
     onDeleted();
   };
@@ -1011,9 +1065,18 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
             </p>
           )}
         </div>
-        <div className="flex gap-2">
+        {/*
+          จัดการซอง — ปุ่มชัด ๆ ที่หัวซอง (เดิมเป็นลิงก์เล็กท้ายรายการ)
+            จัดซองอยู่    : ยกเลิกซองนี้
+            ปิดซองแล้ว    : แก้ไขการจัด (เปิดซอง) · ยกเลิกซองนี้ · พิมพ์ใบปะหน้า
+            ส่งมอบแล้วขึ้นไป: พิมพ์ใบปะหน้าเท่านั้น (ต้องยกเลิกการส่งมอบก่อน)
+        */}
+        <div className="flex flex-wrap gap-2">
           {env.sealed && <Button variant="secondary" size="sm" icon="download" onClick={printLabel}>พิมพ์ใบปะหน้าซอง</Button>}
-          {!env.sealed && <Button variant="ghost" size="sm" onClick={() => void remove()}>ลบซอง</Button>}
+          {stage === 'sealed' && <Button variant="secondary" size="sm" icon="edit" onClick={() => void unseal()}>แก้ไขการจัด</Button>}
+          {(stage === 'packing' || stage === 'sealed') && (
+            <Button variant="danger" size="sm" icon="close" onClick={() => void (stage === 'packing' && packed.length === 0 ? remove() : cancelEnvelope())}>ยกเลิกซองนี้</Button>
+          )}
         </div>
       </div>
 
@@ -1031,7 +1094,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
       )}
       {changed && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs zego-text-warning">
-          เอกสารเบิกถูกแก้ไขหลังปิดซอง — ยอดหน้าซองอาจไม่ตรงเอกสารแล้ว ตรวจสอบก่อนส่งมอบ{stage === 'sealed' ? ' (เปิดซองแก้ไขได้)' : ''}
+          เอกสารเบิกถูกแก้ไขหลังปิดซอง — ยอดหน้าซองอาจไม่ตรงเอกสารแล้ว ตรวจสอบก่อนส่งมอบ{stage === 'sealed' ? ' (กด “แก้ไขการจัด” ที่หัวซอง)' : ''}
         </p>
       )}
 
@@ -1197,18 +1260,16 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
             </Button>
           </div>
         ) : (
-          <p className="flex flex-wrap items-center justify-between gap-2 text-xs zego-text-tertiary">
-            <span>ปิดซองโดย {env.sealed?.byName || '—'} · {env.sealed && formatDateTime(env.sealed.at)}</span>
-            {stage === 'sealed' && (
-              <button type="button" onClick={() => void unseal()} className="font-medium zego-text-info hover:underline">เปิดซองแก้ไขการจัด</button>
-            )}
+          // เปิดซองแก้ไข = ปุ่ม “แก้ไขการจัด” ที่หัวซองแล้ว ไม่ซ้ำตรงนี้
+          <p className="text-xs zego-text-tertiary">
+            ปิดซองโดย {env.sealed?.byName || '—'} · {env.sealed && formatDateTime(env.sealed.at)}
           </p>
         )}
       </section>
 
       {/* 2) ส่งมอบ */}
       {stage !== 'packing' && (
-        <section className="space-y-2">
+        <section id={`envelope-handover-${env.id}`} className="scroll-mt-4 space-y-2">
           <h4 className="text-sm font-semibold zego-text">2. ส่งมอบซอง</h4>
           {env.handover ? (
             <div className="grid gap-3 rounded-lg border zego-border-color p-3 sm:grid-cols-[1fr_auto_auto]">

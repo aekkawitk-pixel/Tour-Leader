@@ -362,6 +362,14 @@ export function canEditSendOffSchedule(user: Pick<DemoUser, 'id'>): boolean {
   return SEND_OFF_SCHEDULE_ADMIN_USER_IDS.includes(user.id);
 }
 
+/**
+ * ผู้จัดสเก็ต (Schedule Administrator) — ตารางจัดหัวหน้าทัวร์ตั้งต้นด้วยหัวหน้าทัวร์ที่ "ทุกคน" ปักดาวไว้
+ * (ผู้ใช้อื่นตั้งต้นด้วยไกด์ที่ตัวเองปักดาวเท่านั้น)
+ */
+export function seesTeamFavorites(user: Pick<DemoUser, 'id'>): boolean {
+  return SEND_OFF_SCHEDULE_ADMIN_USER_IDS.includes(user.id);
+}
+
 /** คำอธิบายขอบเขตข้อมูลที่แต่ละบทบาทมองเห็น (ใช้แสดงใน Header) */
 /**
  * ขอบเขตข้อมูลของผู้ใช้ — หัวหน้าทัวร์เห็นเฉพาะของตัวเอง บทบาทอื่นเห็นทั้งหมด

@@ -21,6 +21,11 @@ export function readFavoriteGuideIds(userId: string): string[] {
   return Array.isArray(list) ? list : [];
 }
 
+/** หัวหน้าทัวร์ที่ "ทุกคน" ปักดาวไว้ (รวมทุก User ไม่ซ้ำ) — ค่าเริ่มต้นตาราง Schedule ของผู้จัดสเก็ต */
+export function readAllFavoriteGuideIds(): string[] {
+  return [...new Set(Object.values(loadAll()).flatMap((list) => (Array.isArray(list) ? list : [])))];
+}
+
 /** บันทึกชุดที่ปักดาวใหม่ทั้งชุดของ User คนนี้ — เขียนไม่สำเร็จโยน StorageWriteError ให้ผู้เรียกจัดการ */
 export function writeFavoriteGuideIds(userId: string, ids: string[]): void {
   writeJson(KEY, { ...loadAll(), [userId]: ids });

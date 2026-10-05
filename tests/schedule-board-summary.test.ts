@@ -19,7 +19,8 @@ test('AC1 มีหัวข้อ "สถานะการจัด:" ใต�
 });
 
 test('AC2 แสดงครบทั้ง 5 สถานะเป็นชิป พร้อมจุดสีและจำนวน', () => {
-  assert.ok(SRC.includes('BOARD_STATUS_ORDER.map'), 'ต้องวนจากลำดับสถานะกลาง');
+  // วนจากลำดับสถานะกลาง (ซ่อน “ปฏิเสธ” เมื่อไม่มีข้อมูล — สถานะนี้ไม่เกิดในขั้นตอนปัจจุบัน)
+  assert.ok(/BOARD_STATUS_ORDER(\.filter\(.*?\))?\.map\(\(s\)/.test(SRC), 'ต้องวนจากลำดับสถานะกลาง');
   assert.ok(SRC.includes('BOARD_STATUS[s].dot'), 'ต้องมีจุดสีจาก Mapping กลาง');
   assert.ok(SRC.includes('BOARD_STATUS[s].label'), 'ต้องใช้ชื่อสถานะจาก Mapping กลาง');
   assert.ok(SRC.includes('boardCounts[s]'), 'ต้องแสดงจำนวนต่อท้าย');

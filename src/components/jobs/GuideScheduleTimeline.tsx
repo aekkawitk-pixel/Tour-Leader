@@ -12,19 +12,19 @@
  * Timeline สร้างจาก Assignment + Unavailability สด · ไม่แก้วันเดินทางจากที่นี่ (มาจากพีเรียดจริง §2)
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDemo } from '@/store/DemoStore';
 import {
   addDays, addMonths, daysBetween, diffDays, endOfMonth, formatDate, formatDateRange, formatDateTime,
-  formatThaiMonthYear, parseDate, startOfMonth, TH_WEEKDAYS_SHORT,
+  formatThaiMonthYear, parseDate, startOfMonth, TH_WEEKDAYS_SHORT, toISODateTime,
 } from '@/lib/format';
 import { Button, Callout, Card, cx, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { DateInputBase } from '@/components/ui/DateInput';
 import { useWideContent } from '@/components/layout/AppShell';
 import { Icon } from '@/components/ui/Icon';
 import { Drawer, Modal, ConfirmDialog } from '@/components/ui/Modal';
-import { SearchBox } from '@/components/ui/FormField';
+import { SearchBox, TextArea } from '@/components/ui/FormField';
 import { nextMonthStart, nextMonthStartFromNow } from '@/components/ui/MonthPicker';
 import { LEADER_STATUS } from '@/lib/labels';
 import { recordTypeLabel, formatRecordSchedule } from '@/lib/logic/availabilityStatus';
@@ -34,15 +34,17 @@ import { routeCodeFromGroupCode } from '@/lib/logic/groupScore';
 import { countryLabel, departsWithin, matchesQuery } from '@/lib/logic/periodFilter';
 import { TagMultiSelect } from '@/components/jobs/TagMultiSelect';
 import { PeriodOptionCard, type OptionTone } from '@/components/jobs/PeriodOptionCard';
-import { BOARD_STATUS, BOARD_STATUS_ORDER, boardStatusMeta, normalizeBoardStatus, periodScheduleDisplay, sectorSummary, boardStatusFromAssignment, checkPeriodConflict, periodRangeRef, sameDayTurnaroundHours, formatGapHours, periodSnapshotOf, detectAssignmentIssues, isNoSellPeriod, type BoardStatus, type ScheduleDisplay, type AssignmentIssue } from '@/lib/logic/guideBoard';
-import { can } from '@/lib/permissions';
+import { BOARD_STATUS, BOARD_STATUS_ORDER, boardStatusMeta, normalizeBoardStatus, periodScheduleDisplay, sectorSummary, checkPeriodConflict, periodRangeRef, sameDayTurnaroundHours, formatGapHours, periodSnapshotOf, detectAssignmentIssues, isNoSellPeriod, type BoardStatus, type ScheduleDisplay, type AssignmentIssue } from '@/lib/logic/guideBoard';
+import { can, seesTeamFavorites } from '@/lib/permissions';
 import { usePreferredGuideOrder } from '@/lib/usePreferredGuideOrder';
 import { useExcludedGuides } from '@/lib/useExcludedGuides';
 import { useFavoriteGuides } from '@/lib/useFavoriteGuides';
+import { GUIDE_PREFS_CHANGED_EVENT, readAllFavoriteGuideIds } from '@/services/favoriteGuidesStore';
 import { remindersInWindow, compensationProgress, cancelledSpansForLeader, cancellationsForLeader } from '@/lib/logic/guideCancellations';
 import { getPassportExpiry } from '@/services/tourLeaderMaster';
 import { getTourPeriods, getAssignablePeriods, getTourPeriodById, getSaleStatusChange } from '@/services/tourPeriodMaster';
-import { loadActiveGuideAssignments, assignPeriod, reassignPeriod, unassignPeriod, acknowledgeChange, type GuidePeriodAssignment } from '@/services/guideAssignmentStore';
+import { loadActiveGuideAssignments, assignPeriod, reassignPeriod, unassignPeriod, acknowledgeChange, setAssignmentStatus, type GuidePeriodAssignment } from '@/services/guideAssignmentStore';
+import { effectiveBoard } from '@/lib/logic/reassignNeed';
 import { passportStatus, passportRemainingText, passportBlocksScheduling, PASSPORT_STATUS_META, PASSPORT_TONE_CLASS } from '@/lib/logic/tourLeaderMaster';
 import { getLeaderExpertise, leaderDisplayName } from '@/lib/logic/leaderExpertise';
 import { getExpertiseScopes } from '@/services/expertiseScopeStore';
@@ -88,7 +90,8 @@ const RECORD_KIND: Record<string, EventKind> = { sick_leave: 'leave', personal_l
 // เพิ่มเองตอนใช้งาน (ดูจุดที่เรียก LEAVE_STYLE[...].bar) เพื่อไม่ให้ค่าตรงกับ BOARD_STATUS[s].bar
 // ที่เป็น string เดียวกันแบบ byte-for-byte (LEAVE_STYLE ใช้โทนซ้ำกับบางสถานะของ BOARD_STATUS)
 const LEAVE_STYLE: Record<Exclude<EventKind, 'job'>, { bar: string; dot: string; legend: string }> = {
-  leave: { bar: 'zego-status-bar--warning', dot: 'zego-dot--warning', legend: 'วันลา' },
+  // วันลา = ดำเทา (แยกจากสีสถานะการจัดทุกสีชัดเจน)
+  leave: { bar: 'zego-status-bar--dark', dot: 'zego-dot--slate', legend: 'วันลา' },
   company: { bar: 'zego-status-bar--orange', dot: 'zego-dot--orange', legend: 'ติดงานบริษัท' },
   unavailable: { bar: 'zego-status-bar--slate', dot: 'zego-dot--slate', legend: 'ไม่พร้อมรับงาน' },
   // เดือนที่กรุ๊ปถูกยกเลิก — เดิมเป็นแถบเขียว (คอนเฟิร์มแล้ว) เปลี่ยนเป็นแดงถาวรไว้เป็นร่องรอยในปฏิทิน
@@ -96,11 +99,17 @@ const LEAVE_STYLE: Record<Exclude<EventKind, 'job'>, { bar: string; dot: string;
 };
 // ลายทแยงสำหรับแถบไม่ว่าง (§4 ต่างจากงานทัวร์ชัดเจน)
 const LEAVE_BG: Record<Exclude<EventKind, 'job'>, string> = {
-  leave: 'repeating-linear-gradient(45deg,#fef3c7,#fef3c7 5px,#fde68a 5px,#fde68a 10px)',
+  leave: 'repeating-linear-gradient(45deg,#4b5563,#4b5563 5px,#374151 5px,#374151 10px)',
   company: 'repeating-linear-gradient(45deg,#ffedd5,#ffedd5 5px,#fed7aa 5px,#fed7aa 10px)',
   unavailable: 'repeating-linear-gradient(45deg,#f1f5f9,#f1f5f9 5px,#e2e8f0 5px,#e2e8f0 10px)',
   cancelled: 'repeating-linear-gradient(45deg,#fecdd3,#fecdd3 5px,#fda4af 5px,#fda4af 10px)',
 };
+
+/** รหัสเส้นทาง (สนามบินปลายทาง) ของโปรแกรม — ต้นรหัสกรุ๊ป 3 ตัวอักษร เช่น CAN-260910E-AQ → CAN */
+function periodRouteCode(p: { groupCode: string; route?: string | null }): string | null {
+  const m = (p.groupCode ?? '').trim().toUpperCase().match(/^([A-Z]{3})-/);
+  return m ? m[1] : null;
+}
 
 interface RowEvent {
   id: string;
@@ -114,6 +123,8 @@ interface RowEvent {
   label: string;
   scheduleText: string;
   board?: BoardStatus;
+  /** เหตุผล “ต้องเปลี่ยนหัวหน้าทัวร์” (ระบบตั้งเอง หรือผู้จัดตั้ง) */
+  reassignReason?: string;
   disp?: ScheduleDisplay; // ข้อมูลย่อบนแถบ (เฉพาะงาน)
   periodId?: string; // อ้างอิง Tour Period Master (§6/§7)
   assignmentId?: string; // อ้างอิง Guide Assignment
@@ -203,7 +214,7 @@ function eventTooltip(e: RowEvent, leaderName?: string): string {
       `ประเทศ: ${d.country}`,
       `สนามบินขาออก Sector 1: ${d.depAirport}`,
       `สายการบิน: ${d.airlineCode}`,
-      `สถานะการจัด: ${boardStatusMeta(e.board).label}`,
+      `สถานะการจัด: ${boardStatusMeta(e.board).label}${e.reassignReason ? ` — ${e.reassignReason}` : ''}`,
       // §3 งาน NO SELL — บอกให้ชัดว่าต้องลงมือทำอะไร พร้อมที่มาของการเปลี่ยนสถานะ
       ...(hasNoSellIssue(e) ? noSellTooltipLines(e.periodId) : []),
       e.compensatesFor ? `กรุ๊ปนี้ใช้ชดเชยให้: ${e.compensatesFor}` : '',
@@ -212,13 +223,31 @@ function eventTooltip(e: RowEvent, leaderName?: string): string {
   return [`${e.code} · ${e.label}`, e.scheduleText].filter(Boolean).join('\n');
 }
 
-export function GuideScheduleTimeline() {
+export function GuideScheduleTimeline({ header, toolbarStart }: { header?: ReactNode; toolbarStart?: ReactNode } = {}) {
   useWideContent(); // §1 ใช้พื้นที่เต็มความกว้าง (Timeline กว้าง) — scroll เฉพาะในกล่อง ไม่ทำให้ทั้งหน้าเลื่อน
   // §6 งานทั้งหมดมาจาก Tour Period Master · Assignment อ้างอิง periodId (ไม่ใช่ TourJob mock)
   const { leaders, appointments, availabilityRecords, countries, routes, today, pushToast, currentUser, guideCancellations, recordGuideGroupCancellation, markGuideCompensated } = useDemo();
   const { order: preferredOrder } = usePreferredGuideOrder();
   const { excluded } = useExcludedGuides();
   const { favorited } = useFavoriteGuides();
+  /*
+    ผู้จัดสเก็ต — ค่าเริ่มต้นคือหัวหน้าทัวร์ที่ "ทุกคน" ปักดาวไว้ (รวมทุก User) + ที่ตัวเองปักดาว
+    ผู้ใช้อื่น — เฉพาะที่ตัวเองปักดาว (ไกด์ของฉัน) เหมือนเดิม · อ่านหลัง mount และอ่านใหม่เมื่อมีคนปัก/ถอดดาว
+  */
+  const teamMode = seesTeamFavorites(currentUser);
+  const [teamFavorites, setTeamFavorites] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!teamMode) return;
+    const reload = () => setTeamFavorites(new Set(readAllFavoriteGuideIds()));
+    reload();
+    window.addEventListener(GUIDE_PREFS_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(GUIDE_PREFS_CHANGED_EVENT, reload);
+  }, [teamMode, favorited]);
+  /** ชุดดาวที่ใช้ตั้งต้นตาราง — ผู้จัดสเก็ตใช้ของทุกคน */
+  const starred = useMemo(
+    () => (teamMode ? new Set([...teamFavorites, ...favorited]) : favorited),
+    [teamMode, teamFavorites, favorited],
+  );
 
   // เปิดจาก "ดูตารางงาน" ของหัวหน้าทัวร์ (/jobs?leader=TL-000001) → กรองเฉพาะคนนั้นตั้งแต่เปิดหน้า
   const params = useSearchParams();
@@ -336,6 +365,8 @@ export function GuideScheduleTimeline() {
 
   // Tour Period Master (Source of Truth §1) — อ่านผ่าน Service · Join ด้วย periodId (§7)
   const allPeriods = useMemo(() => getTourPeriods(), []);
+  // พีเรียดที่จัดหัวหน้าทัวร์ได้ (ตัด NO SELL ฯลฯ) — ใช้นับ "ยังไม่ระบุ"
+  const assignablePeriods = useMemo(() => getAssignablePeriods(), []);
   const periodById = useMemo(() => new Map(allPeriods.map((p) => [p.internalId, p])), [allPeriods]);
 
   // กรุ๊ปที่เริ่มในเดือนนี้แต่ยังไม่กลับก่อนสิ้นเดือน (คาบไปเดือนถัดไป) → ต่อคอลัมน์วันเพิ่มให้เห็นครบถึงวันกลับ ไม่ตัดครึ่งกรุ๊ปจนอ่านไม่ออก
@@ -383,7 +414,9 @@ export function GuideScheduleTimeline() {
           // §7 ใช้ assignmentId เป็นเอกลักษณ์ของแถบงาน (ไม่ใช่ index) — React จึงไม่นำ node เดิมมาใช้ซ้ำ
           id: a.assignmentId, kind: 'job' as const, start: p.startDate, end: p.endDate, isAllDay: true,
           code: p.groupCode, label: p.displayName, scheduleText: formatDateRange(p.startDate, p.endDate),
-          board: boardStatusFromAssignment(a.assignmentStatus), disp: periodScheduleDisplay(p),
+          // สถานะที่แสดง = ที่บันทึก + “ต้องเปลี่ยนหัวหน้าทัวร์” ที่ระบบตั้งให้เอง (วันลาทับ / ระงับการใช้งาน)
+          ...(() => { const eb = effectiveBoard(a, p, leader, availabilityRecords); return { board: eb.board, reassignReason: eb.reason }; })(),
+          disp: periodScheduleDisplay(p),
           periodId: a.periodId, assignmentId: a.assignmentId, issues: detectAssignmentIssues(a.snapshot, p),
           compensatesFor: compensatesForByGroupCode.get(p.groupCode),
         }));
@@ -534,24 +567,27 @@ export function GuideScheduleTimeline() {
   }, [routes, scopeCountryIds]);
 
   /**
-   * ตัวเลือกของตัวกรองความเชี่ยวชาญ — สร้างจากสิ่งที่หัวหน้าทัวร์ระบุไว้จริง ไม่ใช่ Master ทั้งก้อน
+   * ตัวเลือกของตัวกรอง ประเทศ / เส้นทาง — มาจาก "โปรแกรมทัวร์ในระบบ" (Tour Period Master)
+   *   ประเทศ = countryName ของโปรแกรม (CHINA · JAPAN · VIETNAM …)
+   *   เส้นทาง = รหัสสนามบินปลายทางจากต้นรหัสกรุ๊ป (CAN-260910E-AQ → CAN) — ฟิลด์ route ของ Master ยังว่าง
+   *             ใช้รหัส IATA ชุดเดียวกับเส้นทางในความเชี่ยวชาญของหัวหน้าทัวร์ จึงกรองคนได้ตรงกัน
    * เส้นทางถูกจำกัดตามประเทศที่เลือกไว้ด้วย — เลือก CHINA แล้วต้องไม่เห็นเส้นทางญี่ปุ่น
-   * (เลือกคู่ที่เป็นไปไม่ได้แล้วได้ 0 คนโดยไม่มีอะไรบอกว่าผิดตรงไหน)
+   * การกรองคน (matchesExpertise) ยังเทียบกับความเชี่ยวชาญที่หัวหน้าทัวร์ระบุไว้เหมือนเดิม
    */
   const expertiseOptions = useMemo(() => {
     const countryNames = new Set<string>();
-    /* เส้นทางเก็บแยกตามประเทศไว้ตั้งแต่แรก — รายการเส้นทางล้วนคือ CAN/KIX/PEK ที่ไม่บอกว่าอยู่ประเทศไหน */
     const byCountry = new Map<string, Set<string>>();
     const pickCountry = new Set(expCountries);
-    for (const { scopes } of expertiseByLeader.values()) {
-      for (const sc of scopes) {
-        const name = scopeCountryName(sc.countryId);
-        if (name) countryNames.add(name);
-        if (!name || (pickCountry.size > 0 && !pickCountry.has(name))) continue;
-        const bucket = byCountry.get(name) ?? new Set<string>();
-        for (const code of scopeRouteCodes(sc)) bucket.add(code);
-        if (bucket.size > 0) byCountry.set(name, bucket);
-      }
+    for (const p of allPeriods) {
+      const name = (p.countryName ?? '').trim().toUpperCase();
+      if (!name) continue;
+      countryNames.add(name);
+      if (pickCountry.size > 0 && !pickCountry.has(name)) continue;
+      const code = periodRouteCode(p);
+      if (!code) continue;
+      const bucket = byCountry.get(name) ?? new Set<string>();
+      bucket.add(code);
+      byCountry.set(name, bucket);
     }
     const routeGroups = [...byCountry.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
@@ -562,7 +598,7 @@ export function GuideScheduleTimeline() {
       routes: [...new Set(routeGroups.flatMap((g) => g.options))].sort(),
       routeGroups,
     };
-  }, [expertiseByLeader, expCountries, scopeCountryName, scopeRouteCodes]);
+  }, [allPeriods, expCountries]);
 
   /**
    * เชี่ยวชาญตามที่เลือกไว้หรือไม่ — ต้องเข้าเงื่อนไขทั้งประเทศและเส้นทาง "ภายใน scope เดียวกัน"
@@ -613,8 +649,8 @@ export function GuideScheduleTimeline() {
    * ตัวกรองที่ผู้ใช้กดเองบนแถบ (ค้นหา · ประเทศ/เส้นทาง · คนว่าง/คนมีงาน · สถานะการจัด) ยังกรองทุกคนตามปกติ
    */
   const isMyGuide = useCallback(
-    (l: TourLeader) => favorited.has(l.id) && l.usageStatus === 'active',
-    [favorited],
+    (l: TourLeader) => starred.has(l.id) && l.usageStatus === 'active',
+    [starred],
   );
 
   /** มีคนเข้าเกณฑ์ให้แสดงหรือไม่ (ก่อนใช้ตัวกรองอื่น) — แยก Empty State 2 แบบ */
@@ -667,6 +703,8 @@ export function GuideScheduleTimeline() {
    * จำนวนงานแยกตามสถานะการจัด — นับจากงานจริงในเดือนที่เปิดอยู่ ตามตัวกรอง/คำค้นปัจจุบัน
    * อ่านจากฟิลด์ board ของ Assignment (ไม่ใช่ข้อความบนหน้าจอ) และคำนวณใหม่ทุกครั้งที่ข้อมูลเปลี่ยน
    * "ยังไม่ระบุ" = พีเรียดในเดือนนี้ที่ยังไม่มีหัวหน้าทัวร์ จึงนับจาก Master ไม่ใช่จากแถวหัวหน้าทัวร์
+   *   นับเฉพาะพีเรียดที่จัดหัวหน้าทัวร์ได้ (getAssignablePeriods — ตัด NO SELL / ไม่ Active / ข้อมูลไม่ถูกต้อง)
+   *   เดิมนับทุกพีเรียด ทำให้ NO SELL (จัดคนไม่ได้อยู่แล้ว) ถูกนับเป็นงานค้างด้วย
    */
   const boardCounts = useMemo(() => {
     const c = { CONFIRMED: 0, PENDING_CONFIRMATION: 0, REASSIGN_REQUIRED: 0, DECLINED: 0, UNASSIGNED: 0 } as Record<BoardStatus, number>;
@@ -675,9 +713,9 @@ export function GuideScheduleTimeline() {
         if (e.kind === 'job') c[normalizeBoardStatus(e.board)] += 1;
       }
     }
-    c.UNASSIGNED = allPeriods.filter((p) => p.startDate <= winEnd && p.endDate >= winStart && !assignedPeriodIds.has(p.internalId)).length;
+    c.UNASSIGNED = assignablePeriods.filter((p) => p.startDate <= winEnd && p.endDate >= winStart && !assignedPeriodIds.has(p.internalId)).length;
     return c;
-  }, [baseLeaders, rowsByLeader, allPeriods, assignedPeriodIds, winStart, winEnd]);
+  }, [baseLeaders, rowsByLeader, assignablePeriods, assignedPeriodIds, winStart, winEnd]);
 
   /** เลือกชิปแล้วเหลือเฉพาะคนที่มีงานสถานะนั้นในช่วงที่ดู · "ยังไม่ระบุ" ไม่ผูกกับหัวหน้าทัวร์คนใด */
   const shownLeaders = useMemo(() => {
@@ -747,8 +785,8 @@ export function GuideScheduleTimeline() {
         members: (byType.get(key) ?? []).slice().sort((a, b) => {
           const r = rank(a) - rank(b);
           if (r !== 0) return r;
-          const fa = favorited.has(a.id) ? 0 : 1;
-          const fb = favorited.has(b.id) ? 0 : 1;
+          const fa = starred.has(a.id) ? 0 : 1;
+          const fb = starred.has(b.id) ? 0 : 1;
           if (fa !== fb) return fa - fb;
           const pa = preferredRank(a);
           const pb = preferredRank(b);
@@ -759,7 +797,7 @@ export function GuideScheduleTimeline() {
         }),
       }))
       .filter((s) => s.members.length > 0);
-  }, [shownLeaders, leaderInfo, preferredIndex, favorited]);
+  }, [shownLeaders, leaderInfo, preferredIndex, starred]);
 
   // ข้อมูลสำหรับหน้าจัดการรายชื่อ (§3/§4/§5)
   const prevMonthStart = addMonths(monthStart, -1);
@@ -1002,11 +1040,15 @@ export function GuideScheduleTimeline() {
 
   return (
     <div className="space-y-3">
-      {/* ปรับแต่งรายชื่อเฉพาะเดือน — มุมขวาบน เหนือการ์ดค้นหา/ตัวกรอง */}
-      <div className="flex justify-end">
-        <Button size="sm" variant="secondary" onClick={() => setRosterOpen(true)}>
-          {rosterDefined ? 'แก้ไขรายชื่อเดือนนี้' : 'กำหนดรายชื่อ'}
-        </Button>
+      {/* หัวหน้า (header — ชื่อหน้า) ซ้าย · ปุ่มสลับโหมด (toolbarStart) + กำหนดรายชื่อ ขวา — แถวเดียวกัน */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        {header}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {toolbarStart}
+          <Button size="sm" variant="secondary" onClick={() => setRosterOpen(true)}>
+            {rosterDefined ? 'แก้ไขรายชื่อเดือนนี้' : 'กำหนดรายชื่อ'}
+          </Button>
+        </div>
       </div>
 
       {/* ---------------- Toolbar / Filters — แถวเดียว: เดือน (ซ้าย) + ค้นหา/ตัวกรอง (§4) ---------------- */}
@@ -1081,7 +1123,7 @@ export function GuideScheduleTimeline() {
                 : expCountries.length === 1 ? expCountries[0] : `${expCountries.length} ประเทศ`}
               searchPlaceholder="ค้นหาประเทศ…"
               emptyText={expertiseOptions.countries.length === 0
-                ? 'ยังไม่มีหัวหน้าทัวร์ที่ระบุประเทศที่เชี่ยวชาญ'
+                ? 'ยังไม่มีโปรแกรมทัวร์ในระบบ'
                 : 'ไม่พบประเทศที่ค้นหา'}
               options={expertiseOptions.countries}
               selected={expCountries}
@@ -1098,7 +1140,7 @@ export function GuideScheduleTimeline() {
                 : expRoutes.length <= 2 ? expRoutes.join(', ') : `${expRoutes.length} เส้นทาง`}
               searchPlaceholder="ค้นหาเส้นทาง…"
               emptyText={expertiseOptions.routes.length === 0
-                ? 'ยังไม่มีหัวหน้าทัวร์ที่ระบุเส้นทางที่เชี่ยวชาญ'
+                ? 'ไม่มีเส้นทางในโปรแกรมทัวร์ของประเทศที่เลือก'
                 : 'ไม่พบเส้นทางที่ค้นหา'}
               options={expertiseOptions.routes}
               groups={expertiseOptions.routeGroups}
@@ -1136,7 +1178,8 @@ export function GuideScheduleTimeline() {
         */}
         <div className="zego-divider-top flex items-center gap-x-3 gap-y-1 overflow-x-auto px-3 py-1 md:flex-wrap md:overflow-visible">
           <span className="shrink-0 whitespace-nowrap text-[11px] font-medium zego-text-tertiary">สถานะการจัด:</span>
-          {BOARD_STATUS_ORDER.map((s) => {
+          {/* “ปฏิเสธ” ไม่เกิดในขั้นตอนปัจจุบัน (จัดแล้วคอนเฟิร์มทันที) — ซ่อนชิป เว้นแต่มีข้อมูลเก่าที่ปฏิเสธค้างอยู่ */}
+          {BOARD_STATUS_ORDER.filter((s) => s !== 'DECLINED' || boardCounts.DECLINED > 0).map((s) => {
             const on = boardFilter === s;
             return (
               <button
@@ -1302,7 +1345,9 @@ export function GuideScheduleTimeline() {
                 ? 'ไม่พบหัวหน้าทัวร์ตามเงื่อนไขที่เลือก'
                 : rosterDefined
                   ? 'ไม่พบหัวหน้าทัวร์ที่อยู่ในสถานะใช้งาน'
-                  : 'ยังไม่ได้ปักดาวหัวหน้าทัวร์คนไหนไว้ — ตารางนี้แสดงเฉพาะ "ไกด์ของฉัน" เป็นค่าเริ่มต้น'}
+                  : teamMode
+                    ? 'ยังไม่มีใครปักดาวหัวหน้าทัวร์ไว้ — ตารางของผู้จัดสเก็ตแสดงหัวหน้าทัวร์ที่ทุกคนปักดาวไว้เป็นค่าเริ่มต้น'
+                    : 'ยังไม่ได้ปักดาวหัวหน้าทัวร์คนไหนไว้ — ตารางนี้แสดงเฉพาะ "ไกด์ของฉัน" เป็นค่าเริ่มต้น'}
             </p>
             {hasDefaultCandidates ? (
               hasFilter && <Button size="sm" variant="secondary" onClick={resetFilters}>ล้างตัวกรอง</Button>
@@ -1388,10 +1433,15 @@ export function GuideScheduleTimeline() {
 
       {/* ---------------- Side Panels ---------------- */}
       <PeriodDetailPanel
+        key={`detail-${detailPeriodId ?? 'none'}`}
         period={detailPeriodId ? periodById.get(detailPeriodId) ?? null : null}
         assignment={detailPeriodId ? assignments.find((a) => a.periodId === detailPeriodId) ?? null : null}
-        leaders={leaders} onClose={() => setDetailPeriodId(null)}
+        leaders={leaders} records={availabilityRecords} onClose={() => setDetailPeriodId(null)}
         onUnassign={askUnassign} onCancelGroup={askCancelGroup} onAcknowledge={doAcknowledge}
+        onSetReassign={canAssign ? (assignmentId, reason) => {
+          setAssignments(setAssignmentStatus(assignmentId, reason === null ? 'CONFIRMED' : 'REASSIGN_REQUIRED', currentUser.name, toISODateTime(new Date()), reason ?? undefined));
+          pushToast(reason === null ? 'info' : 'success', reason === null ? 'ยกเลิกสถานะ “เปลี่ยนหัวหน้าทัวร์” แล้ว' : 'ตั้งเป็น “เปลี่ยนหัวหน้าทัวร์” แล้ว');
+        } : undefined}
       />
       <LeaderInfoPanel leader={infoLeader} onClose={() => setInfoLeader(null)} countries={countries} routes={routes} today={today}
         assignments={infoLeader ? assignments.filter((a) => a.tourLeaderId === infoLeader.id) : []} periodById={periodById} records={availabilityRecords} />
@@ -1752,7 +1802,9 @@ function RemoveLeaderDialog({ data, actor, at, onCancel, onConfirm }: {
       open
       onClose={onCancel}
       title="ยืนยันการถอดหัวหน้าทัวร์"
-      description="ยืนยันการถอดหัวหน้าทัวร์ออกจากโปรแกรมนี้ เนื่องจากโปรแกรมมีสถานะ NO SELL หรือไม่"
+      description={isNoSellPeriod(p)
+        ? 'ยืนยันการถอดหัวหน้าทัวร์ออกจากโปรแกรมนี้ เนื่องจากโปรแกรมมีสถานะ NO SELL หรือไม่'
+        : 'ถอดหัวหน้าทัวร์ออก — กรุ๊ปกลับเป็น “ยังไม่ระบุ” ให้จัดคนใหม่ได้ · ไม่บันทึกประวัติถูกยกเลิกงาน (ถ้ากรุ๊ปถูกยกเลิกให้ใช้ “กรุ๊ปถูกยกเลิก”)'}
       footer={
         <>
           <Button variant="ghost" onClick={onCancel}>ยกเลิก</Button>
@@ -2526,36 +2578,65 @@ function AddAssignmentPanel({ leader, date, monthStart, monthEnd, monthLabel, pe
 
 /* ================================ Period Detail panel (§13 · จาก Master ด้วย periodId) ================================ */
 
-function PeriodDetailPanel({ period, assignment, leaders, onClose, onUnassign, onCancelGroup, onAcknowledge }: {
-  period: TourPeriodMaster | null; assignment: GuidePeriodAssignment | null; leaders: TourLeader[]; onClose: () => void;
+function PeriodDetailPanel({ period, assignment, leaders, records, onClose, onUnassign, onCancelGroup, onAcknowledge, onSetReassign }: {
+  period: TourPeriodMaster | null; assignment: GuidePeriodAssignment | null; leaders: TourLeader[]; records: LeaderAvailabilityRecord[]; onClose: () => void;
+  /** ผู้จัดตั้ง “ต้องเปลี่ยนหัวหน้าทัวร์” (reason) หรือยกเลิก (null) — ไม่มี = ไม่มีสิทธิ์ */
+  onSetReassign?: (assignmentId: string, reason: string | null) => void;
   onUnassign: (assignmentId: string) => void;
   /** กรุ๊ปนี้ถูกยกเลิกทั้งหมด — ถอด + บันทึกประวัติ/Reminder (คนละอย่างกับ onUnassign) */
   onCancelGroup: (assignmentId: string) => void;
   onAcknowledge: (assignmentId: string, period: TourPeriodMaster) => void;
 }) {
   const leader = assignment ? leaders.find((l) => l.id === assignment.tourLeaderId) ?? null : null;
-  const board = boardStatusFromAssignment(assignment?.assignmentStatus);
+  const eb = effectiveBoard(assignment, period, leader, records);
+  const board = eb.board;
   const disp = period ? periodScheduleDisplay(period) : null;
+  // ผู้จัดตั้ง “ต้องเปลี่ยนหัวหน้าทัวร์” — กรอกเหตุผลก่อนบันทึก
+  const [reassignDraft, setReassignDraft] = useState<string | null>(null);
   const issues = period && assignment ? detectAssignmentIssues(assignment.snapshot, period) : [];
   const num = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('th-TH'));
   return (
     <Drawer open={!!period} onClose={onClose} title={period ? period.groupCode : ''} description={period?.displayName}
-      footer={period && (
-        <div className="flex flex-wrap gap-2">
-          {/* มอบหมายแล้ว = คอนเฟิร์มทันที (ไม่มีขั้นตอนรอคอนเฟิร์มอีกต่อไป) — เหลือแค่ 2 ปุ่ม: ยกเลิกหัวหน้าทัวร์ (บันทึกประวัติ+เตือนชดเชย) และยกเลิกการมอบหมาย (แค่ปรับการจัดงาน) */}
-          {assignment && (
-            <button
-              type="button"
-              onClick={() => onCancelGroup(assignment.assignmentId)}
-              title="กรุ๊ป/งานทั้งหมดถูกยกเลิก — บันทึกประวัติไกด์ถูกยกเลิกงานและตั้งเตือนจัดงานชดเชย"
-              className="zego-badge--warning inline-flex items-center gap-1.5 rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors"
-            >
-              <Icon name="warning" className="h-4 w-4" />
-              ยกเลิกหัวหน้าทัวร์
-            </button>
-          )}
-          {assignment && <Button variant="danger" size="sm" onClick={() => onUnassign(assignment.assignmentId)}>ยกเลิกการมอบหมาย</Button>}
-        </div>
+      footer={period && assignment && (
+        reassignDraft !== null && onSetReassign ? (
+          /* กรอกเหตุผล “ต้องเปลี่ยนหัวหน้าทัวร์” */
+          <div className="w-full space-y-2">
+            <TextArea label="เหตุผลที่เปลี่ยนหัวหน้าทัวร์" required rows={2} value={reassignDraft} onChange={(e) => setReassignDraft(e.target.value)} placeholder="เช่น หัวหน้าทัวร์แจ้งว่าไม่สบาย ไปไม่ได้" />
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setReassignDraft(null)}>ยกเลิก</Button>
+              <Button variant="primary" size="sm" disabled={!reassignDraft.trim()} onClick={() => { onSetReassign(assignment.assignmentId, reassignDraft.trim()); setReassignDraft(null); }}>บันทึก</Button>
+            </div>
+          </div>
+        ) : (
+          /*
+            จัดการหัวหน้าทัวร์ของกรุ๊ปนี้ — 3 ทางเลือก ต่างกันที่ "คนเดิมยังอยู่ไหม" และ "บันทึกประวัติชดเชยไหม"
+              ต้องเปลี่ยนหัวหน้าทัวร์ = คนเดิมยังอยู่ รอหาคนใหม่ (ไม่ถอด)
+              ถอดหัวหน้าทัวร์ออก     = ปรับการจัด (จัดผิด / เปลี่ยนใจ) กรุ๊ปกลับเป็นยังไม่ระบุ — ไม่มีประวัติชดเชย
+              กรุ๊ปถูกยกเลิก          = กรุ๊ปไม่เดินทางแล้ว ถอดคน + บันทึกว่าถูกยกเลิกงาน + เตือนจัดงานชดเชย
+          */
+          <div className="w-full space-y-2">
+            <p className="text-xs font-semibold zego-text-tertiary">จัดการหัวหน้าทัวร์ของกรุ๊ปนี้</p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {onSetReassign && board === 'CONFIRMED' && (
+                <FooterAction
+                  icon="warning" tone="amber" title="เปลี่ยนหัวหน้าทัวร์"
+                  desc="คนเดิมไปไม่ได้ — ยังไม่ถอดออก ทำเครื่องหมายไว้เพื่อหาคนใหม่"
+                  onClick={() => setReassignDraft('')}
+                />
+              )}
+              <FooterAction
+                icon="x" tone="slate" title="ถอดหัวหน้าทัวร์ออก"
+                desc="จัดผิดคน / ปรับการจัด — กรุ๊ปกลับเป็น “ยังไม่ระบุ” ไม่บันทึกประวัติชดเชย"
+                onClick={() => onUnassign(assignment.assignmentId)}
+              />
+              <FooterAction
+                icon="close" tone="red" title="กรุ๊ปถูกยกเลิก"
+                desc="กรุ๊ปไม่เดินทางแล้ว — ถอดหัวหน้าทัวร์ บันทึกว่าถูกยกเลิกงาน และตั้งเตือนจัดงานชดเชย"
+                onClick={() => onCancelGroup(assignment.assignmentId)}
+              />
+            </div>
+          </div>
+        )
       )}>
       {period && (
         <div className="space-y-4">
@@ -2565,6 +2646,20 @@ function PeriodDetailPanel({ period, assignment, leaders, onClose, onUnassign, o
             <span className="zego-badge--violet rounded border px-2 py-0.5 text-xs">{period.periodStatus}</span>
             <span className="zego-badge--slate rounded border px-2 py-0.5 text-xs">periodId: {period.internalId}</span>
           </div>
+          {/* ต้องเปลี่ยนหัวหน้าทัวร์ — บอกเหตุผล + ทางแก้ */}
+          {board === 'REASSIGN_REQUIRED' && assignment && (
+            <div className="zego-badge--warning rounded-lg border px-3 py-2 text-xs">
+              <p className="font-semibold">เปลี่ยนหัวหน้าทัวร์ — {eb.reason}</p>
+              <p className="mt-0.5">
+                {eb.auto
+                  ? 'ระบบตั้งให้อัตโนมัติ — ยกเลิกวันลา/เปิดใช้งานหัวหน้าทัวร์คืน สถานะจะกลับเป็นคอนเฟิร์มแล้วเอง · หรือยกเลิกการมอบหมายแล้วจัดคนใหม่'
+                  : 'ยกเลิกการมอบหมายแล้วจัดคนใหม่ · หรือถ้าคนเดิมไปได้แล้ว กดยกเลิกสถานะนี้'}
+              </p>
+              {!eb.auto && onSetReassign && (
+                <div className="mt-2"><Button variant="secondary" size="sm" onClick={() => onSetReassign(assignment.assignmentId, null)}>ยกเลิก — คนเดิมไปได้</Button></div>
+              )}
+            </div>
+          )}
           {/* §9 แจ้งเตือนเมื่อข้อมูลต้นทางเปลี่ยน — ไม่ลบอัตโนมัติ · ให้ผู้จัดรับทราบ */}
           {issues.length > 0 && assignment && (
             <div className="zego-badge--warning rounded-lg border px-3 py-2 text-xs">
@@ -2607,11 +2702,8 @@ function PeriodDetailPanel({ period, assignment, leaders, onClose, onUnassign, o
             <Field label="ราคา" value={`${num(period.price)} ${period.currency}`} />
             <Field label="ราคาวีซ่า" value={num(period.visaPrice)} />
             <Field label="ที่นั่ง (ทั้งหมด/จอง/เหลือ)" value={`${num(period.seatTotal)} / ${num(period.seatBooked)} / ${num(period.seatRemaining)}`} className="col-span-2" />
-            {/* ข้อความเต็มถ้ามี · ไม่มีก็แสดงแค่ประเภทกรุ๊ป — ข้อความอื่นอยู่ที่ "หมายเหตุจากระบบ" บรรทัดถัดไป */}
+            {/* ข้อความเต็มถ้ามี · ไม่มีก็แสดงแค่ประเภทกรุ๊ป (ไม่แสดง “หมายเหตุจากระบบ” ในหน้านี้แล้ว) */}
             <Field label="INC / COL" value={period.periodStatusDetail ?? period.periodStatus} className="col-span-2" />
-            <Field label="หมายเหตุจากระบบ" value={period.systemNote ?? '—'} className="col-span-2" />
-            <Field label="คอมมิชชั่น" value={period.commission ?? '—'} />
-            <Field label="แหล่งข้อมูล" value={period.sourceSystem} />
           </dl>
           {/* ข้อมูลการจัด (จาก Guide Assignment · อ้าง periodId §7) */}
           <div>
@@ -2619,7 +2711,7 @@ function PeriodDetailPanel({ period, assignment, leaders, onClose, onUnassign, o
             {assignment ? (
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <Field label="หัวหน้าทัวร์" value={leader ? leaderDisplayName(leader) : assignment.tourLeaderId} />
-                <Field label="สถานะการจัด" value={BOARD_STATUS[board].label} />
+                <Field label="สถานะการจัด" value={`${BOARD_STATUS[board].label}${eb.reason ? ` — ${eb.reason}` : ''}`} className={eb.reason ? 'col-span-2' : undefined} />
                 <Field label="ผู้มอบหมาย" value={assignment.assignedBy} />
                 <Field label="วันที่มอบหมาย" value={formatDate(assignment.assignedAt)} />
                 {assignment.note && <Field label="หมายเหตุ" value={assignment.note} className="col-span-2" />}
@@ -2629,6 +2721,20 @@ function PeriodDetailPanel({ period, assignment, leaders, onClose, onUnassign, o
         </div>
       )}
     </Drawer>
+  );
+}
+
+/** ทางเลือกในส่วนท้ายรายละเอียดกรุ๊ป — ชื่อการกระทำ + ผลที่จะเกิด (กดแล้วมีหน้าต่างยืนยันอีกชั้นตามประเภท) */
+function FooterAction({ icon, tone, title, desc, onClick }: {
+  icon: 'warning' | 'x' | 'close'; tone: 'amber' | 'slate' | 'red'; title: string; desc: string; onClick: () => void;
+}) {
+  const toneCls = tone === 'amber' ? 'border-amber-300 hover:bg-amber-50' : tone === 'red' ? 'border-rose-300 hover:bg-rose-50' : 'zego-border-color zego-hover-surface';
+  const textCls = tone === 'amber' ? 'text-amber-800' : tone === 'red' ? 'text-rose-700' : 'zego-text';
+  return (
+    <button type="button" onClick={onClick} className={cx('flex flex-col items-start gap-0.5 rounded-lg border bg-white px-3 py-2 text-left transition-colors', toneCls)}>
+      <span className={cx('flex items-center gap-1.5 text-sm font-semibold', textCls)}><Icon name={icon} className="h-4 w-4" />{title}</span>
+      <span className="text-[11px] leading-snug zego-text-tertiary">{desc}</span>
+    </button>
   );
 }
 

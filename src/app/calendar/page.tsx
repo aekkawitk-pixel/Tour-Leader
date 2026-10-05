@@ -59,6 +59,8 @@ const TH_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', '
   ส่วนพื้นหลัง Event ใช้สีกลางเดียวกันหมด ต้องคลิกเข้าไปดูรายละเอียดถึงจะเห็นสถานะเป็นตัวหนังสือ
 */
 const NEUTRAL_CHIP = 'zego-badge--slate zego-text-secondary';
+/** กรุ๊ปที่จัดครบแล้ว — หัวหน้าทัวร์คอนเฟิร์มแล้ว และเจ้าหน้าที่ส่งกรุ๊ปคอนเฟิร์มแล้ว → เขียวทั้งช่อง */
+const COMPLETE_CHIP = 'border-emerald-400 bg-emerald-100 text-emerald-900';
 
 /** สีไอคอนตามสถานะจริง — ใช้กับทั้งไอคอนคนถือธงและไอคอนเครื่องบิน (พื้นหลัง Event ไม่ไล่สีตามนี้แล้ว) */
 const STATUS_ICON_COLOR: Record<keyof typeof BOARD_STATUS, string> = {
@@ -456,16 +458,18 @@ export default function CalendarPage() {
     const sendOffJob = sendOffOf(p);
     const sendOffStatus = sendOffJob ? sendOffJobStatus(sendOffJob) : 'UNASSIGNED';
     const sendOffLabel = !sendOffJob ? null : sendOffJob.staff ? `เจ้าหน้าที่ส่งกรุ๊ป ${BOARD_STATUS[sendOffStatus].label}: ${sendOffStaffName(sendOffJob.staff)}` : 'ยังไม่มีคนไปส่ง';
+    // จัดครบ = หัวหน้าทัวร์คอนเฟิร์มแล้ว + เจ้าหน้าที่ส่งกรุ๊ปคอนเฟิร์มแล้ว (รอคอนเฟิร์มยังไม่นับ)
+    const complete = !!leader && status === 'CONFIRMED' && hasSendOff(sendOffJob);
     return (
       <button
         key={p.internalId}
         type="button"
         onClick={(e) => { e.stopPropagation(); setSelectedId(p.internalId); }}
-        title={[`${groupCodeLabel(p)} — ${p.displayName}`, assignedLabel, sendOffLabel, `ขาย: ${SALE_STATUS_LABEL[p.saleStatus]}`].filter(Boolean).join(' · ')}
+        title={[`${groupCodeLabel(p)} — ${p.displayName}`, complete ? 'จัดครบแล้ว (หัวหน้าทัวร์ + เจ้าหน้าที่ส่งกรุ๊ป)' : null, assignedLabel, sendOffLabel, `ขาย: ${SALE_STATUS_LABEL[p.saleStatus]}`].filter(Boolean).join(' · ')}
         className={cx(
           // 9px + ระยะขอบแคบ — ป้ายยาวขึ้นเพราะมี (บัส) ต่อท้าย ถ้าคง 11px ไว้จะถูกตัดทุกชิปตั้งแต่จอ 1280
           'flex w-full items-center gap-0.5 rounded border px-1 py-0.5 text-left text-[9px] font-medium transition hover:brightness-95',
-          NEUTRAL_CHIP,
+          complete ? COMPLETE_CHIP : NEUTRAL_CHIP,
         )}
       >
         {/* ไอคอนคนถือธง = สถานะจริงของหัวหน้าทัวร์ · ไอคอนเครื่องบิน = สถานะจริงของเจ้าหน้าที่ส่งกรุ๊ป — สีต้องตรงกับ Tag ในหน้าต่างรายละเอียด ไม่บังคับให้เท่ากัน */}
@@ -900,13 +904,16 @@ export default function CalendarPage() {
             const leaderStatus = boardStatusFromAssignment(assignmentByPeriod.get(p.internalId)?.assignmentStatus);
             const sendOffJob = sendOffOf(p);
             const sendOffStatus = sendOffJob ? sendOffJobStatus(sendOffJob) : 'UNASSIGNED';
+            // จัดครบ (หัวหน้าทัวร์ + เจ้าหน้าที่ส่งกรุ๊ป คอนเฟิร์มแล้วทั้งคู่) → เขียวทั้งแถว ตรงกับชิปบนปฏิทิน
+            const complete = !!leader && leaderStatus === 'CONFIRMED' && hasSendOff(sendOffJob);
             return (
               <li key={p.internalId}>
                 <button
                   type="button"
                   onClick={() => { setSelectedId(p.internalId); setDayOpen(null); }}
                   className={cx(
-                    'zego-border-color flex w-full flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-left transition zego-hover-surface',
+                    'flex w-full flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-left transition',
+                    complete ? `${COMPLETE_CHIP} hover:brightness-95` : 'zego-border-color zego-hover-surface',
                   )}
                 >
                   <Icon name="guide" className="h-4 w-4 shrink-0 opacity-70" />

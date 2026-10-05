@@ -74,6 +74,9 @@ const MAX_CHIPS_PER_DAY = 3;
  * สีป้ายงาน = สถานะการจัด — ใช้คลาสชุดเดียวกับแท่งงานของตารางหัวหน้าทัวร์
  * (BOARD_STATUS[...].bar มีทั้งพื้น ขอบ และแถบสีด้านซ้าย) สองตารางจึงอ่านเหมือนกัน
  */
+/** ชิปในแถบสรุปของเดือน — ขนาด/รูปทรงเดียวกับชิป "สถานะการจัด" ของตารางหัวหน้าทัวร์ */
+const SUMMARY_CHIP = 'inline-flex h-[22px] shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[11px] transition-colors disabled:cursor-default';
+
 function statusBar(status: 'CONFIRMED' | 'PENDING_CONFIRMATION' | 'UNASSIGNED'): string {
   return BOARD_STATUS[status].bar;
 }
@@ -121,7 +124,9 @@ export function SendOffScheduleTimeline() {
   /** รายการกรุ๊ปทั้งวัน — เปิดจากปุ่ม "+N" ในช่องที่มีงานเกินกว่าจะวาดครบ */
   const [dayList, setDayList] = useState<{ date: string; staffId: string } | null>(null);
   /** กดเลข "ต้องตรวจ"/"ทับซ้อน" ในแถบสรุป → เปิดรายการว่าเป็นกรุ๊ปไหนบ้าง ไม่ต้องไล่หาเองทั้งตาราง */
-  const [issueListKind, setIssueListKind] = useState<'issue' | 'overlap' | null>(null);
+  const [issueListKind, setIssueListKind] = useState<'issue' | 'overlap' | 'unassigned' | null>(null);
+  /** ชิปสถานะ (คอนเฟิร์มแล้ว / รอคอนเฟิร์ม) — กรองให้เหลือเจ้าหน้าที่ที่มีงานสถานะนั้น · null = ทุกคน · กดซ้ำเพื่อยกเลิก */
+  const [statusFilter, setStatusFilter] = useState<'CONFIRMED' | 'PENDING_CONFIRMATION' | null>(null);
   /** เวลาเครื่องออกที่กรอกเอง — ใช้เฉพาะกรุ๊ปที่ยังไม่มีเที่ยวบินในระบบ */
   const [manualTimes, setManualTimes] = useState<ManualFlightTimes>({});
   /** สนามบินขาไปที่กรอกเอง — คู่กับเวลาเครื่องออก ใช้เมื่อกรุ๊ปมาจาก CSV จึงไม่มีสนามบินให้ตรวจกฎ */
@@ -293,11 +298,13 @@ export function SendOffScheduleTimeline() {
     const q = search.trim().toLowerCase();
     return staff.filter((s) => {
       if (typeFilter && s.staffType !== typeFilter) return false;
+      if (statusFilter === 'CONFIRMED' && !(confirmedCountByStaff.get(s.id))) return false;
+      if (statusFilter === 'PENDING_CONFIRMATION' && !(pendingCountByStaff.get(s.id))) return false;
       if (!canSendOffByStatus(s.status) && (jobsByStaff.get(s.id)?.length ?? 0) === 0) return false;
       if (!q) return true;
       return `${sendOffStaffName(s)} ${s.nickname ?? ''}`.toLowerCase().includes(q);
     });
-  }, [staff, typeFilter, search, jobsByStaff]);
+  }, [staff, typeFilter, search, jobsByStaff, statusFilter, confirmedCountByStaff, pendingCountByStaff]);
 
   const grouped = useMemo(
     () => SEND_OFF_STAFF_TYPE_ORDER.map((t) => ({ type: t, rows: shownStaff.filter((s) => s.staffType === t) })),
@@ -557,6 +564,11 @@ export function SendOffScheduleTimeline() {
    * (หรือปรับ/ย้ายคนเองต่อได้ทุกจุดในตารางนี้ก่อนก็ได้)
    */
   const [autoAssignPreview, setAutoAssignPreview] = useState<{ result: AutoAssignResult; staffCount: number } | null>(null);
+  /**
+   * กรุ๊ปที่ "จัดอัตโนมัติ" ได้ — เฉพาะสถานะขาย CLOSED (ปิดขายแล้ว รายชื่อนิ่ง เดินทางแน่) ที่ยังไม่มีคนไปส่ง
+   * SELL (ยังเปิดขาย อาจไม่ได้เดินทาง) ไม่จัดอัตโนมัติ — จัดเองทีละกรุ๊ปได้ตามปกติ
+   */
+  const autoCandidates = useMemo(() => unassigned.filter((j) => j.period.saleStatus === 'CLOSED'), [unassigned]);
 
   const openAutoAssign = () => {
     const eligibleStaff = staff.filter((s) => canSendOffByStatus(s.status));
@@ -571,7 +583,7 @@ export function SendOffScheduleTimeline() {
       maxGroupsPerMonth: capOf(s.id),
       confirmedThisMonth: confirmedCountByStaff.get(s.id) ?? 0,
     }));
-    const jobInputs: AutoAssignJobInput[] = unassigned.map((j) => ({
+    const jobInputs: AutoAssignJobInput[] = autoCandidates.map((j) => ({
       periodId: j.period.internalId,
       dutyDate: j.dutyDate,
       flightTime: j.flightTime,
@@ -585,10 +597,10 @@ export function SendOffScheduleTimeline() {
         กรุ๊ปที่ไม่มีเวลาเครื่องออก (เช่นนำเข้าจาก CSV ซึ่งไม่มีข้อมูล Sector) จัดอัตโนมัติไม่ได้โดยตั้งใจ — ต้องบอกเหตุผลนี้ตรง ๆ
         ไม่งั้นผู้จัดจะเข้าใจผิดว่าชนเวลางาน/วันลา ทั้งที่จริงแค่ต้องกรอกเวลาเครื่องออกก่อน
       */
-      const noTime = unassigned.filter((j) => !j.flightTime).length;
-      if (unassigned.length === 0) {
-        pushToast('info', 'ไม่มีกรุ๊ปที่ยังไม่มีคนไปส่งในเดือนนี้');
-      } else if (noTime === unassigned.length) {
+      const noTime = autoCandidates.filter((j) => !j.flightTime).length;
+      if (autoCandidates.length === 0) {
+        pushToast('info', 'ไม่มีกรุ๊ปสถานะขาย CLOSED ที่ยังไม่มีคนไปส่งในเดือนนี้', 'จัดอัตโนมัติจัดเฉพาะกรุ๊ปที่ปิดขายแล้ว (CLOSED) — กรุ๊ปอื่นจัดเองทีละกรุ๊ปได้');
+      } else if (noTime === autoCandidates.length) {
         pushToast('warning',
           `จัดอัตโนมัติไม่ได้ — ทั้ง ${noTime} กรุ๊ปยังไม่มีเวลาเครื่องออก`,
           'ระบบคำนวณเวลาที่ต้องไปถึงสนามบินไม่ได้ (ข้อมูลจาก CSV ไม่มีเที่ยวบิน) — กรอกเวลาเครื่องออกในหน้าต่างเลือกกรุ๊ปก่อน หรือจัดคนเองทีละกรุ๊ป');
@@ -926,35 +938,61 @@ export function SendOffScheduleTimeline() {
               <span title="นับตามวันที่ต้องไปส่ง — เที่ยวบินดึกที่ต้องไปตั้งแต่คืนก่อนจะนับเข้าวันที่ไปจริง">
                 งานไปส่งเดือนนี้ <b className="zego-text">{jobs.length}</b>
               </span>
-              <span className="inline-flex items-center gap-1">
-                <span className={cx('h-2 w-2 rounded-full', BOARD_STATUS.CONFIRMED.dot)} />
-                {BOARD_STATUS.CONFIRMED.label} <b className="zego-text">{confirmedCount}</b>
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <span className={cx('h-2 w-2 rounded-full', BOARD_STATUS.PENDING_CONFIRMATION.dot)} />
-                {BOARD_STATUS.PENDING_CONFIRMATION.label} <b className="zego-text">{pendingCount}</b>
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full zego-dot--slate" />ยังไม่มีคนไปส่ง <b className="zego-text">{unassigned.length}</b>
-              </span>
-              {/* ตัวเลขกดดูได้ — ไม่ต้องไล่หาเองว่ากรุ๊ปไหนบ้างทั้งตาราง */}
+              {/*
+                ชิปแบบเดียวกับแถบ "สถานะการจัด" ของตารางหัวหน้าทัวร์ — กดได้ทุกอัน (ตัวเลข 0 กดไม่ได้)
+                  คอนเฟิร์มแล้ว / รอคอนเฟิร์ม = กรองเหลือเจ้าหน้าที่ที่มีงานสถานะนั้น (กดซ้ำยกเลิก)
+                  ยังไม่มีคนไปส่ง / ต้องตรวจ / ทับซ้อน = เปิดรายการกรุ๊ป (ไม่ผูกกับเจ้าหน้าที่คนใด จึงกรองแถวไม่ได้)
+              */}
+              {([
+                { key: 'CONFIRMED', label: BOARD_STATUS.CONFIRMED.label, dot: BOARD_STATUS.CONFIRMED.dot, count: confirmedCount },
+                { key: 'PENDING_CONFIRMATION', label: BOARD_STATUS.PENDING_CONFIRMATION.label, dot: BOARD_STATUS.PENDING_CONFIRMATION.dot, count: pendingCount },
+              ] as const).map((c) => {
+                const on = statusFilter === c.key;
+                return (
+                  <button
+                    key={c.key}
+                    type="button"
+                    aria-pressed={on}
+                    disabled={c.count === 0 && !on}
+                    onClick={() => setStatusFilter(on ? null : c.key)}
+                    title={on ? 'กดอีกครั้งเพื่อแสดงทุกคน' : `แสดงเฉพาะเจ้าหน้าที่ที่มีงาน${c.label}`}
+                    className={cx(SUMMARY_CHIP, on ? 'zego-badge--info font-medium' : 'zego-surface-bg zego-border-color zego-text-secondary enabled:zego-hover-surface disabled:opacity-60')}
+                  >
+                    <span className={cx('h-2 w-2 rounded-full', c.dot)} />{c.label}
+                    <span className={cx('text-[10px]', on ? 'zego-text-info' : 'zego-text-tertiary')}>{c.count}</span>
+                  </button>
+                );
+              })}
               <button
                 type="button"
-                onClick={() => issueJobs.length > 0 && setIssueListKind('issue')}
-                disabled={issueJobs.length === 0}
-                className={cx('inline-flex items-center gap-1', issueJobs.length > 0 ? 'font-semibold zego-text-danger hover:underline' : 'cursor-default zego-text-secondary')}
+                disabled={unassigned.length === 0}
+                onClick={() => setIssueListKind('unassigned')}
+                title="ดูรายการกรุ๊ปที่ยังไม่มีคนไปส่ง"
+                className={cx(SUMMARY_CHIP, 'zego-surface-bg zego-border-color zego-text-secondary enabled:zego-hover-surface disabled:opacity-60')}
               >
-                <span className="font-bold zego-text-danger">!</span>ต้องตรวจ <b>{issueJobs.length}</b>
+                <span className="h-2 w-2 rounded-full zego-dot--slate" />ยังไม่มีคนไปส่ง
+                <span className="text-[10px] zego-text-tertiary">{unassigned.length}</span>
               </button>
-              {/* เวลานัดทับซ้อน — จัดได้ตามนโยบาย ไม่ใช่ปัญหา จึงแยกสีจาก "ต้องตรวจ" ข้างบน (ส้ม ไม่ใช่แดง) */}
               <button
                 type="button"
-                onClick={() => overlapJobs.length > 0 && setIssueListKind('overlap')}
-                disabled={overlapJobs.length === 0}
-                title="เวลานัดทับซ้อนกับงานอื่นของคนเดียวกัน (สนามบินเดียวกัน) — จัดได้ตามนโยบาย แค่ต้องแจ้งให้เตรียมตัว"
-                className={cx('inline-flex items-center gap-1', overlapJobs.length > 0 ? 'font-semibold zego-text-orange hover:underline' : 'cursor-default zego-text-secondary')}
+                disabled={issueJobs.length === 0}
+                onClick={() => setIssueListKind('issue')}
+                title="ดูรายการกรุ๊ปที่ต้องตรวจ"
+                className={cx(SUMMARY_CHIP, issueJobs.length > 0 ? 'border-rose-300 bg-rose-50 font-medium zego-text-danger hover:bg-rose-100' : 'zego-surface-bg zego-border-color zego-text-secondary opacity-60')}
               >
-                <span className="font-bold zego-text-orange">⚠</span>ทับซ้อน <b>{overlapJobs.length}</b>
+                <span className="font-bold zego-text-danger">!</span>ต้องตรวจ
+                <span className="text-[10px]">{issueJobs.length}</span>
+              </button>
+              {/* เวลานัดทับซ้อน — จัดได้ตามนโยบาย ไม่ใช่ปัญหา จึงแยกสีจาก "ต้องตรวจ" (ส้ม ไม่ใช่แดง) */}
+              <button
+                type="button"
+                disabled={overlapJobs.length === 0}
+                onClick={() => setIssueListKind('overlap')}
+                title="เวลานัดทับซ้อนกับงานอื่นของคนเดียวกัน (สนามบินเดียวกัน) — จัดได้ตามนโยบาย แค่ต้องแจ้งให้เตรียมตัว"
+                className={cx(SUMMARY_CHIP, overlapJobs.length > 0 ? 'border-orange-300 bg-orange-50 font-medium zego-text-orange hover:bg-orange-100' : 'zego-surface-bg zego-border-color zego-text-secondary opacity-60')}
+              >
+                <span className="font-bold zego-text-orange">⚠</span>ทับซ้อน
+                <span className="text-[10px]">{overlapJobs.length}</span>
               </button>
             </div>
           </div>
@@ -985,8 +1023,10 @@ export function SendOffScheduleTimeline() {
                 size="sm"
                 icon="grid"
                 onClick={openAutoAssign}
-                disabled={unassigned.length === 0}
-                title={unassigned.length === 0 ? 'ไม่มีกรุ๊ปที่ยังไม่มีคนไปส่งในเดือนนี้' : 'กระจายกรุ๊ปที่ยังไม่มีคนไปส่งให้เจ้าหน้าที่ทุกคนใกล้เคียงกันที่สุด (ร่างเบื้องต้น ปรับต่อได้)'}
+                disabled={autoCandidates.length === 0}
+                title={autoCandidates.length === 0
+                  ? 'ไม่มีกรุ๊ปสถานะขาย CLOSED ที่ยังไม่มีคนไปส่งในเดือนนี้'
+                  : `กระจายกรุ๊ปสถานะขาย CLOSED ที่ยังไม่มีคนไปส่ง ${autoCandidates.length} กรุ๊ป ให้เจ้าหน้าที่ทุกคนใกล้เคียงกันที่สุด (ร่างเบื้องต้น ปรับต่อได้)`}
               >
                 จัดอัตโนมัติ
               </Button>
@@ -1226,10 +1266,52 @@ export function SendOffScheduleTimeline() {
           open
           onClose={() => setIssueListKind(null)}
           size="lg"
-          title={issueListKind === 'issue' ? `กรุ๊ปที่ต้องตรวจ (${issueJobs.length})` : `กรุ๊ปที่เวลานัดทับซ้อน (${overlapJobs.length})`}
-          description="กดที่กรุ๊ปเพื่อเปิดรายละเอียด"
+          title={issueListKind === 'issue' ? `กรุ๊ปที่ต้องตรวจ (${issueJobs.length})`
+            : issueListKind === 'overlap' ? `กรุ๊ปที่เวลานัดทับซ้อน (${overlapJobs.length})`
+              : `กรุ๊ปที่ยังไม่มีคนไปส่ง (${unassigned.length})`}
+          description={issueListKind === 'unassigned'
+            ? 'จัดคนได้โดยคลิกช่องวันที่ของเจ้าหน้าที่ในตาราง หรือกด Auto Assign เพื่อกระจายงานให้อัตโนมัติ'
+            : 'กดที่กรุ๊ปเพื่อเปิดรายละเอียด'}
           footer={<div className="flex justify-end"><Button variant="secondary" onClick={() => setIssueListKind(null)}>ปิด</Button></div>}
         >
+          {issueListKind === 'unassigned' ? (
+            /*
+              จัดกลุ่มตามวันที่ต้องไปส่ง (หัววันติดด้านบนตอนเลื่อน) — แถว: รหัสกรุ๊ป + โปรแกรม (ตัดคำ) ซ้าย · สนามบิน/เวลา ขวา (คอลัมน์คงที่)
+              เดิมวางแบบ flex-wrap ชื่อโปรแกรมยาวแล้วดันเวลาไปบรรทัดใหม่ ทำให้แถวไม่ตรงกัน
+            */
+            <div className="space-y-3">
+              {(() => {
+                const byDate = new Map<string, SendOffJob[]>();
+                for (const j of [...unassigned].sort((x, y) => x.dutyDate.localeCompare(y.dutyDate) || chipTime(x).localeCompare(chipTime(y)))) {
+                  byDate.set(j.dutyDate, [...(byDate.get(j.dutyDate) ?? []), j]);
+                }
+                return [...byDate.entries()].map(([date, list]) => (
+                  <section key={date}>
+                    <h4 className="sticky top-0 z-10 flex items-center justify-between rounded-md zego-surface-soft-bg px-3 py-1.5 text-xs font-semibold zego-text">
+                      <span>{formatDate(date)}</span>
+                      <span className="font-normal zego-text-tertiary">{list.length} กรุ๊ป</span>
+                    </h4>
+                    <ul className="divide-y divide-[var(--zego-border-soft)]">
+                      {list.map((j) => (
+                        <li key={j.period.internalId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-3 py-2">
+                          <span className="min-w-0">
+                            <span className="block font-mono text-sm font-bold zego-text">{j.period.groupCode}</span>
+                            <span className="block truncate text-xs zego-text-tertiary" title={`${j.period.countryName} · ${j.period.displayName}`}>
+                              {j.period.countryName} · {j.period.displayName}
+                            </span>
+                          </span>
+                          <span className="whitespace-nowrap text-right text-xs tabular-nums">
+                            <span className="block font-medium zego-text">นัด {chipTime(j)}</span>
+                            <span className="block zego-text-tertiary">{j.airport || '-'}{j.flightTime ? ` · บิน ${j.flightTime}` : ''}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ));
+              })()}
+            </div>
+          ) : (
           <ul className="space-y-1.5">
             {(issueListKind === 'issue' ? issueJobs : overlapJobs).map((j) => {
               const reason = issueListKind === 'issue' ? jobIssue(j) : jobOverlapWarning(j);
@@ -1253,6 +1335,7 @@ export function SendOffScheduleTimeline() {
               );
             })}
           </ul>
+          )}
         </Modal>
       )}
 
@@ -1381,8 +1464,18 @@ export function SendOffScheduleTimeline() {
         open={autoAssignPreview !== null}
         onClose={() => setAutoAssignPreview(null)}
         onConfirm={confirmAutoAssign}
-        title="จัดอัตโนมัติ (ร่างเบื้องต้น)"
-        message={autoAssignPreview ? `${summarizeAutoAssign(autoAssignPreview.result, autoAssignPreview.staffCount)} ของเดือน ${formatThaiMonthYear(cursor)} — สถานะเริ่มที่ "รอคอนเฟิร์ม" ทุกกรุ๊ปเหมือนจัดมือ ต้องคุยกับเจ้าหน้าที่แล้วกดยืนยันทีละกรุ๊ปอีกที และยังปรับเปลี่ยนหรือย้ายคนเองได้ตามปกติหลังจากนี้` : ''}
+        title="จัดอัตโนมัติ (ร่างเบื้องต้น) — เฉพาะกรุ๊ป CLOSED"
+        message={autoAssignPreview
+          ? [
+            // บอกเงื่อนไขก่อน — นำมาจัดเฉพาะกรุ๊ปที่ปิดขายแล้ว (CLOSED) · กรุ๊ปที่ยังขายอยู่ไม่ถูกแตะ
+            `เงื่อนไข: นำมาจัดเฉพาะกรุ๊ปสถานะขาย CLOSED ที่ยังไม่มีคนไปส่ง ${autoCandidates.length} กรุ๊ป`
+              + (unassigned.length > autoCandidates.length
+                ? ` · กรุ๊ปสถานะอื่น (เช่น SELL) อีก ${unassigned.length - autoCandidates.length} กรุ๊ปไม่นำมาจัด — จัดเองทีละกรุ๊ปได้`
+                : ''),
+            `${summarizeAutoAssign(autoAssignPreview.result, autoAssignPreview.staffCount)} ของเดือน ${formatThaiMonthYear(cursor)}`,
+            'สถานะเริ่มที่ "รอคอนเฟิร์ม" ทุกกรุ๊ปเหมือนจัดมือ ต้องคุยกับเจ้าหน้าที่แล้วกดยืนยันทีละกรุ๊ปอีกที และยังปรับเปลี่ยนหรือย้ายคนเองได้ตามปกติหลังจากนี้',
+          ].join('\n\n')
+          : ''}
         confirmLabel="จัดอัตโนมัติ"
         tone="primary"
       />

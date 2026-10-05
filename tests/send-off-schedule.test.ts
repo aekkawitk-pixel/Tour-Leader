@@ -40,8 +40,9 @@ describe('สลับโหมดในเมนูการจัดสเก�
     assert.ok(VIEW.includes("{ value: 'leader', label: 'จัดหัวหน้าทัวร์' }"), 'ต้องมีโหมดจัดหัวหน้าทัวร์');
     assert.ok(VIEW.includes("{ value: 'sendoff', label: 'จัดเจ้าหน้าที่ส่งกรุ๊ป' }"), 'ต้องมีโหมดจัดเจ้าหน้าที่ส่งกรุ๊ป');
     assert.ok(VIEW.includes("{ value: 'group', label: 'มองจากกรุ๊ป' }"), 'ต้องมีมุมมองรายกรุ๊ป');
-    for (const c of ['<GuideScheduleTimeline />', '<SendOffScheduleTimeline />', '<GroupCoverageView />']) {
-      assert.ok(VIEW.includes(c), `แต่ละโหมดต้องเป็นคนละคอมโพเนนต์ — ขาด ${c}`);
+    // GuideScheduleTimeline รับปุ่มสลับโหมดเป็น prop (วางหน้าปุ่ม “กำหนดรายชื่อ”) — ตรวจแค่ชื่อคอมโพเนนต์
+    for (const c of ['GuideScheduleTimeline', 'SendOffScheduleTimeline', 'GroupCoverageView']) {
+      assert.ok(new RegExp(`<${c}[\\s/>]`).test(VIEW), `แต่ละโหมดต้องเป็นคนละคอมโพเนนต์ — ขาด <${c} />`);
     }
   });
 
@@ -61,8 +62,8 @@ describe('สลับโหมดในเมนูการจัดสเก�
   });
 
   test('คนที่ไม่มีสิทธิ์จัดเจ้าหน้าที่ส่งกรุ๊ป ไม่เห็นแท็บมองจากกรุ๊ป และดูได้แค่มุมมองตาราง', () => {
-    assert.ok(VIEW.includes("if (value === 'group' && canSendOff) return value;"), '?mode=group ต้องเปิดได้เฉพาะคนที่มีสิทธิ์');
-    assert.ok(VIEW.includes("MODE_OPTIONS.filter((o) => o.value !== 'group')"), 'ต้องซ่อนแท็บมองจากกรุ๊ป');
+    assert.ok(VIEW.includes("if (value === 'group' && canSendOff && GROUP_VIEW_ENABLED) return value;"), '?mode=group ต้องเปิดได้เฉพาะคนที่มีสิทธิ์ (และเมื่อเปิดใช้แท็บนี้)');
+    assert.ok(VIEW.includes("MODE_OPTIONS.filter((o) => o.value !== 'group' || (canSendOff && GROUP_VIEW_ENABLED))"), 'ต้องซ่อนแท็บมองจากกรุ๊ป');
     assert.ok(BOARD.includes("const view = canAssign ? pickedView : 'board';"), 'ไม่มีสิทธิ์ต้องล็อกเป็นมุมมองตาราง');
     assert.match(BOARD, /\{canAssign && \(\s*<SegmentedControl/, 'ต้องซ่อนปุ่มสลับตาราง/รายการ');
   });
@@ -91,7 +92,8 @@ describe('ตารางโหมดเจ้าหน้าที่ส่ง�
   test('ตารางมีแต่แถวของคน ไม่มีแถวกองกรุ๊ปที่ยังไม่มีคนไปส่ง', () => {
     // ตารางนี้มองจากคนล้วน ๆ เหมือนตารางหัวหน้าทัวร์ · กรุ๊ปที่ยังค้างดูได้ที่มุมมองรายกรุ๊ป
     assert.ok(!BOARD.includes('กดที่กรุ๊ปเพื่อเลือกคน'), 'ต้องไม่มีแถวกองกรุ๊ปบนตารางแล้ว');
-    assert.ok(BOARD.includes('ยังไม่มีคนไปส่ง <b'), 'แต่ยังต้องเห็นจำนวนที่ค้างในแถบสรุป');
+    // แถบสรุปเป็นชิปกดได้ (เปิดรายการกรุ๊ปที่ยังไม่มีคน) — ต้องเห็นจำนวนที่ค้าง
+    assert.ok(BOARD.includes('ยังไม่มีคนไปส่ง') && BOARD.includes('{unassigned.length}</span>'), 'แต่ยังต้องเห็นจำนวนที่ค้างในแถบสรุป');
   });
 
   test('ช่องวันหนึ่งวันไม่วาดป้ายเกิน 3 อัน — วันที่มีหลายสิบกรุ๊ปต้องยุบได้', () => {

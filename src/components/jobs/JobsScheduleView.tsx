@@ -16,8 +16,8 @@
 
 import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { PageHeader } from '@/components/ui/Primitives';
 import { SegmentedControl } from '@/components/ui/Tabs';
+import { Button } from '@/components/ui/Primitives';
 import { GuideScheduleTimeline } from '@/components/jobs/GuideScheduleTimeline';
 import { SendOffScheduleTimeline } from '@/components/jobs/SendOffScheduleTimeline';
 import { GroupCoverageView } from '@/components/jobs/GroupCoverageView';
@@ -32,6 +32,12 @@ const MODE_OPTIONS: { value: ScheduleMode; label: string }[] = [
   { value: 'group', label: 'มองจากกรุ๊ป' },
 ];
 
+/**
+ * แท็บ "มองจากกรุ๊ป" — ซ่อนไว้ก่อน (ยังไม่เปิดใช้งาน) · ตั้งเป็น true เพื่อเปิดกลับ
+ * คอมโพเนนต์ GroupCoverageView ยังอยู่ครบ ไม่ได้ลบ · ?mode=group จากลิงก์เดิมตกกลับเป็นจัดหัวหน้าทัวร์
+ */
+const GROUP_VIEW_ENABLED = false;
+
 const MODE_DESCRIPTION: Record<ScheduleMode, string> = {
   leader: 'ตรวจสอบงานทัวร์และจัดหัวหน้าทัวร์ตามตาราง Schedule รายเดือน',
   sendoff: 'จัดเจ้าหน้าที่ไปส่งกรุ๊ปที่สนามบิน ตามเวลาที่ต้องไปถึงของแต่ละกรุ๊ป',
@@ -44,7 +50,7 @@ const MODE_DESCRIPTION: Record<ScheduleMode, string> = {
  */
 function modeFromParam(value: string | null, canSendOff: boolean): ScheduleMode {
   if (value === 'sendoff') return value;
-  if (value === 'group' && canSendOff) return value;
+  if (value === 'group' && canSendOff && GROUP_VIEW_ENABLED) return value;
   return 'leader';
 }
 
@@ -54,7 +60,7 @@ function JobsScheduleContent() {
   const { currentUser } = useDemo();
   const canSendOff = canEditSendOffSchedule(currentUser);
   const mode: ScheduleMode = modeFromParam(params.get('mode'), canSendOff);
-  const modeOptions = canSendOff ? MODE_OPTIONS : MODE_OPTIONS.filter((o) => o.value !== 'group');
+  const modeOptions = MODE_OPTIONS.filter((o) => o.value !== 'group' || (canSendOff && GROUP_VIEW_ENABLED));
 
   /*
     เขียนโหมดลง URL ด้วย replace ไม่ใช่ push — ปุ่ม Back ของเบราว์เซอร์ควรพาออกจากหน้านี้
@@ -69,19 +75,36 @@ function JobsScheduleContent() {
     router.replace(qs ? `/jobs?${qs}` : '/jobs', { scroll: false });
   };
 
+  // ปุ่มสลับโหมด — อยู่แถวเดียวกับปุ่ม "กำหนดรายชื่อ" (หน้าปุ่ม) เหนือการ์ดตัวกรอง · โหมดอื่นอยู่ตำแหน่งเดียวกัน
+  const modeSwitch = <SegmentedControl options={modeOptions} value={mode} onChange={changeMode} label="เลือกสิ่งที่ต้องการจัด" />;
+
+  // หัวหน้า — ชื่อหน้า (ซ้าย) กับปุ่มสลับโหมด / กำหนดรายชื่อ (ขวา) อยู่แถวเดียวกัน ประหยัดความสูง ตารางขึ้นมาใกล้ด้านบน
+  const title = (
+    <div>
+      <h1 className="zego-text text-xl font-bold sm:text-2xl">การจัดสเก็ต / Schedule</h1>
+      <p className="zego-text-secondary mt-1 text-sm">{MODE_DESCRIPTION[mode]}</p>
+    </div>
+  );
+
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <PageHeader title="การจัดสเก็ต / Schedule" description={MODE_DESCRIPTION[mode]} />
-        <SegmentedControl options={modeOptions} value={mode} onChange={changeMode} label="เลือกสิ่งที่ต้องการจัด" />
-      </div>
 
       {/*
         คนละคอมโพเนนต์กัน ไม่ใช่ตารางเดียวสลับข้อมูล — เพราะหน่วยของงาน ตัวกรอง
         และวิธีตรวจว่าชนกัน ต่างกันคนละเรื่อง ยัดรวมกันแล้วแก้อะไรทีหลังจะพังทุกโหมด
         กติกาที่ใช้ร่วมกันอยู่ใน lib/logic/sendOffJobs.ts จุดเดียว เลขจึงตรงกันทุกมุมมอง
       */}
-      {mode === 'leader' && <GuideScheduleTimeline />}
+      {mode === 'leader' && <GuideScheduleTimeline header={title} toolbarStart={modeSwitch} />}
+      {mode !== 'leader' && (
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          {title}
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            {modeSwitch}
+            {/* “กำหนดรายชื่อ” ใช้กับตารางหัวหน้าทัวร์เท่านั้น — แสดงไว้ตำแหน่งเดิมแต่กดไม่ได้ ปุ่มจึงไม่กระโดดตอนสลับโหมด */}
+            <Button size="sm" variant="secondary" disabled title="ใช้ได้เฉพาะโหมดจัดหัวหน้าทัวร์">กำหนดรายชื่อ</Button>
+          </div>
+        </div>
+      )}
       {mode === 'sendoff' && <SendOffScheduleTimeline />}
       {mode === 'group' && <GroupCoverageView />}
     </div>

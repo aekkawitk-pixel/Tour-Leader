@@ -36,7 +36,7 @@ export const BOARD_STATUS: Record<BoardStatus, StatusMeta & { bar: string; dot: 
   PENDING_CONFIRMATION: { label: 'รอคอนเฟิร์ม', tone: 'amber', bar: 'zego-status-bar zego-status-bar--warning', dot: 'zego-dot--warning' },
   CONFIRMED: { label: 'คอนเฟิร์มแล้ว', tone: 'green', bar: 'zego-status-bar zego-status-bar--success', dot: 'zego-dot--success' },
   DECLINED: { label: 'ปฏิเสธ', tone: 'red', bar: 'zego-status-bar zego-status-bar--danger', dot: 'zego-dot--danger' },
-  REASSIGN_REQUIRED: { label: 'ต้องเปลี่ยนหัวหน้าทัวร์', tone: 'amber', bar: 'zego-status-bar zego-status-bar--orange', dot: 'zego-dot--orange' },
+  REASSIGN_REQUIRED: { label: 'เปลี่ยนหัวหน้าทัวร์', tone: 'amber', bar: 'zego-status-bar zego-status-bar--orange', dot: 'zego-dot--orange' },
 };
 
 export const BOARD_STATUS_ORDER: BoardStatus[] = ['CONFIRMED', 'PENDING_CONFIRMATION', 'REASSIGN_REQUIRED', 'DECLINED', 'UNASSIGNED'];
@@ -56,7 +56,7 @@ export function normalizeBoardStatus(value: unknown): BoardStatus {
 const BOARD_STATUS_ALIAS: Record<string, BoardStatus> = {
   confirmed: 'CONFIRMED', confirm: 'CONFIRMED', accepted: 'CONFIRMED', 'คอนเฟิร์มแล้ว': 'CONFIRMED',
   pending_confirmation: 'PENDING_CONFIRMATION', pending: 'PENDING_CONFIRMATION', offered: 'PENDING_CONFIRMATION', 'รอคอนเฟิร์ม': 'PENDING_CONFIRMATION',
-  reassign_required: 'REASSIGN_REQUIRED', need_replacement: 'REASSIGN_REQUIRED', replacement_required: 'REASSIGN_REQUIRED', need_leader: 'REASSIGN_REQUIRED', 'ต้องเปลี่ยนหัวหน้าทัวร์': 'REASSIGN_REQUIRED',
+  reassign_required: 'REASSIGN_REQUIRED', need_replacement: 'REASSIGN_REQUIRED', replacement_required: 'REASSIGN_REQUIRED', need_leader: 'REASSIGN_REQUIRED', 'ต้องเปลี่ยนหัวหน้าทัวร์': 'REASSIGN_REQUIRED', 'เปลี่ยนหัวหน้าทัวร์': 'REASSIGN_REQUIRED',
   declined: 'DECLINED', rejected: 'DECLINED', reject: 'DECLINED', 'ปฏิเสธ': 'DECLINED',
   unassigned: 'UNASSIGNED', not_assigned: 'UNASSIGNED', 'ยังไม่ระบุ': 'UNASSIGNED',
 };

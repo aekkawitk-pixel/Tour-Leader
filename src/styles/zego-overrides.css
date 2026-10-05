@@ -320,6 +320,8 @@ html[data-zego-theme="dark"] button.zego-badge--info:hover, html[data-zego-theme
 .zego-status-bar--success{background:#effaf4;color:#0a4b29;border-color:#cce8d7;border-left-color:var(--zego-success)}
 .zego-status-bar--danger{background:#fff4f4;color:#7a2020;border-color:#efd0d0;border-left-color:var(--zego-danger)}
 .zego-status-bar--orange{background:#fff3ea;color:#7a3b0a;border-color:#f0d2b8;border-left-color:#b5570f}
+/* วันลาบนตาราง Schedule — โทนดำเทา (พื้นลายทแยงมาจาก LEAVE_BG) ตัวอักษรขาว */
+.zego-status-bar--dark{background:#374151;color:#f9fafb;border-color:#1f2937;border-left-color:#111827}
 html[data-zego-theme="dark"] .zego-status-bar--slate{background:rgba(255,255,255,.04);color:var(--zego-text-secondary);border-color:var(--zego-border)}
 html[data-zego-theme="dark"] .zego-status-bar--warning{background:rgba(184,117,16,.14);color:#f0c77c;border-color:rgba(240,199,124,.22)}
 html[data-zego-theme="dark"] .zego-status-bar--success{background:rgba(22,132,71,.14);color:#7fe0a8;border-color:rgba(127,224,168,.2)}

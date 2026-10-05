@@ -29,6 +29,8 @@ export interface GuidePeriodAssignment {
   assignedAt: string;
   confirmedAt: string | null;
   note?: string;
+  /** เหตุผลที่ผู้จัดตั้ง “ต้องเปลี่ยนหัวหน้าทัวร์” (ใช้คู่กับ assignmentStatus = REASSIGN_REQUIRED) */
+  reassignReason?: string;
   /** §7 Snapshot สำหรับ Audit/ตรวจ Master เปลี่ยน (§9) — ห้ามใช้เป็นข้อมูลปัจจุบัน */
   snapshot?: PeriodSnapshot;
 
@@ -165,20 +167,23 @@ export function reassignPeriod(assignmentId: string, newLeaderId: string, by: st
   if (rejected) return { ok: false, error: rejected, rows: activeRows(all) };
 
   // เปลี่ยนหัวหน้าทัวร์แล้วถือว่าคอนเฟิร์มทันทีเช่นกัน — สอดคล้องกับ assignPeriod
-  const next = all.map((a) => (a.assignmentId === assignmentId ? { ...a, tourLeaderId: newLeaderId, assignmentStatus: 'CONFIRMED' as const, confirmedAt: at, assignedBy: by, assignedAt: at } : a));
+  const next = all.map((a) => (a.assignmentId === assignmentId ? { ...a, tourLeaderId: newLeaderId, assignmentStatus: 'CONFIRMED' as const, confirmedAt: at, assignedBy: by, assignedAt: at, reassignReason: undefined } : a));
   writeJSON(ASSIGN_KEY, next);
   appendAudit({ assignmentId, periodId: cur.periodId, action: 'reassign', tourLeaderId: newLeaderId, from: cur.tourLeaderId, to: newLeaderId, by, at, reason });
   return { ok: true, rows: activeRows(next) };
 }
 
 /** เปลี่ยนสถานะการจัด (คอนเฟิร์ม/ปฏิเสธ/ต้องเปลี่ยน) */
-export function setAssignmentStatus(assignmentId: string, status: AssignmentBoardStatus, by: string, at: string): GuidePeriodAssignment[] {
+export function setAssignmentStatus(assignmentId: string, status: AssignmentBoardStatus, by: string, at: string, reason?: string): GuidePeriodAssignment[] {
   const all = loadGuideAssignments();
   const cur = all.find((a) => a.assignmentId === assignmentId && isActive(a));
   if (!cur) return activeRows(all); // ถอดไปแล้ว/ไม่มีอยู่ → ไม่ทำอะไรและไม่ปลุกกลับมา
-  const next = all.map((a) => (a.assignmentId === assignmentId ? { ...a, assignmentStatus: status, confirmedAt: status === 'CONFIRMED' ? at : a.confirmedAt } : a));
+  // เหตุผล “ต้องเปลี่ยนหัวหน้าทัวร์” เก็บเฉพาะตอนอยู่สถานะนั้น — เปลี่ยนเป็นสถานะอื่นแล้วล้างทิ้ง
+  const next = all.map((a) => (a.assignmentId === assignmentId
+    ? { ...a, assignmentStatus: status, confirmedAt: status === 'CONFIRMED' ? at : a.confirmedAt, reassignReason: status === 'REASSIGN_REQUIRED' ? reason : undefined }
+    : a));
   writeJSON(ASSIGN_KEY, next);
-  appendAudit({ assignmentId, periodId: cur.periodId, action: 'status', tourLeaderId: cur.tourLeaderId, from: cur.assignmentStatus, to: status, by, at });
+  appendAudit({ assignmentId, periodId: cur.periodId, action: 'status', tourLeaderId: cur.tourLeaderId, from: cur.assignmentStatus, to: status, by, at, ...(reason ? { reason } : {}) });
   return activeRows(next);
 }
 
