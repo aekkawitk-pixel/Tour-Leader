@@ -21,9 +21,10 @@ import { Icon } from '@/components/ui/Icon';
 import { EXPENSE_STATUS } from '@/lib/labels';
 import { formatCurrency, formatDate, formatDateRange, formatDateTime, toISODateTime } from '@/lib/format';
 import { envelopeName } from '@/lib/logic/cashEnvelope';
-import { clearChecklist, GROUP_CLEAR_STAGE, type GroupClearSummary } from '@/lib/logic/groupClear';
+import { clearChecklist, effectiveClearValues, followUpsFromClose, GROUP_CLEAR_STAGE, type GroupClearSummary } from '@/lib/logic/groupClear';
 import { CLEAR_EVENT_LABEL, saveGroupClear, type GroupClearRecord } from '@/services/groupClearStore';
 import { ClearAppointmentSection } from './ClearAppointmentSection';
+import { FollowUpSection } from './FollowUpSection';
 import { clearAppointmentOf } from '@/services/appointmentStore';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { EnvelopeStatusBadge, StatusPill } from '@/components/expenses/CashEnvelopeDrawer';
@@ -58,9 +59,9 @@ export function GroupClearDrawer({
   const [partialReason, setPartialReason] = useState(record?.partialReason ?? '');
   const s = GROUP_CLEAR_STAGE[summary.stage];
   const toList = (m: Record<string, string>) => Object.entries(m).filter(([, v]) => Number(v) > 0).map(([currency, v]) => ({ currency, amount: Number(v) }));
-  // เช็กลิสต์ — ปิดแล้วใช้ค่าที่บันทึก · ยังไม่ปิดใช้ค่าที่กำลังกรอก
+  // เช็กลิสต์ — ปิดแล้วใช้ค่าที่บันทึก + การชำระยอดค้างติดตาม · ยังไม่ปิดใช้ค่าที่กำลังกรอก
   const checks = clearChecklist(summary, closed
-    ? { returned: record?.returned ?? [], paidExtra: record?.paidExtra ?? [], noPerDiem: !!record?.noPerDiem }
+    ? effectiveClearValues(record)
     : { returned: toList(returned), paidExtra: toList(paidExtra), noPerDiem });
   const allOk = checks.every((c) => c.ok);
   const okCount = checks.filter((c) => c.ok).length;
@@ -96,7 +97,11 @@ export function GroupClearDrawer({
       periodId: summary.periodId,
       ...values(),
       closeKind: kind,
-      ...(kind === 'partial' ? { partialReason: partialReason.trim() } : {}),
+      ...(kind === 'partial' ? {
+        partialReason: partialReason.trim(),
+        // ยอดเงินขาด / เกิน ที่ต้องติดตามต่อ — แยกสกุล แยกว่าใครค้างใคร
+        followUps: followUpsFromClose(summary, { returned: toList(returned), paidExtra: toList(paidExtra) }, at, currentUser.name),
+      } : {}),
       closedAt: at,
       closedBy: currentUser.name,
       history: [...(record?.history ?? []), { at, by: currentUser.name, action: 'close', note: reasonNote }],
@@ -113,7 +118,13 @@ export function GroupClearDrawer({
     }
   };
   const reopen = () => {
-    if (!record || !window.confirm('เปิดการเคลียร์เงินกรุ๊ปนี้ใหม่? ยอดเงินคืนที่บันทึกไว้จะถูกล้าง')) return;
+    if (!record) return;
+    // มีการชำระยอดค้างแล้ว — เปิดใหม่จะทำให้ยอดซ้ำ ให้ปิดยอดค้างต่อจากหน้านี้แทน
+    if ((record.followUps ?? []).some((f) => f.payments.length > 0)) {
+      window.alert('มีการบันทึกชำระยอดค้างติดตามแล้ว — เปิดการเคลียร์ใหม่ไม่ได้ ให้บันทึกการชำระ / เพิ่มยอดค้างในส่วน “ยอดค้างติดตาม” แทน');
+      return;
+    }
+    if (!window.confirm('เปิดการเคลียร์เงินกรุ๊ปนี้ใหม่? ยอดเงินคืนและยอดค้างติดตามที่บันทึกไว้จะถูกล้าง')) return;
     const at = toISODateTime(new Date());
     // เปิดใหม่ — ล้างเงินคืน/ผู้ปิด/ชนิดการปิด · จ่ายเพิ่ม / ไม่มีเบี้ยเลี้ยง คงไว้ (เป็นข้อเท็จจริงที่เกิดแล้ว) · นัดหมายคงไว้
     saveGroupClear({
@@ -186,9 +197,14 @@ export function GroupClearDrawer({
             ))}
           </ul>
           {closed && record?.closeKind === 'partial' && record.partialReason && (
-            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">ปิดแบบมีค้าง — เหตุผล: {record.partialReason}</p>
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              ปิดแบบมีค้าง — เหตุผล: {record.partialReason}{allOk ? ' · ชำระยอดค้างครบแล้ว = เคลียร์ครบ' : ''}
+            </p>
           )}
         </section>
+
+        {/* ยอดค้างติดตาม — หลังปิด: รับคืนส่วนที่ขาด / จ่ายคืนส่วนที่เกิน (ไม่หักจากเบี้ยเลี้ยง) */}
+        {closed && record && <FollowUpSection record={record} groupCode={p?.groupCode ?? summary.periodId} onSaved={onSaved} />}
 
         {/* สรุปเงินแยกสกุล */}
         <section>

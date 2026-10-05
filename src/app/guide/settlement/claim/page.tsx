@@ -12,7 +12,7 @@
  */
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
@@ -21,6 +21,8 @@ import { EXPENSE_STATUS } from '@/lib/labels';
 import { formatCurrency, formatDate, formatDateRange, toISODate } from '@/lib/format';
 import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
 import { envelopeName } from '@/lib/logic/cashEnvelope';
+import { followUpOpen, followUpRemaining } from '@/lib/logic/groupClear';
+import { FOLLOW_UP_REASON, loadGroupClears, type GroupClearRecord } from '@/services/groupClearStore';
 import { Card, cx, StatusBadge } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import { EnvelopeStatusBadge } from '@/components/expenses/CashEnvelopeDrawer';
@@ -69,10 +71,41 @@ export default function GuideSettlementClaimPage() {
   // เปิดค้างไว้ทีละกรุ๊ป — ค่าเริ่มต้น = กรุ๊ปล่าสุด
   const [openId, setOpenId] = useState<string | null>(() => groups[0]?.period.internalId ?? null);
   const [detail, setDetail] = useState<ExpenseRequest | null>(null);
+  // ยอดค้างติดตามหลังเคลียร์ (localStorage — อ่านหลัง mount)
+  const [clears, setClears] = useState<Record<string, GroupClearRecord>>({});
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จากภายนอก (localStorage) ตอน mount
+    setClears(loadGroupClears());
+  }, []);
+  const followUps = groups.flatMap(({ period }) => (clears[period.internalId]?.followUps ?? []).filter(followUpOpen).map((f) => ({ f, period })));
 
   return (
     <div className="space-y-4">
       <SettlementBackHeader title="ตรวจสอบก่อนนัดเคลียร์เงิน" description="ดูว่าแต่ละกรุ๊ปมีค่าใช้จ่ายอะไรทำไปแล้วบ้าง และอยู่สถานะไหน — ครบแล้วนัดหมายเข้ามาเคลียร์เงิน" />
+
+      {/* ยอดค้างติดตาม — หลังบริษัทปิดเคลียร์แบบมีค้าง */}
+      {followUps.length > 0 && (
+        <Card>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold zego-text">
+            <Icon name="warning" className="h-4 w-4 text-rose-600" />ยอดค้างติดตามหลังเคลียร์เงิน
+          </h2>
+          <ul className="divide-y divide-[var(--zego-border-soft)] text-sm">
+            {followUps.map(({ f, period }) => (
+              <li key={f.id} className="flex items-start justify-between gap-3 py-2">
+                <span className="min-w-0">
+                  <span className="block font-medium zego-text">{period.groupCode}</span>
+                  <span className="block text-xs zego-text-tertiary">{FOLLOW_UP_REASON[f.reason]}{f.note ? ` · ${f.note}` : ''}</span>
+                </span>
+                <span className={cx('shrink-0 text-right text-xs font-semibold tabular-nums', f.direction === 'leader_owes' ? 'zego-text-danger' : 'text-violet-700')}>
+                  {f.direction === 'leader_owes' ? 'ต้องคืนบริษัท' : 'บริษัทค้างจ่ายคุณ'}
+                  <span className="block text-sm">{formatCurrency(followUpRemaining(f), f.currency)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs zego-text-tertiary">ชำระเป็นเงินสดหรือโอนที่ฝ่ายการเงิน · ยอดสกุลต่างประเทศชำระเป็นบาทได้ตามอัตราแลกเปลี่ยนวันที่ชำระ · ไม่หักจากเบี้ยเลี้ยง</p>
+        </Card>
+      )}
 
       {groups.length === 0 ? (
         <Card>

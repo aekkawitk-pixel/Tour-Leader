@@ -13,6 +13,7 @@
  */
 
 import type { ExpenseRequest } from '@/types';
+import type { FollowUp, GroupClearRecord } from '@/services/groupClearStore';
 import { envelopeBalance, sumAmounts, type CashEnvelope, type EnvelopeAmount } from './cashEnvelope';
 
 export const CLEAR_DUE_DAYS = 14;
@@ -152,6 +153,11 @@ export function clearChecklist(
   const shortReturn = s.balance.filter((b) => b.remaining > EPS && amt(v.returned, b.currency) + EPS < b.remaining)
     .map((b) => `${b.currency} ขาด ${fmt(b.remaining - amt(v.returned, b.currency))}`);
   const toReturn = s.balance.filter((b) => b.remaining > EPS);
+  // คืนเกินยอดที่ต้องคืน — บริษัทต้องคืนส่วนเกินให้หัวหน้าทัวร์
+  const overReturn = [...new Set(v.returned.map((x) => x.currency))]
+    .map((c) => ({ c, extra: amt(v.returned, c) - Math.max(0, s.balance.find((b) => b.currency === c)?.remaining ?? 0) }))
+    .filter((x) => x.extra > EPS)
+    .map((x) => `${x.c} คืนเกิน ${fmt(x.extra)}`);
   const shortExtra = s.balance.filter((b) => b.remaining < -EPS && amt(v.paidExtra, b.currency) + EPS < -b.remaining)
     .map((b) => `${b.currency} ค้าง ${fmt(-b.remaining - amt(v.paidExtra, b.currency))}`);
   const over = s.balance.filter((b) => b.remaining < -EPS);
@@ -164,8 +170,8 @@ export function clearChecklist(
       detail: envIssues.length ? envIssues.join(' · ') : handed.length ? `รับครบ ${handed.length} ซอง` : 'ไม่มีซองที่ส่งมอบ' },
     { key: 'receipts', label: 'ใบเสร็จผ่านตรวจครบ', ok: pendingReceipts === 0,
       detail: pendingReceipts ? [s.toReview.receipts && `รอตรวจ ${s.toReview.receipts} ใบ`, s.atLeader.receipts && `หัวหน้าทัวร์ยังไม่ส่ง/ต้องแก้ ${s.atLeader.receipts} ใบ`].filter(Boolean).join(' · ') : `ผ่านตรวจ ${s.receipts.length} ใบ` },
-    { key: 'returned', label: 'รับเงินคืนครบทุกสกุล', ok: shortReturn.length === 0,
-      detail: shortReturn.length ? shortReturn.join(' · ') : toReturn.length ? `รับคืนครบ ${toReturn.map((b) => b.currency).join(', ')}` : 'ไม่มียอดต้องคืน' },
+    { key: 'returned', label: 'รับเงินคืนครบทุกสกุล (ไม่ขาด ไม่เกิน)', ok: shortReturn.length === 0 && overReturn.length === 0,
+      detail: [...shortReturn, ...overReturn].join(' · ') || (toReturn.length ? `รับคืนครบ ${toReturn.map((b) => b.currency).join(', ')}` : 'ไม่มียอดต้องคืน') },
     { key: 'paidExtra', label: 'ใช้เกินซอง — บริษัทจ่ายเพิ่มแล้ว', ok: shortExtra.length === 0,
       detail: shortExtra.length ? shortExtra.join(' · ') : over.length ? `จ่ายเพิ่มครบ ${over.map((b) => b.currency).join(', ')}` : 'ไม่ได้ใช้เกินซอง' },
     { key: 'perDiem', label: 'เบี้ยเลี้ยงโอนแล้ว', ok: v.noPerDiem || pd?.status === 'paid',
@@ -173,4 +179,56 @@ export function clearChecklist(
     { key: 'landProof', label: 'ส่งแลนด์มีหลักฐาน', ok: noProof.length === 0,
       detail: noProof.length ? `ไม่มีรูปใบรับเงิน ${noProof.length} รายการ (${noProof.map((x) => x.lp.landName).join(', ')})` : land.length ? `มีหลักฐานครบ ${land.length} รายการ` : 'ไม่มีการส่งแลนด์' },
   ];
+}
+
+/* ------------------------------------------------------------------ */
+/* ยอดค้างติดตาม — หลังปิดแบบมีค้าง                                     */
+/* ------------------------------------------------------------------ */
+
+export const followUpCovered = (f: FollowUp) => f.payments.reduce((n, p) => n + p.covered, 0);
+export const followUpRemaining = (f: FollowUp) => Math.max(0, f.amount - followUpCovered(f));
+export const followUpOpen = (f: FollowUp) => followUpRemaining(f) > EPS;
+
+/**
+ * ยอดค้างจากเช็กลิสต์ ณ ตอนปิด — คืนขาด (หัวหน้าทัวร์ค้าง) · คืนเกิน / ใช้เกินซองที่ยังไม่จ่าย (บริษัทค้าง)
+ */
+export function followUpsFromClose(
+  s: GroupClearSummary,
+  v: { returned: { currency: string; amount: number }[]; paidExtra: { currency: string; amount: number }[] },
+  at: string,
+  by: string,
+): FollowUp[] {
+  const amt = (list: { currency: string; amount: number }[], c: string) => list.filter((x) => x.currency === c).reduce((n, x) => n + x.amount, 0);
+  const out: FollowUp[] = [];
+  const mk = (direction: FollowUp['direction'], reason: FollowUp['reason'], currency: string, amount: number) =>
+    out.push({ id: `FU-${Date.now()}-${out.length + 1}`, direction, reason, currency, amount: Math.round(amount * 100) / 100, createdAt: at, createdBy: by, payments: [] });
+  const currencies = [...new Set([...s.balance.map((b) => b.currency), ...v.returned.map((x) => x.currency)])];
+  for (const c of currencies) {
+    const remaining = s.balance.find((b) => b.currency === c)?.remaining ?? 0;
+    const ret = amt(v.returned, c);
+    if (remaining > EPS && ret + EPS < remaining) mk('leader_owes', 'short_return', c, remaining - ret);
+    if (ret - Math.max(0, remaining) > EPS) mk('company_owes', 'over_return', c, ret - Math.max(0, remaining));
+    const extra = amt(v.paidExtra, c);
+    if (remaining < -EPS && extra + EPS < -remaining) mk('company_owes', 'over_spend', c, -remaining - extra);
+  }
+  return out;
+}
+
+/**
+ * ค่าที่ใช้คิดเช็กลิสต์หลังปิด — นับการชำระยอดค้างเข้าไปด้วย
+ *   หัวหน้าทัวร์ชำระยอดคืนขาด → บวกเข้าเงินคืน · บริษัทคืนส่วนที่คืนเกิน → หักออกจากเงินคืน
+ *   บริษัทจ่ายส่วนที่ใช้เกินซอง → บวกเข้าจ่ายเพิ่ม
+ * ชำระครบทุกยอด (และข้ออื่นผ่าน) → กรุ๊ปที่ปิดแบบมีค้างกลายเป็น "เคลียร์ครบ" เอง
+ */
+export function effectiveClearValues(rec: GroupClearRecord | undefined) {
+  const returned = [...(rec?.returned ?? [])];
+  const paidExtra = [...(rec?.paidExtra ?? [])];
+  for (const f of rec?.followUps ?? []) {
+    const covered = followUpCovered(f);
+    if (covered <= 0) continue;
+    if (f.reason === 'short_return') returned.push({ currency: f.currency, amount: covered });
+    if (f.reason === 'over_return') returned.push({ currency: f.currency, amount: -covered });
+    if (f.reason === 'over_spend') paidExtra.push({ currency: f.currency, amount: covered });
+  }
+  return { returned, paidExtra, noPerDiem: !!rec?.noPerDiem };
 }

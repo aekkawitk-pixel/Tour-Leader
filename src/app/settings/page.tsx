@@ -24,6 +24,7 @@ import { ConfirmDialog, Modal } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
 import { SendOffFeeSettings } from '@/components/settings/SendOffFeeSettings';
 import { TipRateSettings } from '@/components/settings/TipRateSettings';
+import { TestDataReset } from '@/components/settings/TestDataReset';
 import type {
   Country,
   DemoUser,
@@ -45,7 +46,7 @@ const MASTER_KEYS: MasterKey[] = [
   'appointmentModes',
 ];
 
-type TabKey = MasterKey | 'countries' | 'routes' | 'users' | 'sendoffFee' | 'tipRates';
+type TabKey = MasterKey | 'countries' | 'routes' | 'users' | 'sendoffFee' | 'tipRates' | 'testReset';
 
 const ACTIVE_META = { label: 'ใช้งาน', tone: 'green' } as const;
 const INACTIVE_META = { label: 'ปิดใช้งาน', tone: 'slate' } as const;
@@ -533,6 +534,8 @@ export default function SettingsPage() {
     { key: 'sendoffFee', label: 'ค่าส่งกรุ๊ป' },
     // อัตราค่าทิปหัวหน้าทัวร์ (ตามประเทศ + เฉพาะโปรแกรม)
     { key: 'tipRates', label: 'ค่าทิป' },
+    // ล้างทรานแซกชันเพื่อทดสอบขั้นตอนใหม่ตั้งแต่ต้น — ข้อมูลหลัก/ตั้งค่ายังอยู่
+    { key: 'testReset', label: 'ล้างข้อมูลทดสอบ' },
   ];
 
   const addButton =
@@ -575,7 +578,7 @@ export default function SettingsPage() {
           }}
         />
 
-        {tab !== 'users' && tab !== 'sendoffFee' && tab !== 'tipRates' && (
+        {tab !== 'users' && tab !== 'sendoffFee' && tab !== 'tipRates' && tab !== 'testReset' && (
           <div className="mt-4 flex flex-wrap gap-3">
             <div className="min-w-56 flex-1 sm:max-w-sm">
               <SearchBox
@@ -606,6 +609,8 @@ export default function SettingsPage() {
           <SendOffFeeSettings />
         ) : tab === 'tipRates' ? (
           <TipRateSettings />
+        ) : tab === 'testReset' ? (
+          <TestDataReset />
         ) : tab === 'users' ? (
           <>
             <CardHeader

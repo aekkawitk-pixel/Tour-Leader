@@ -14,7 +14,7 @@ import { useEffect, useState } from 'react';
 import { Button, Card } from '@/components/ui/Primitives';
 import { formatCurrency, formatDateRange } from '@/lib/format';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
-import { LEADER_FORM_ITEMS, perDiemRateFor, tripDays, type PerDiemProgramRates } from '@/lib/logic/leaderClaims';
+import { LEADER_FORM_ITEMS, perDiemRateFor, tripDays, EMPTY_PER_DIEM_RATES, type PerDiemRates } from '@/lib/logic/leaderClaims';
 import { loadPerDiemRates } from '@/services/perDiemRateStore';
 import { printLeaderExpenseForm } from '@/lib/printLeaderExpenseForm';
 import { groupAmountsByCurrency } from '@/app/guide/expenses/expenseAmounts';
@@ -67,10 +67,10 @@ export function perDiemStage(claim: ExpenseRequest | null, endDate: string | und
 
 export function GroupPerDiemCard({ rows, emptyText }: { rows: PerDiemRow[]; emptyText: string }) {
   const [openId, setOpenId] = useState<string | null>(null);
-  const [rates, setRates] = useState<PerDiemProgramRates>({});
+  const [rates, setRates] = useState<PerDiemRates>(EMPTY_PER_DIEM_RATES);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จากภายนอก (localStorage) ครั้งเดียวตอน mount
-    setRates(loadPerDiemRates().byProgram);
+    setRates(loadPerDiemRates());
   }, []);
   const open = rows.find((r) => r.claim?.id === openId)?.claim ?? null;
 

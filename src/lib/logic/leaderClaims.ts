@@ -72,15 +72,31 @@ export type LeaderFormItem = (typeof LEADER_FORM_ITEMS)[number];
 /** อัตราเบี้ยเลี้ยง (บาท / วัน) ตามโปรแกรมทัวร์ — ฝ่ายจัดหัวหน้าทัวร์ตั้งไว้ · key = perDiemProgramKey */
 export type PerDiemProgramRates = Record<string, number>;
 
+/** อัตราเบี้ยเลี้ยง: ค่าเริ่มต้นตามประเทศ (key = countryName ตัวพิมพ์ใหญ่) + เฉพาะโปรแกรมที่ต่างจากค่าเริ่มต้น */
+export interface PerDiemRates {
+  byCountry: Record<string, number>;
+  byProgram: PerDiemProgramRates;
+}
+export const EMPTY_PER_DIEM_RATES: PerDiemRates = { byCountry: {}, byProgram: {} };
+
 /** คีย์โปรแกรมของกรุ๊ป — รหัสโปรแกรม (เช่น ZGCTS-2518VZ) ก่อน ไม่มีจึงใช้ชื่อโปรแกรม */
 export function perDiemProgramKey(period: { programCode?: string | null; displayName?: string | null }): string {
   return (period.programCode ?? '').trim().toUpperCase() || (period.displayName ?? '').trim();
 }
 
-/** อัตราเบี้ยเลี้ยงต่อวันของกรุ๊ป — ไม่มีอัตราของโปรแกรม = null (หัวหน้าทัวร์กรอกเอง บัญชีตรวจ) */
-export function perDiemRateFor(period: { programCode?: string | null; displayName?: string | null }, rates: PerDiemProgramRates): number | null {
-  const r = rates[perDiemProgramKey(period)];
-  return r > 0 ? r : null;
+type PerDiemPeriod = { programCode?: string | null; displayName?: string | null; countryName?: string | null };
+
+/** อัตราเบี้ยเลี้ยงต่อวันของกรุ๊ป + ที่มา — เฉพาะโปรแกรมก่อน แล้วค่อยค่าเริ่มต้นของประเทศ · ไม่มีทั้งคู่ = null */
+export function perDiemRateSource(period: PerDiemPeriod, rates: PerDiemRates): { rate: number; source: 'program' | 'country' } | null {
+  const p = rates.byProgram[perDiemProgramKey(period)];
+  if (p > 0) return { rate: p, source: 'program' };
+  const c = rates.byCountry[norm(period.countryName)];
+  return c > 0 ? { rate: c, source: 'country' } : null;
+}
+
+/** อัตราเบี้ยเลี้ยงต่อวันของกรุ๊ป — ไม่มีอัตรา = null (หัวหน้าทัวร์กรอกเอง บัญชีตรวจ) */
+export function perDiemRateFor(period: PerDiemPeriod, rates: PerDiemRates): number | null {
+  return perDiemRateSource(period, rates)?.rate ?? null;
 }
 
 /**

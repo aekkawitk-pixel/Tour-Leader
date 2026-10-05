@@ -5,7 +5,7 @@
  *
  * หัวเอกสาร: จำนวนลูกค้า (+ หัวหน้าทัวร์) · ลูกค้ายกเลิกเดินทาง · เบอร์ติดต่อ
  * รายการตั้งต้น 5 รายการ (LEADER_FORM_ITEMS):
- *   1) ค่าเบี้ยเลี้ยง = อัตราของโปรแกรม (ฝ่ายจัดหัวหน้าทัวร์ตั้ง) × จำนวนวันเดินทาง — ไม่มีอัตรา = กรอกเอง บัญชีตรวจ
+ *   1) ค่าเบี้ยเลี้ยง = อัตราที่ฝ่ายจัดหัวหน้าทัวร์ตั้ง (เฉพาะโปรแกรม หรือค่าเริ่มต้นของประเทศ) × จำนวนวันเดินทาง — ไม่มีอัตรา = กรอกเอง บัญชีตรวจ
  *   2–5) ค่าเบ็ดเตล็ด / ค่าเค้กวันเกิด / ค่ามื้ออาหารอิสระ / ค่าวีซ่า — กรอกรายละเอียด ยอด สกุลเงิน และหมายเหตุ
  * มีรายการอื่นเพิ่ม → กด "เพิ่มรายการ" แล้วพิมพ์ชื่อรายการเอง (เช่น คืนค่า ADV) · ลบได้ · ช่องที่ไม่กรอกยอด = ไม่มีรายการนั้น
  * ทุกรายการกรอก ราคา × จำนวน = จำนวนเงิน (เบี้ยเลี้ยง: ราคา = อัตรา/วัน · จำนวน = วันเดินทาง)
@@ -143,7 +143,7 @@ export function LeaderExpenseFormModal({
       lines.push({
         ...base, id: 'L-1', expenseType: LEADER_FORM_ITEMS[0],
         purpose: `${LEADER_FORM_ITEMS[0]} ${formatCurrency(r, 'THB')} × ${days} วัน`,
-        description: programRate && programRate === r ? 'อัตราของโปรแกรม' : 'อัตรากรอกเอง (ยังไม่ตั้ง/ต่างจากอัตราของโปรแกรม)',
+        description: programRate && programRate === r ? 'อัตรามาตรฐาน' : 'อัตรากรอกเอง (ยังไม่ตั้ง/ต่างจากอัตรามาตรฐาน)',
         quantity: days, unitPrice: r, amount: perDiem, currency: 'THB', fxRate: 1, amountTHB: perDiem,
       });
     }
@@ -265,7 +265,7 @@ export function LeaderExpenseFormModal({
               <li className={cx('space-y-2 px-3 py-2.5 sm:space-y-0', GRID)}>
                 <span className="hidden text-sm tabular-nums zego-text-secondary sm:block">1</span>
                 <span className="block text-sm font-medium zego-text"><span className="sm:hidden">1. </span>{LEADER_FORM_ITEMS[0]}</span>
-                <span className="block text-xs zego-text-tertiary">{programRate !== null ? 'อัตราต่อวันของโปรแกรม × วันเดินทาง' : 'กรอกอัตราต่อวันเอง × วันเดินทาง'}</span>
+                <span className="block text-xs zego-text-tertiary">{programRate !== null ? 'อัตราต่อวันมาตรฐาน × วันเดินทาง' : 'กรอกอัตราต่อวันเอง × วันเดินทาง'}</span>
                 <span className="grid grid-cols-2 gap-2 sm:contents">
                   <span className="block">
                     <span className={mLabel}>ราคา (อัตรา/วัน)</span>

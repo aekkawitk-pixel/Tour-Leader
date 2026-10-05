@@ -3,14 +3,15 @@
 /**
  * อัตราเบี้ยเลี้ยง — /per-diem-rates (ฝ่ายจัดหัวหน้าทัวร์ / ผู้ดูแลระบบ)
  *
- * ตั้งอัตราเบี้ยเลี้ยงหัวหน้าทัวร์ (บาท / วัน) แยกตามโปรแกรมทัวร์ — รายชื่อโปรแกรมมาจากกรุ๊ปในระบบ (Tour Period Master)
- * ใบเบิกเบี้ยเลี้ยง = อัตราของโปรแกรม × จำนวนวันเดินทาง · โปรแกรมที่ยังไม่ตั้ง = หัวหน้าทัวร์กรอกอัตราเอง บัญชีตรวจ
+ * 1) ค่าเริ่มต้นตามประเทศ (บาท / วัน) — ทุกโปรแกรมของประเทศนั้นใช้อัตรานี้
+ * 2) อัตราเฉพาะโปรแกรม — ตั้งเฉพาะโปรแกรมที่ต้องการให้ต่างจากค่าเริ่มต้น (เว้นว่าง = ใช้ค่าของประเทศ)
+ * ใบเบิกเบี้ยเลี้ยง = อัตราที่ใช้ × จำนวนวันเดินทาง · ไม่มีทั้งสองอย่าง = หัวหน้าทัวร์กรอกอัตราเอง บัญชีตรวจ
  * มีผลกับใบเบิกที่ทำใหม่ (และใบที่กดแก้ไข) — ใบที่ส่งไปแล้วเก็บยอดเดิมไว้
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
-import { Button, Callout, Card, PageHeader } from '@/components/ui/Primitives';
+import { Button, Callout, Card, CardHeader, cx, PageHeader } from '@/components/ui/Primitives';
 import { SearchBox } from '@/components/ui/FormField';
 import { formatDateTime, toISODate, toISODateTime } from '@/lib/format';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
@@ -22,21 +23,25 @@ type RateForm = Record<string, string>;
 const toForm = (m: Record<string, number>): RateForm => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, String(v)]));
 const toMap = (f: RateForm): Record<string, number> =>
   Object.fromEntries(Object.entries(f).filter(([, v]) => Number(v) > 0).map(([k, v]) => [k, Number(v)]));
+const baht = (n: number) => n.toLocaleString('th-TH');
 
+type ProgramFilter = 'all' | 'override' | 'none';
 const PAGE_SIZE = 50;
 
 export default function PerDiemRatesPage() {
   const { currentUser, pushToast } = useDemo();
-  const [saved, setSaved] = useState<StoredPerDiemRates>({ byProgram: {} });
+  const [saved, setSaved] = useState<StoredPerDiemRates>({ byCountry: {}, byProgram: {} });
+  const [countryForm, setCountryForm] = useState<RateForm>({});
   const [form, setForm] = useState<RateForm>({});
   const [query, setQuery] = useState('');
-  const [onlyUnset, setOnlyUnset] = useState(false);
+  const [filter, setFilter] = useState<ProgramFilter>('all');
   const [limit, setLimit] = useState(PAGE_SIZE);
 
   useEffect(() => {
     const r = loadPerDiemRates();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จากภายนอก (localStorage) ครั้งเดียวตอน mount
     setSaved(r);
+    setCountryForm(toForm(r.byCountry));
     setForm(toForm(r.byProgram));
   }, []);
 
@@ -47,7 +52,7 @@ export default function PerDiemRatesPage() {
     for (const p of getTourPeriods()) {
       const key = perDiemProgramKey(p);
       if (!key) continue;
-      const row = m.get(key) ?? { key, code: p.programCode, name: p.displayName, country: p.countryName, upcoming: 0, total: 0 };
+      const row = m.get(key) ?? { key, code: p.programCode, name: p.displayName, country: (p.countryName ?? '').trim().toUpperCase(), upcoming: 0, total: 0 };
       row.total += 1;
       if (p.endDate >= today) row.upcoming += 1;
       m.set(key, row);
@@ -55,76 +60,135 @@ export default function PerDiemRatesPage() {
     return [...m.values()].sort((a, b) => b.upcoming - a.upcoming || a.key.localeCompare(b.key));
   }, []);
 
-  const q = query.trim().toLowerCase();
-  const shown = programs.filter((p) => (!onlyUnset || !(Number(form[p.key]) > 0))
-    && (!q || [p.code, p.name, p.country].join(' ').toLowerCase().includes(q)));
-  const setCount = programs.filter((p) => Number(form[p.key]) > 0).length;
+  /** ประเทศที่มีโปรแกรมในระบบ — เรียงตามจำนวนโปรแกรม */
+  const countries = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of programs) if (p.country) m.set(p.country, (m.get(p.country) ?? 0) + 1);
+    return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [programs]);
 
-  const next = toMap(form);
-  const dirty = JSON.stringify(next) !== JSON.stringify(saved.byProgram);
-  const invalid = Object.values(form).some((v) => v.trim() !== '' && !(Number(v) > 0));
+  const countryRate = (c: string) => (Number(countryForm[c]) > 0 ? Number(countryForm[c]) : null);
+  const programRate = (k: string) => (Number(form[k]) > 0 ? Number(form[k]) : null);
+
+  const q = query.trim().toLowerCase();
+  const shown = programs.filter((p) => (filter === 'all' || (filter === 'override' ? programRate(p.key) !== null : programRate(p.key) === null && countryRate(p.country) === null))
+    && (!q || [p.code, p.name, p.country].join(' ').toLowerCase().includes(q)));
+  const overrideCount = programs.filter((p) => programRate(p.key) !== null).length;
+  const noneCount = programs.filter((p) => programRate(p.key) === null && countryRate(p.country) === null).length;
+
+  const next = { byCountry: toMap(countryForm), byProgram: toMap(form) };
+  const dirty = JSON.stringify(next.byCountry) !== JSON.stringify(saved.byCountry) || JSON.stringify(next.byProgram) !== JSON.stringify(saved.byProgram);
+  const invalid = [...Object.values(form), ...Object.values(countryForm)].some((v) => v.trim() !== '' && !(Number(v) > 0));
 
   const submit = () => {
     if (invalid) return;
     try {
       const row = savePerDiemRates(next, currentUser.name, toISODateTime(new Date()));
       setSaved(row);
+      setCountryForm(toForm(row.byCountry));
       setForm(toForm(row.byProgram));
       pushToast('success', 'บันทึกอัตราเบี้ยเลี้ยงแล้ว', 'มีผลกับใบเบิกเบี้ยเลี้ยงที่ทำใหม่ตั้งแต่ตอนนี้');
     } catch (e) {
       pushToast('error', e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
     }
   };
+  const cancel = () => { setCountryForm(toForm(saved.byCountry)); setForm(toForm(saved.byProgram)); };
+
+  const input = 'w-28 rounded-lg border zego-border-color px-2 py-1.5 text-right text-sm tabular-nums';
+  const th = 'px-3 py-2 text-xs font-medium zego-text-tertiary';
 
   return (
     <>
       <PageHeader
         title="อัตราเบี้ยเลี้ยง"
-        description="อัตราเบี้ยเลี้ยงหัวหน้าทัวร์ (บาท / วัน) ตามโปรแกรมทัวร์ — ใบเบิกเบี้ยเลี้ยง = อัตรา × จำนวนวันเดินทาง"
+        description="อัตราเบี้ยเลี้ยงหัวหน้าทัวร์ (บาท / วัน) — ค่าเริ่มต้นตามประเทศ ปรับเฉพาะโปรแกรมได้ · ใบเบิกเบี้ยเลี้ยง = อัตรา × จำนวนวันเดินทาง"
+        actions={(
+          <div className="flex flex-wrap items-center gap-2">
+            {dirty && <span className="zego-text-warning text-xs">ยังไม่ได้บันทึก</span>}
+            <Button variant="secondary" disabled={!dirty} onClick={cancel}>ยกเลิกการแก้ไข</Button>
+            <Button variant="primary" disabled={invalid || !dirty} onClick={submit}>บันทึกอัตราเบี้ยเลี้ยง</Button>
+          </div>
+        )}
       />
 
+      {invalid && <p className="zego-text-danger mb-3 text-sm">อัตราต้องเป็นตัวเลขมากกว่า 0 (เว้นว่าง = ยังไม่ตั้ง)</p>}
+
+      {/* 1) ค่าเริ่มต้นตามประเทศ */}
+      <Card className="mb-5">
+        <CardHeader title="1. ค่าเริ่มต้นตามประเทศ" description="ทุกโปรแกรมของประเทศนั้นใช้อัตรานี้ — เว้นแต่ตั้งอัตราเฉพาะโปรแกรมไว้ในข้อ 2" />
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {countries.map((c) => (
+            <label key={c.name} className={cx('flex items-center justify-between gap-3 rounded-lg border px-3 py-2', countryRate(c.name) === null ? 'border-amber-300 bg-amber-50/40' : 'zego-border-color')}>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium zego-text">{c.name}</span>
+                <span className="block text-xs zego-text-tertiary">{c.count} โปรแกรม{countryRate(c.name) === null ? ' · ยังไม่ตั้ง' : ''}</span>
+              </span>
+              <input
+                type="number" inputMode="decimal" min={0} placeholder="ยังไม่ตั้ง"
+                aria-label={`อัตราเบี้ยเลี้ยงเริ่มต้น ${c.name}`}
+                className={input}
+                value={countryForm[c.name] ?? ''}
+                onChange={(e) => setCountryForm((f) => ({ ...f, [c.name]: e.target.value }))}
+              />
+            </label>
+          ))}
+        </div>
+      </Card>
+
+      {/* 2) อัตราเฉพาะโปรแกรม */}
       <Card className="space-y-3">
+        <CardHeader title="2. อัตราเฉพาะโปรแกรม" description="กรอกเฉพาะโปรแกรมที่ต้องการให้ต่างจากค่าเริ่มต้นของประเทศ — เว้นว่าง = ใช้ค่าเริ่มต้น" />
         <div className="flex flex-wrap items-center gap-3">
           <SearchBox value={query} onChange={setQuery} onClear={() => setQuery('')} placeholder="ค้นหารหัสโปรแกรม ชื่อโปรแกรม หรือประเทศ" label="ค้นหาโปรแกรม" className="min-w-[16rem] flex-1" />
-          <label className="flex items-center gap-2 text-sm zego-text-secondary">
-            <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={onlyUnset} onChange={(e) => setOnlyUnset(e.target.checked)} />
-            เฉพาะที่ยังไม่ตั้งอัตรา
-          </label>
-          <span className="text-xs zego-text-tertiary">ตั้งแล้ว {setCount} / {programs.length} โปรแกรม</span>
+          <select className="h-10 rounded-lg border zego-border-color bg-white px-3 text-sm" value={filter} onChange={(e) => { setFilter(e.target.value as ProgramFilter); setLimit(PAGE_SIZE); }} aria-label="กรองโปรแกรม">
+            <option value="all">ทุกโปรแกรม ({programs.length})</option>
+            <option value="override">ตั้งเฉพาะโปรแกรม ({overrideCount})</option>
+            <option value="none">ยังไม่มีอัตรา ({noneCount})</option>
+          </select>
         </div>
 
         <div className="overflow-x-auto rounded-lg border zego-border-color">
           <table className="w-full text-sm">
             <thead className="zego-surface-soft-bg text-left">
               <tr>
-                <th className="px-3 py-2 text-xs font-medium zego-text-tertiary">ประเทศ</th>
-                <th className="px-3 py-2 text-xs font-medium zego-text-tertiary">รหัสโปรแกรม</th>
-                <th className="px-3 py-2 text-xs font-medium zego-text-tertiary">ชื่อโปรแกรม</th>
-                <th className="px-3 py-2 text-right text-xs font-medium zego-text-tertiary">กรุ๊ป (ยังไม่จบ / ทั้งหมด)</th>
-                <th className="px-3 py-2 text-right text-xs font-medium zego-text-tertiary">อัตรา (บาท / วัน)</th>
+                <th className={th}>ประเทศ</th>
+                <th className={th}>รหัสโปรแกรม</th>
+                <th className={th}>ชื่อโปรแกรม</th>
+                <th className={cx(th, 'text-right')}>กรุ๊ป (ยังไม่จบ / ทั้งหมด)</th>
+                <th className={cx(th, 'text-right')}>อัตราที่ใช้ (บาท / วัน)</th>
+                <th className={cx(th, 'text-right')}>เฉพาะโปรแกรม</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--zego-border-soft)]">
-              {shown.slice(0, limit).map((p) => (
-                <tr key={p.key}>
-                  <td className="whitespace-nowrap px-3 py-1.5 zego-text-secondary">{p.country || '—'}</td>
-                  <td className="whitespace-nowrap px-3 py-1.5 font-medium zego-text">{p.code ?? '—'}</td>
-                  <td className="max-w-[28rem] px-3 py-1.5"><p className="line-clamp-2 zego-text-secondary">{p.name}</p></td>
-                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums zego-text-tertiary">{p.upcoming} / {p.total}</td>
-                  <td className="px-3 py-1.5 text-right">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      placeholder="ยังไม่ตั้ง"
-                      aria-label={`อัตราเบี้ยเลี้ยง ${p.code ?? p.name}`}
-                      className="w-28 rounded-lg border zego-border-color px-2 py-1.5 text-right text-sm tabular-nums"
-                      value={form[p.key] ?? ''}
-                      onChange={(e) => setForm((f) => ({ ...f, [p.key]: e.target.value }))}
-                    />
-                  </td>
-                </tr>
-              ))}
+              {shown.slice(0, limit).map((p) => {
+                const own = programRate(p.key);
+                const def = countryRate(p.country);
+                return (
+                  <tr key={p.key}>
+                    <td className="whitespace-nowrap px-3 py-1.5 zego-text-secondary">{p.country || '—'}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 font-medium zego-text">{p.code ?? '—'}</td>
+                    <td className="max-w-[28rem] px-3 py-1.5"><p className="line-clamp-2 zego-text-secondary">{p.name}</p></td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums zego-text-tertiary">{p.upcoming} / {p.total}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-right">
+                      {own !== null ? (
+                        <><span className="font-semibold tabular-nums zego-text">{baht(own)}</span><span className="block text-[11px] text-violet-700">เฉพาะโปรแกรม</span></>
+                      ) : def !== null ? (
+                        <><span className="tabular-nums zego-text">{baht(def)}</span><span className="block text-[11px] zego-text-tertiary">ตามประเทศ</span></>
+                      ) : <span className="text-xs zego-text-warning">ยังไม่มีอัตรา</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      <input
+                        type="number" inputMode="decimal" min={0}
+                        placeholder={def !== null ? `ตามประเทศ` : 'ยังไม่ตั้ง'}
+                        aria-label={`อัตราเบี้ยเลี้ยงเฉพาะโปรแกรม ${p.code ?? p.name}`}
+                        className={cx(input, own !== null && 'border-violet-300 bg-violet-50/40')}
+                        value={form[p.key] ?? ''}
+                        onChange={(e) => setForm((f) => ({ ...f, [p.key]: e.target.value }))}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {shown.length === 0 && <p className="px-3 py-6 text-center text-sm zego-text-tertiary">ไม่พบโปรแกรม</p>}
@@ -135,21 +199,16 @@ export default function PerDiemRatesPage() {
           </div>
         )}
 
-        {invalid && <p className="zego-text-danger text-sm">อัตราต้องเป็นตัวเลขมากกว่า 0 (เว้นว่าง = ยังไม่ตั้ง)</p>}
-
-        <div className="zego-divider-top flex flex-wrap items-center gap-2 pt-3">
-          <Button variant="primary" disabled={invalid || !dirty} onClick={submit}>บันทึกอัตราเบี้ยเลี้ยง</Button>
-          <Button variant="secondary" disabled={!dirty} onClick={() => setForm(toForm(saved.byProgram))}>ยกเลิกการแก้ไข</Button>
-          {dirty && <span className="zego-text-warning text-xs">ยังไม่ได้บันทึก</span>}
-          {saved.updatedAt && (
-            <span className="zego-text-tertiary ml-auto text-xs">แก้ล่าสุด {formatDateTime(saved.updatedAt)}{saved.updatedBy ? ` โดย ${saved.updatedBy}` : ''}</span>
-          )}
-        </div>
+        {saved.updatedAt && (
+          <p className="zego-text-tertiary text-right text-xs">แก้ล่าสุด {formatDateTime(saved.updatedAt)}{saved.updatedBy ? ` โดย ${saved.updatedBy}` : ''}</p>
+        )}
 
         <Callout tone="blue" title="ใช้อย่างไร">
           <ul className="ml-4 list-disc space-y-0.5">
-            <li>หัวหน้าทัวร์ทำเอกสารค่าใช้จ่ายหลังจบทริป — ข้อ 1 ค่าเบี้ยเลี้ยงคำนวณให้ = อัตราของโปรแกรม × จำนวนวันเดินทาง</li>
-            <li>โปรแกรมที่ยังไม่ตั้งอัตรา — หัวหน้าทัวร์กรอกอัตราเอง การเงินตรวจตอนอนุมัติ</li>
+            <li>ตั้งค่าเริ่มต้นของแต่ละประเทศก่อน — ทุกโปรแกรมของประเทศนั้นใช้อัตรานี้ทันที</li>
+            <li>โปรแกรมไหนต้องการอัตราต่างออกไป ค่อยกรอกช่อง “เฉพาะโปรแกรม” · ลบค่าออก = กลับไปใช้ค่าเริ่มต้นของประเทศ</li>
+            <li>หัวหน้าทัวร์ทำใบเบิกหลังจบทริป — ค่าเบี้ยเลี้ยงคำนวณให้ = อัตราที่ใช้ × จำนวนวันเดินทาง</li>
+            <li>ไม่มีทั้งค่าเฉพาะโปรแกรมและค่าของประเทศ — หัวหน้าทัวร์กรอกอัตราเอง การเงินตรวจตอนอนุมัติ</li>
             <li>ใบที่ส่งไปแล้วเก็บยอดเดิมไว้ ไม่เปลี่ยนย้อนหลัง</li>
           </ul>
         </Callout>

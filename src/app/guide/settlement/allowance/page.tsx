@@ -29,7 +29,7 @@ import { EXPENSE_STATUS } from '@/lib/labels';
 import { formatCurrency, formatDate, formatDateRange, toISODate, toISODateTime } from '@/lib/format';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import {
-  activeLeaderClaim, EMPTY_TIP_RATES, parsePaxText, LEADER_CLAIM_LABEL, perDiemRateFor, tipRateFor, tripDays, type LeaderClaimKind, type PerDiemProgramRates, type TipRates,
+  activeLeaderClaim, EMPTY_TIP_RATES, parsePaxText, LEADER_CLAIM_LABEL, perDiemRateFor, tipRateFor, tripDays, type LeaderClaimKind, EMPTY_PER_DIEM_RATES, type PerDiemRates, type TipRates,
 } from '@/lib/logic/leaderClaims';
 import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { Modal } from '@/components/ui/Modal';
@@ -47,13 +47,13 @@ export default function GuideAllowancePage() {
   const leader = leaders.find((l) => l.id === leaderId);
   const today = toISODate(new Date());
   const [tipRates, setTipRates] = useState<TipRates>(EMPTY_TIP_RATES);
-  const [perDiemRates, setPerDiemRates] = useState<PerDiemProgramRates>({});
+  const [perDiemRates, setPerDiemRates] = useState<PerDiemRates>(EMPTY_PER_DIEM_RATES);
   const [open, setOpen] = useState<{ kind: LeaderClaimKind; period: TourPeriodMaster; existing: ExpenseRequest | null } | null>(null);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จากภายนอก (localStorage) ครั้งเดียวตอน mount
     setTipRates(loadTipRates());
-    setPerDiemRates(loadPerDiemRates().byProgram);
+    setPerDiemRates(loadPerDiemRates());
   }, []);
 
   const periodById = new Map(getTourPeriods().map((p) => [p.internalId, p]));

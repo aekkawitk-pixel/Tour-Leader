@@ -21,13 +21,16 @@ import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { loadGroupClears, type GroupClearRecord } from '@/services/groupClearStore';
 import { clearAppointmentOf } from '@/services/appointmentStore';
-import { clearChecklist, GROUP_CLEAR_STAGE, summarizeGroupClear, type GroupClearStage, type GroupClearSummary } from '@/lib/logic/groupClear';
+import {
+  clearChecklist, effectiveClearValues, followUpOpen, followUpRemaining, GROUP_CLEAR_STAGE, summarizeGroupClear,
+  type GroupClearStage, type GroupClearSummary,
+} from '@/lib/logic/groupClear';
 import { APPOINTMENT_STATUS, EXPENSE_STATUS } from '@/lib/labels';
 import { StatusPill } from '@/components/expenses/CashEnvelopeDrawer';
 import { GroupClearDrawer } from '@/components/settlements/GroupClearDrawer';
 import { expenseOriginalTotals } from '@/app/guide/expenses/expenseAmounts';
 
-type Filter = 'all' | GroupClearStage | 'overdue';
+type Filter = 'all' | GroupClearStage | 'overdue' | 'followup';
 const STAGE_TONE: Record<GroupClearStage, string> = {
   traveling: '#64748b', waiting_leader: '#b45309', waiting_docs: '#6d28d9', ready: '#0369a1', closed: '#15803d', closed_partial: '#b45309',
 };
@@ -77,12 +80,15 @@ export default function GroupClearPage() {
       .filter((x): x is { id: string; p: NonNullable<typeof x.p> } => !!x.p)
       .map(({ id, p }) => {
         const rec = records[id];
-        const s = summarizeGroupClear({ periodId: id, endDate: p.endDate, today, envelopes, expenses, closed: rec?.closedAt ? (rec.closeKind ?? 'complete') : false });
+        let s = summarizeGroupClear({ periodId: id, endDate: p.endDate, today, envelopes, expenses, closed: rec?.closedAt ? 'complete' : false });
         const doc = s.receipts[0] ?? s.perDiem;
         const leader = leaderOf.get(id) ?? (doc ? { id: doc.requesterId, name: doc.requesterName } : null);
-        // เช็กลิสต์ความครบถ้วน — ใช้ค่าที่บันทึกไว้ (เงินคืน / จ่ายเพิ่ม / ไม่มีเบี้ยเลี้ยง)
-        const checks = clearChecklist(s, { returned: rec?.returned ?? [], paidExtra: rec?.paidExtra ?? [], noPerDiem: !!rec?.noPerDiem });
-        return { p, s, leader, checks };
+        // เช็กลิสต์ความครบถ้วน — ค่าที่บันทึกไว้ + การชำระยอดค้างติดตาม
+        const checks = clearChecklist(s, effectiveClearValues(rec));
+        // ปิดแบบมีค้าง → ชำระยอดค้างครบ (และข้ออื่นผ่าน) = เคลียร์ครบเอง · ยังไม่ครบ = ปิดแบบมีค้าง
+        if (rec?.closedAt && rec.closeKind === 'partial' && !checks.every((c) => c.ok)) s = { ...s, stage: 'closed_partial' };
+        const openFollowUps = (rec?.followUps ?? []).filter(followUpOpen);
+        return { p, s, leader, checks, openFollowUps };
       })
       .sort((a, b) => b.p.endDate.localeCompare(a.p.endDate));
   }, [envelopes, expenses, records, leaderOf, today]);
@@ -90,11 +96,13 @@ export default function GroupClearPage() {
   const q = query.trim().toLowerCase();
   const searched = rows.filter((r) => !q || [r.p.groupCode, r.p.displayName, r.p.countryName, r.leader?.name ?? ''].join(' ').toLowerCase().includes(q));
   const matches = (s: GroupClearSummary, f: Filter) => f === 'all' || (f === 'overdue' ? s.overdue : s.stage === f);
-  const shown = searched.filter((r) => matches(r.s, filter));
+  const rowMatches = (r: (typeof rows)[number], f: Filter) => (f === 'followup' ? r.openFollowUps.length > 0 : matches(r.s, f));
+  const shown = searched.filter((r) => rowMatches(r, filter));
   const cards: { key: Filter; label: string; hint: string; tone: string }[] = [
     { key: 'all', label: 'ทั้งหมด', hint: 'กรุ๊ปที่มีความเคลื่อนไหวทางเงิน', tone: '#475569' },
     ...(Object.keys(GROUP_CLEAR_STAGE) as GroupClearStage[]).map((k) => ({ key: k as Filter, label: GROUP_CLEAR_STAGE[k].label, hint: STAGE_HINT[k], tone: STAGE_TONE[k] })),
     { key: 'overdue', label: 'เกินกำหนด', hint: `เลยวันกลับเกิน 14 วัน ยังไม่ปิด`, tone: '#be123c' },
+    { key: 'followup', label: 'ยอดค้างติดตาม', hint: 'เงินขาด / เกิน ที่ยังไม่ปิดยอด', tone: '#be123c' },
   ];
   const open = rows.find((r) => r.p.internalId === openId);
   const th = 'px-3 py-2.5 text-xs font-medium zego-text-tertiary';
@@ -112,9 +120,9 @@ export default function GroupClearPage() {
       />
 
       {/* สรุปสถานะ — แตะเพื่อกรอง */}
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5 xl:grid-cols-10">
         {cards.map((f) => {
-          const count = searched.filter((r) => matches(r.s, f.key)).length;
+          const count = searched.filter((r) => rowMatches(r, f.key)).length;
           const active = filter === f.key;
           return (
             <button
@@ -159,7 +167,7 @@ export default function GroupClearPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--zego-border-soft)]">
-                {shown.map(({ p, s, leader, checks }) => {
+                {shown.map(({ p, s, leader, checks, openFollowUps }) => {
                   const isClosed = s.stage === 'closed' || s.stage === 'closed_partial';
                   const okCount = checks.filter((c) => c.ok).length;
                   const st = GROUP_CLEAR_STAGE[s.stage];
@@ -238,6 +246,12 @@ export default function GroupClearPage() {
                         >
                           ครบ {okCount}/{checks.length}
                         </p>
+                        {/* ยอดค้างติดตาม — ใครค้างใคร เท่าไร */}
+                        {openFollowUps.map((f) => (
+                          <p key={f.id} className={cx('mt-0.5 whitespace-nowrap text-[11px] font-semibold', f.direction === 'leader_owes' ? 'zego-text-danger' : 'text-violet-700')}>
+                            {f.direction === 'leader_owes' ? 'หัวหน้าทัวร์ค้าง' : 'บริษัทค้างจ่าย'} {formatCurrency(followUpRemaining(f), f.currency)}
+                          </p>
+                        ))}
                         {!isClosed && (
                           <p className={cx('mt-0.5 text-[11px]', s.overdue ? 'font-semibold zego-text-danger' : 'zego-text-tertiary')}>
                             กำหนด {formatDate(s.dueDate)}{s.overdue ? ' · เกินกำหนด' : ''}
