@@ -435,6 +435,9 @@ export const APPOINTMENT_KIND: Record<AppointmentKind, StatusMeta> = {
   other: { label: 'อื่น ๆ', tone: 'slate' },
 };
 
+/** ประเภทนัดที่ใช้งานจริง (เลือกได้ในฟอร์ม/ตัวกรอง) — ประชุม/อื่น ๆ คงป้ายไว้แสดงนัดเก่าเท่านั้น */
+export const APPOINTMENT_KIND_OPTIONS: AppointmentKind[] = ['clear', 'document'];
+
 export const APPOINTMENT_MODE: Record<AppointmentMode, StatusMeta> = {
   office: { label: 'เข้าสำนักงาน', tone: 'blue' },
   online: { label: 'ประชุมออนไลน์', tone: 'violet' },

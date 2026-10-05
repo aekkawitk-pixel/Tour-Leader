@@ -17,14 +17,15 @@ import { envelopeBalance, sumAmounts, type CashEnvelope, type EnvelopeAmount } f
 
 export const CLEAR_DUE_DAYS = 14;
 
-export type GroupClearStage = 'traveling' | 'waiting_leader' | 'waiting_docs' | 'ready' | 'closed';
+export type GroupClearStage = 'traveling' | 'waiting_leader' | 'waiting_docs' | 'ready' | 'closed' | 'closed_partial';
 
 export const GROUP_CLEAR_STAGE: Record<GroupClearStage, { label: string; tone: 'slate' | 'amber' | 'violet' | 'blue' | 'green' }> = {
   traveling: { label: 'กำลังเดินทาง', tone: 'slate' },
   waiting_leader: { label: 'รอหัวหน้าทัวร์ส่งเอกสาร', tone: 'amber' },
   waiting_docs: { label: 'รอตรวจเอกสาร', tone: 'violet' },
   ready: { label: 'พร้อมเคลียร์', tone: 'blue' },
-  closed: { label: 'เคลียร์แล้ว', tone: 'green' },
+  closed: { label: 'เคลียร์ครบ', tone: 'green' },
+  closed_partial: { label: 'ปิดแบบมีค้าง', tone: 'amber' },
 };
 
 const APPROVED = new Set(['approved', 'awaiting_payment', 'paid']);
@@ -70,7 +71,8 @@ export function summarizeGroupClear(input: {
   today: string;
   envelopes: CashEnvelope[];
   expenses: ExpenseRequest[];
-  closed: boolean;
+  /** ปิดแล้ว — true/'complete' = เคลียร์ครบ · 'partial' = ปิดแบบมีค้าง · false = ยังไม่ปิด */
+  closed: boolean | 'complete' | 'partial';
 }): GroupClearSummary {
   const { periodId, endDate, today } = input;
   const envelopes = input.envelopes.filter((e) => e.periodId === periodId && e.sealed).sort((a, b) => a.no - b.no);
@@ -96,14 +98,79 @@ export function summarizeGroupClear(input: {
   const leaderCount = atLeader.receipts + (atLeader.perDiem ? 1 : 0);
   const dueDate = addDays(endDate, CLEAR_DUE_DAYS);
   // บัญชีมีงานตรวจก่อน → รอตรวจ · ไม่มีงานตรวจแต่หัวหน้าทัวร์ยังค้างส่ง / ยังไม่มีเอกสารเลย → รอหัวหน้าทัวร์
-  const stage: GroupClearStage = input.closed ? 'closed'
+  const stage: GroupClearStage = input.closed === 'partial' ? 'closed_partial' : input.closed ? 'closed'
     : endDate > today ? 'traveling'
       : reviewCount > 0 ? 'waiting_docs'
         : leaderCount > 0 || (receipts.length === 0 && !perDiem && received.length > 0) ? 'waiting_leader'
           : 'ready';
   return {
     periodId, envelopes, received, inTransit, receipts, perDiem, balance, toReview, atLeader, pendingDocs: reviewCount + leaderCount, dueDate,
-    overdue: stage !== 'closed' && stage !== 'traveling' && today > dueDate,
+    overdue: stage !== 'closed' && stage !== 'closed_partial' && stage !== 'traveling' && today > dueDate,
     stage,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* เช็กลิสต์ความครบถ้วน — ครบทุกข้อ = เคลียร์ครบ                         */
+/* ------------------------------------------------------------------ */
+
+export type ClearCheckKey = 'envelopes' | 'receipts' | 'returned' | 'paidExtra' | 'perDiem' | 'landProof';
+
+export interface ClearCheckItem {
+  key: ClearCheckKey;
+  label: string;
+  ok: boolean;
+  /** ค้างตรงไหน (ไม่ผ่าน) / สรุปที่ผ่าน */
+  detail: string;
+}
+
+const fmt = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const EPS = 0.005;
+
+/**
+ * เช็กลิสต์ 6 ข้อของกรุ๊ป — ใช้ทั้งตอนกรอกในแผง (ค่าที่กำลังกรอก) และตอนแสดงผลหลังปิด (ค่าที่บันทึก)
+ *   1) ซองถึงมือหัวหน้าทัวร์ครบ (ส่งมอบแล้วต้องยืนยันรับ · ไม่มีแจ้งไม่ได้รับ / ยอดไม่ตรง) — ซองที่ยังไม่ส่งมอบไม่นับ
+ *   2) ใบเสร็จผ่านตรวจครบ (ไม่มีร่าง / รอตรวจ / ส่งกลับแก้)
+ *   3) รับเงินคืนครบทุกสกุล (รับคืนจริง ≥ ยอดต้องคืน)
+ *   4) ใช้เกินซอง → บริษัทจ่ายเพิ่มแล้วครบ
+ *   5) เบี้ยเลี้ยงโอนแล้ว (หรือระบุว่าไม่มีเบี้ยเลี้ยง)
+ *   6) ส่งแลนด์มีหลักฐาน (รูปใบรับเงิน) ทุกรายการ
+ */
+export function clearChecklist(
+  s: GroupClearSummary,
+  v: { returned: { currency: string; amount: number }[]; paidExtra: { currency: string; amount: number }[]; noPerDiem: boolean },
+): ClearCheckItem[] {
+  const handed = s.envelopes.filter((e) => e.handover || e.leaderAck);
+  const envIssues = handed.flatMap((e) => [
+    !e.leaderAck && !e.notReceived ? `ซอง ${e.no} รอหัวหน้าทัวร์รับ` : '',
+    e.notReceived ? `ซอง ${e.no} แจ้งไม่ได้รับ` : '',
+    e.mismatch ? `ซอง ${e.no} แจ้งยอดไม่ตรง` : '',
+  ]).filter(Boolean);
+
+  const pendingReceipts = s.toReview.receipts + s.atLeader.receipts;
+  const amt = (list: { currency: string; amount: number }[], c: string) => list.filter((x) => x.currency === c).reduce((n, x) => n + x.amount, 0);
+  const shortReturn = s.balance.filter((b) => b.remaining > EPS && amt(v.returned, b.currency) + EPS < b.remaining)
+    .map((b) => `${b.currency} ขาด ${fmt(b.remaining - amt(v.returned, b.currency))}`);
+  const toReturn = s.balance.filter((b) => b.remaining > EPS);
+  const shortExtra = s.balance.filter((b) => b.remaining < -EPS && amt(v.paidExtra, b.currency) + EPS < -b.remaining)
+    .map((b) => `${b.currency} ค้าง ${fmt(-b.remaining - amt(v.paidExtra, b.currency))}`);
+  const over = s.balance.filter((b) => b.remaining < -EPS);
+  const land = s.received.flatMap((e) => (e.landPayments ?? []).map((lp) => ({ e, lp })));
+  const noProof = land.filter((x) => !x.lp.evidenceImage);
+  const pd = s.perDiem;
+
+  return [
+    { key: 'envelopes', label: 'ซองถึงมือหัวหน้าทัวร์ครบ', ok: envIssues.length === 0,
+      detail: envIssues.length ? envIssues.join(' · ') : handed.length ? `รับครบ ${handed.length} ซอง` : 'ไม่มีซองที่ส่งมอบ' },
+    { key: 'receipts', label: 'ใบเสร็จผ่านตรวจครบ', ok: pendingReceipts === 0,
+      detail: pendingReceipts ? [s.toReview.receipts && `รอตรวจ ${s.toReview.receipts} ใบ`, s.atLeader.receipts && `หัวหน้าทัวร์ยังไม่ส่ง/ต้องแก้ ${s.atLeader.receipts} ใบ`].filter(Boolean).join(' · ') : `ผ่านตรวจ ${s.receipts.length} ใบ` },
+    { key: 'returned', label: 'รับเงินคืนครบทุกสกุล', ok: shortReturn.length === 0,
+      detail: shortReturn.length ? shortReturn.join(' · ') : toReturn.length ? `รับคืนครบ ${toReturn.map((b) => b.currency).join(', ')}` : 'ไม่มียอดต้องคืน' },
+    { key: 'paidExtra', label: 'ใช้เกินซอง — บริษัทจ่ายเพิ่มแล้ว', ok: shortExtra.length === 0,
+      detail: shortExtra.length ? shortExtra.join(' · ') : over.length ? `จ่ายเพิ่มครบ ${over.map((b) => b.currency).join(', ')}` : 'ไม่ได้ใช้เกินซอง' },
+    { key: 'perDiem', label: 'เบี้ยเลี้ยงโอนแล้ว', ok: v.noPerDiem || pd?.status === 'paid',
+      detail: v.noPerDiem ? 'ระบุว่ากรุ๊ปนี้ไม่มีเบี้ยเลี้ยง' : !pd ? 'ยังไม่มีใบเบิกเบี้ยเลี้ยง' : pd.status === 'paid' ? `โอนแล้ว${pd.paidRef ? ` · ${pd.paidRef}` : ''}` : `ใบเบิก ${pd.id} ยังไม่โอน` },
+    { key: 'landProof', label: 'ส่งแลนด์มีหลักฐาน', ok: noProof.length === 0,
+      detail: noProof.length ? `ไม่มีรูปใบรับเงิน ${noProof.length} รายการ (${noProof.map((x) => x.lp.landName).join(', ')})` : land.length ? `มีหลักฐานครบ ${land.length} รายการ` : 'ไม่มีการส่งแลนด์' },
+  ];
 }

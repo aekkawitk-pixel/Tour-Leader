@@ -2,18 +2,18 @@
 
 /**
  * ฟอร์มสร้าง / แก้ไขนัดหมาย (ปฏิทินรวมเมนูนัดหมาย) พร้อมตรวจสอบเวลาซ้อน
- * ประเภทนัด (เคลียร์เงินกรุ๊ป / ส่งเอกสาร / ประชุม / อื่น ๆ) · กรุ๊ป = งานที่หัวหน้าทัวร์คนนั้นคอนเฟิร์มแล้ว
+ * ประเภทนัด (เคลียร์เงินกรุ๊ป / ส่งเอกสาร) · เลือกตามรหัสกรุ๊ป (ค้นหาได้) → หัวหน้าทัวร์ใส่ให้อัตโนมัติจากงานที่คอนเฟิร์มแล้ว
  * นัดใหม่ = รอหัวหน้าทัวร์ยืนยัน (หัวหน้าทัวร์ยืนยัน / ขอเลื่อนในพอร์ทัลของตัวเอง)
  */
 
 import { useMemo, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
-import { Button, Callout } from '@/components/ui/Primitives';
+import { Button, Callout, cx } from '@/components/ui/Primitives';
 import { SelectInput, TextArea, TextInput } from '@/components/ui/FormField';
 import { DateField } from '@/components/ui/DateInput';
-import { TimeField } from '@/components/ui/TimeInput';
+import { firstFreeSlot, SLOT_DURATIONS, slotOptions } from '@/lib/logic/appointmentSlots';
 import { useDemo } from '@/store/DemoStore';
-import { APPOINTMENT_KIND, APPOINTMENT_MODE } from '@/lib/labels';
+import { APPOINTMENT_KIND, APPOINTMENT_KIND_OPTIONS, APPOINTMENT_MODE } from '@/lib/labels';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { hasTimeOverlap } from '@/lib/logic/conflicts';
@@ -22,7 +22,7 @@ import { formatDate, formatDateRange, toISODate, toISODateTime } from '@/lib/for
 import type { Appointment, AppointmentKind, AppointmentMode } from '@/types';
 
 const MODE_DEFAULT_LOCATION: Record<AppointmentMode, string> = {
-  office: 'สำนักงานใหญ่ ชั้น 8 ห้องประชุมบัญชี 1',
+  office: 'บริษัท ซีโก้ ทราเวล จำกัด ห้องการเงิน ชั้น 1',
   online: 'ลิงก์ประชุมจำลอง: meet.demo-tour.local/',
   document: 'ส่งเอกสารทางไปรษณีย์ลงทะเบียน (จำลอง)',
 };
@@ -97,11 +97,12 @@ function AppointmentForm({
         }
       : {
           date: presetDate ?? today,
-          time: '10:00',
-          durationMinutes: '60',
+          // นัดห่างกันช่วงละ 30 นาที — ตั้งต้นที่ช่องว่างช่องแรกของวัน
+          time: firstFreeSlot(appointments, presetDate ?? today, 30),
+          durationMinutes: '30',
           leaderId: presetLeaderId ?? '',
           jobId: presetJobId ?? '',
-          kind: 'meeting',
+          kind: 'clear',
           staffName: currentUser.name,
           mode: 'office',
           location: MODE_DEFAULT_LOCATION.office,
@@ -130,7 +131,7 @@ function AppointmentForm({
       return hasTimeOverlap(
         form.date,
         form.time,
-        Number(form.durationMinutes || 60),
+        Number(form.durationMinutes || 30),
         a.date,
         a.time,
         a.durationMinutes,
@@ -142,9 +143,9 @@ function AppointmentForm({
     const next: Partial<Record<keyof FormState, string>> = {};
     if (!form.date) next.date = 'กรุณาเลือกวันที่';
     if (!form.time) next.time = 'กรุณาเลือกเวลา';
-    if (!form.leaderId) next.leaderId = 'กรุณาเลือกหัวหน้าทัวร์';
+    if (!form.jobId) next.jobId = 'กรุณาเลือกรหัสกรุ๊ป';
+    else if (!form.leaderId) next.jobId = 'กรุ๊ปนี้ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม — นัดหมายไม่ได้';
     // นัดเคลียร์เงินต้องผูกกรุ๊ป · ประเภทอื่นไม่ผูกก็ได้
-    if (form.kind === 'clear' && !form.jobId) next.jobId = 'นัดเคลียร์เงินต้องเลือกกรุ๊ป';
     if (!form.staffName.trim()) next.staffName = 'กรุณาระบุเจ้าหน้าที่ผู้รับผิดชอบ';
     if (!form.location.trim()) next.location = 'กรุณาระบุสถานที่หรือลิงก์ประชุม';
     setErrors(next);
@@ -164,7 +165,7 @@ function AppointmentForm({
       id,
       date: form.date,
       time: form.time,
-      durationMinutes: Number(form.durationMinutes || 60),
+      durationMinutes: Number(form.durationMinutes || 30),
       leaderId: form.leaderId,
       jobId: form.jobId,
       staffName: form.staffName.trim(),
@@ -178,17 +179,40 @@ function AppointmentForm({
     onClose();
   };
 
-  /** กรุ๊ปของหัวหน้าทัวร์ที่เลือก — งานที่คอนเฟิร์มแล้ว ล่าสุดก่อน (นัดเดิมที่ผูกกรุ๊ปอื่นไว้ยังเลือกค้างได้) */
-  const leaderGroups = useMemo(() => {
-    if (!form.leaderId) return [];
-    const ids = new Set(loadActiveGuideAssignments()
-      .filter((a) => a.tourLeaderId === form.leaderId && a.assignmentStatus === 'CONFIRMED')
-      .map((a) => a.periodId));
-    if (form.jobId) ids.add(form.jobId);
-    return [...ids]
-      .map((id) => ({ id, p: getTourPeriodById(id) }))
-      .sort((a, b) => (b.p?.startDate ?? '').localeCompare(a.p?.startDate ?? ''));
-  }, [form.leaderId, form.jobId]);
+  /*
+    กรุ๊ปที่นัดได้ = กรุ๊ปหลังเดินทาง (จบทริปแล้ว — วันกลับนับเป็นจบทริป) ที่มีหัวหน้าทัวร์คอนเฟิร์มแล้ว
+    (ระบบใส่หัวหน้าทัวร์ให้จากกรุ๊ป) · เพิ่งกลับล่าสุดก่อน · นัดเดิมที่ผูกกรุ๊ปไว้แล้วยังแสดงค้างได้
+  */
+  const groupOptions = useMemo(() => {
+    const leaderByPeriod = new Map<string, string>();
+    for (const a of loadActiveGuideAssignments()) {
+      if (a.assignmentStatus === 'CONFIRMED' && !leaderByPeriod.has(a.periodId)) leaderByPeriod.set(a.periodId, a.tourLeaderId);
+    }
+    if (appointment?.jobId && !leaderByPeriod.has(appointment.jobId)) leaderByPeriod.set(appointment.jobId, appointment.leaderId);
+    const today = toISODate(new Date());
+    return [...leaderByPeriod]
+      .map(([id, leaderId]) => {
+        const p = getTourPeriodById(id);
+        const l = leaders.find((x) => x.id === leaderId);
+        return { id, leaderId, p, code: p?.groupCode ?? id, leaderName: l ? `${l.firstName} ${l.lastName}`.trim() : leaderId };
+      })
+      // หลังเดินทางเท่านั้น — กรุ๊ปที่ยังไม่กลับยังไม่มีอะไรให้เคลียร์/ส่งเอกสาร
+      .filter((g) => g.id === appointment?.jobId || (!!g.p && g.p.endDate <= today))
+      .sort((a, b) => (b.p?.endDate ?? '').localeCompare(a.p?.endDate ?? ''));
+  }, [leaders, appointment]);
+  const [groupQuery, setGroupQuery] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickedGroup = groupOptions.find((g) => g.id === form.jobId);
+  const gq = groupQuery.trim().toLowerCase();
+  const groupMatches = groupOptions
+    .filter((g) => !gq || [g.code, g.p?.displayName ?? '', g.leaderName].join(' ').toLowerCase().includes(gq))
+    .slice(0, 8);
+  const pickGroup = (g: (typeof groupOptions)[number]) => {
+    setForm((f) => ({ ...f, jobId: g.id, leaderId: g.leaderId }));
+    setErrors((e) => ({ ...e, jobId: undefined, leaderId: undefined }));
+    setGroupQuery('');
+    setPickerOpen(false);
+  };
 
   return (
     <Modal
@@ -213,7 +237,8 @@ function AppointmentForm({
           label="ประเภทนัด"
           value={form.kind}
           onChange={(e) => set('kind', e.target.value as AppointmentKind)}
-          options={(Object.keys(APPOINTMENT_KIND) as AppointmentKind[]).map((k) => ({ value: k, label: APPOINTMENT_KIND[k].label }))}
+          // ใช้งานจริง 2 ประเภท: เคลียร์เงินกรุ๊ป · ส่งเอกสาร (นัดเก่าประเภทอื่นยังแก้ได้ — คงค่าเดิมไว้ในตัวเลือก)
+          options={[...new Set([...APPOINTMENT_KIND_OPTIONS, form.kind])].map((k) => ({ value: k, label: APPOINTMENT_KIND[k].label }))}
         />
         <div className="grid gap-4 sm:grid-cols-3">
           <DateField
@@ -223,24 +248,22 @@ function AppointmentForm({
             error={errors.date}
             onChange={(v) => set('date', v)}
           />
-          <TimeField
+          {/* ช่องเวลาห่างกัน 30 นาที — บอกช่องที่มีนัดแล้วในตัวเลือก */}
+          <SelectInput
             label="เวลา"
             required
             value={form.time}
             error={errors.time}
-            onChange={(v) => set('time', v)}
+            onChange={(e) => set('time', e.target.value)}
+            options={slotOptions(appointments, form.date, Number(form.durationMinutes) || 30, appointment?.id, form.time)
+              .map((o) => ({ value: o.value, label: o.label }))}
           />
           <SelectInput
             label="ระยะเวลา"
             value={form.durationMinutes}
             onChange={(e) => set('durationMinutes', e.target.value)}
-            options={[
-              { value: '30', label: '30 นาที' },
-              { value: '45', label: '45 นาที' },
-              { value: '60', label: '1 ชั่วโมง' },
-              { value: '90', label: '1 ชั่วโมง 30 นาที' },
-              { value: '120', label: '2 ชั่วโมง' },
-            ]}
+            options={[...new Set([...SLOT_DURATIONS, Number(form.durationMinutes) || 30])].sort((a, b) => a - b)
+              .map((m) => ({ value: String(m), label: m < 60 ? `${m} นาที` : `${Math.floor(m / 60)} ชั่วโมง${m % 60 ? ` ${m % 60} นาที` : ''}` }))}
           />
         </div>
 
@@ -258,28 +281,72 @@ function AppointmentForm({
           </Callout>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <SelectInput
-            label="หัวหน้าทัวร์"
-            required
-            placeholder="เลือกหัวหน้าทัวร์"
-            value={form.leaderId}
-            error={errors.leaderId}
-            onChange={(e) => { set('leaderId', e.target.value); set('jobId', ''); }}
-            options={leaders.map((l) => ({
-              value: l.id,
-              label: `${l.firstName} ${l.lastName} (${l.id})`,
-            }))}
-          />
-          <SelectInput
-            label="กรุ๊ป"
-            required={form.kind === 'clear'}
-            placeholder={form.leaderId ? (form.kind === 'clear' ? 'เลือกกรุ๊ป' : 'ไม่ผูกกรุ๊ป') : 'เลือกหัวหน้าทัวร์ก่อน'}
-            value={form.jobId}
-            error={errors.jobId}
-            onChange={(e) => set('jobId', e.target.value)}
-            options={leaderGroups.map(({ id, p }) => ({ value: id, label: p ? `${p.groupCode} · ${formatDateRange(p.startDate, p.endDate)}` : id }))}
-          />
+        {/* เลือกตามรหัสกรุ๊ป (ค้นหา) → หัวหน้าทัวร์ของกรุ๊ปใส่ให้อัตโนมัติ */}
+        {/* รหัสกรุ๊ป (ค้นหา) เต็มแถว — แต่ละกรุ๊ปแสดง รหัส · วันเดินทาง / ชื่อโปรแกรม / หัวหน้าทัวร์ คนละบรรทัด */}
+        <div className="relative">
+          <label className="mb-1.5 block text-sm font-medium zego-text-secondary">รหัสกรุ๊ป <span className="text-rose-600">*</span></label>
+          {pickedGroup && !pickerOpen ? (
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              className="flex w-full items-start justify-between gap-3 rounded-lg border zego-border-color bg-white px-3 py-2 text-left text-sm"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-semibold zego-text">{pickedGroup.code}</span>
+                  {pickedGroup.p && <span className="text-xs tabular-nums zego-text-secondary">{formatDateRange(pickedGroup.p.startDate, pickedGroup.p.endDate)}</span>}
+                </span>
+                <span className="block truncate text-xs zego-text-secondary" title={pickedGroup.p?.displayName}>{pickedGroup.p?.displayName ?? '—'}</span>
+              </span>
+              <span className="shrink-0 text-xs zego-text-info">เปลี่ยน</span>
+            </button>
+          ) : (
+            <input
+              autoFocus={pickerOpen}
+              className={cx('h-10 w-full rounded-lg border bg-white px-3 text-sm', errors.jobId ? 'border-rose-400' : 'zego-border-color')}
+              placeholder="พิมพ์รหัสกรุ๊ป ชื่อโปรแกรม หรือชื่อหัวหน้าทัวร์"
+              value={groupQuery}
+              onFocus={() => setPickerOpen(true)}
+              onChange={(e) => { setGroupQuery(e.target.value); setPickerOpen(true); }}
+              aria-label="ค้นหารหัสกรุ๊ป"
+            />
+          )}
+          {pickerOpen && (
+            <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border zego-border-color bg-white shadow-lg">
+              <ul className="max-h-72 divide-y divide-[var(--zego-border-soft)] overflow-y-auto">
+                {groupMatches.length === 0 ? (
+                  <li className="px-3 py-2.5 text-xs zego-text-tertiary">ไม่พบกรุ๊ปหลังเดินทางที่มีหัวหน้าทัวร์คอนเฟิร์มแล้ว</li>
+                ) : groupMatches.map((g) => (
+                  <li key={g.id}>
+                    <button
+                      type="button"
+                      onClick={() => pickGroup(g)}
+                      className={cx('block w-full px-3 py-2 text-left zego-hover-surface', g.id === form.jobId && 'bg-emerald-50')}
+                    >
+                      <span className="flex items-baseline justify-between gap-3">
+                        <span className="font-semibold zego-text">{g.code}</span>
+                        <span className="shrink-0 text-xs tabular-nums zego-text-secondary">{g.p ? formatDateRange(g.p.startDate, g.p.endDate) : '—'}</span>
+                      </span>
+                      <span className="block truncate text-xs zego-text-secondary" title={g.p?.displayName}>{g.p?.displayName ?? '—'}</span>
+                      <span className="block truncate text-xs zego-text-tertiary">หัวหน้าทัวร์ {g.leaderName}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {pickedGroup && (
+                <button type="button" onClick={() => setPickerOpen(false)} className="block w-full zego-divider-top px-3 py-1.5 text-left text-xs zego-text-info">ยกเลิกการเปลี่ยน</button>
+              )}
+            </div>
+          )}
+          {errors.jobId && <p className="mt-1 text-xs text-rose-600">{errors.jobId}</p>}
+        </div>
+
+        {/* หัวหน้าทัวร์ — แยกบรรทัด ใส่ให้อัตโนมัติจากกรุ๊ปที่เลือก */}
+        <div>
+          <label className="mb-1.5 block text-sm font-medium zego-text-secondary">หัวหน้าทัวร์</label>
+          <p className="flex h-10 items-center truncate rounded-lg border zego-border-color zego-surface-soft-bg px-3 text-sm zego-text" title={pickedGroup?.leaderName}>
+            {pickedGroup ? pickedGroup.leaderName : <span className="zego-text-tertiary">ใส่ให้อัตโนมัติจากกรุ๊ป</span>}
+          </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">

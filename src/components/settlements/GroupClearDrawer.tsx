@@ -6,17 +6,22 @@
  * ยอดทั้งหมดคำนวณสดจากซองเงินและใบเสร็จ (summarizeGroupClear) · ที่บันทึกคือเงินคืนจริง + ผู้ปิด (groupClearStore)
  * ปิดได้เมื่อจบทริปแล้วและไม่มีเอกสารรอตรวจ — เบี้ยเลี้ยงโอนแยก ไม่หักกลบ (ดูสถานะที่แท็บเบี้ยเลี้ยง)
  * ตรวจเอกสารครบแล้ว → นัดหมายหัวหน้าทัวร์เข้ามาเคลียร์เงิน (ClearAppointmentSection) → เคลียร์ตามนัด → ปิด
+ *
+ * เช็กลิสต์ความครบถ้วน 6 ข้อ (clearChecklist) คำนวณสดจากค่าที่กำลังกรอก:
+ *   ผ่านครบ → ปิดเป็น "เคลียร์ครบ" · ยังมีข้อค้าง → ปิดได้แบบ "ปิดแบบมีค้าง" ต้องใส่เหตุผล (เห็นข้อค้างย้อนหลังได้)
+ * "บันทึก (ยังไม่ปิด)" = เก็บเงินคืน / จ่ายเพิ่ม / ไม่มีเบี้ยเลี้ยง ไว้ก่อน — ตารางนับความคืบหน้า "ครบ x/6" จากค่าที่บันทึก
  */
 
 import Link from 'next/link';
 import { useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { Drawer } from '@/components/ui/Modal';
-import { Button, Callout, StatusBadge } from '@/components/ui/Primitives';
+import { Button, cx, StatusBadge } from '@/components/ui/Primitives';
+import { Icon } from '@/components/ui/Icon';
 import { EXPENSE_STATUS } from '@/lib/labels';
 import { formatCurrency, formatDate, formatDateRange, formatDateTime, toISODateTime } from '@/lib/format';
 import { envelopeName } from '@/lib/logic/cashEnvelope';
-import { GROUP_CLEAR_STAGE, type GroupClearSummary } from '@/lib/logic/groupClear';
+import { clearChecklist, GROUP_CLEAR_STAGE, type GroupClearSummary } from '@/lib/logic/groupClear';
 import { CLEAR_EVENT_LABEL, saveGroupClear, type GroupClearRecord } from '@/services/groupClearStore';
 import { ClearAppointmentSection } from './ClearAppointmentSection';
 import { clearAppointmentOf } from '@/services/appointmentStore';
@@ -42,33 +47,66 @@ export function GroupClearDrawer({
 }) {
   const { currentUser, pushToast, appointments, changeAppointmentStatus } = useDemo();
   const p = getTourPeriodById(summary.periodId);
-  const closed = summary.stage === 'closed';
-  // เงินคืนจริง — ตั้งต้นจากคงเหลือที่ต้องคืน (ยอดบวก) แก้ได้ตามที่รับจริง
-  const [returned, setReturned] = useState<Record<string, string>>(() => Object.fromEntries(
-    summary.balance.filter((b) => b.remaining > 0).map((b) => [b.currency, String(Math.round(b.remaining * 100) / 100)]),
-  ));
+  const closed = summary.stage === 'closed' || summary.stage === 'closed_partial';
+  const toForm = (list: { currency: string; amount: number }[] | undefined) => Object.fromEntries((list ?? []).map((x) => [x.currency, String(x.amount)]));
+  // เงินคืนจริง — ค่าที่บันทึกไว้ก่อน ไม่มีจึงตั้งต้นว่าง (กรอกตามที่รับจริง · ปุ่ม "เท่ายอดต้องคืน" ช่วยเติม)
+  const [returned, setReturned] = useState<Record<string, string>>(() => toForm(record?.returned));
+  // บริษัทจ่ายเพิ่มแล้ว (ใช้เกินซอง)
+  const [paidExtra, setPaidExtra] = useState<Record<string, string>>(() => toForm(record?.paidExtra));
+  const [noPerDiem, setNoPerDiem] = useState(!!record?.noPerDiem);
   const [note, setNote] = useState(record?.note ?? '');
+  const [partialReason, setPartialReason] = useState(record?.partialReason ?? '');
   const s = GROUP_CLEAR_STAGE[summary.stage];
-  // ยังไม่มีใบเสร็จ/ใบเบิกก็ปิดได้ (เช่น คืนเงินทั้งซอง) — ห้ามเฉพาะยังไม่จบทริป / มีเอกสารรอตรวจ
-  const canClose = summary.stage === 'ready' || (summary.stage === 'waiting_leader' && summary.pendingDocs === 0);
-  const badAmount = Object.values(returned).some((v) => v.trim() !== '' && !(Number(v) >= 0));
+  const toList = (m: Record<string, string>) => Object.entries(m).filter(([, v]) => Number(v) > 0).map(([currency, v]) => ({ currency, amount: Number(v) }));
+  // เช็กลิสต์ — ปิดแล้วใช้ค่าที่บันทึก · ยังไม่ปิดใช้ค่าที่กำลังกรอก
+  const checks = clearChecklist(summary, closed
+    ? { returned: record?.returned ?? [], paidExtra: record?.paidExtra ?? [], noPerDiem: !!record?.noPerDiem }
+    : { returned: toList(returned), paidExtra: toList(paidExtra), noPerDiem });
+  const allOk = checks.every((c) => c.ok);
+  const okCount = checks.filter((c) => c.ok).length;
+  // ปิดได้เมื่อจบทริปแล้ว — ครบ = เคลียร์ครบ · ไม่ครบ = ปิดแบบมีค้าง (ต้องมีเหตุผล)
+  const canClose = summary.stage !== 'traveling';
+  const canAppoint = summary.stage === 'ready' || (summary.stage === 'waiting_leader' && summary.pendingDocs === 0);
+  const badAmount = [...Object.values(returned), ...Object.values(paidExtra)].some((v) => v.trim() !== '' && !(Number(v) >= 0));
+  const needReason = !allOk && !partialReason.trim();
+
+  const values = () => ({
+    returned: toList(returned),
+    paidExtra: toList(paidExtra),
+    ...(noPerDiem ? { noPerDiem: true } : {}),
+    ...(note.trim() ? { note: note.trim() } : {}),
+  });
+  /** บันทึกความคืบหน้า (ยังไม่ปิด) */
+  const saveProgress = () => {
+    try {
+      saveGroupClear({ ...(record ?? { history: [] }), periodId: summary.periodId, ...values() });
+      pushToast('success', 'บันทึกแล้ว (ยังไม่ปิด)', `${p?.groupCode ?? summary.periodId} · ครบ ${okCount}/${checks.length}`);
+      onSaved();
+    } catch (e) {
+      pushToast('error', e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
+    }
+  };
 
   const close = () => {
+    if (needReason) return;
     const at = toISODateTime(new Date());
+    const kind = allOk ? 'complete' as const : 'partial' as const;
+    const reasonNote = kind === 'partial' ? `ปิดแบบมีค้าง (${checks.filter((c) => !c.ok).map((c) => c.label).join(', ')}) · ${partialReason.trim()}` : 'เคลียร์ครบทุกข้อ';
     const rec: GroupClearRecord = {
       periodId: summary.periodId,
-      returned: Object.entries(returned).filter(([, v]) => Number(v) > 0).map(([currency, v]) => ({ currency, amount: Number(v) })),
-      ...(note.trim() ? { note: note.trim() } : {}),
+      ...values(),
+      closeKind: kind,
+      ...(kind === 'partial' ? { partialReason: partialReason.trim() } : {}),
       closedAt: at,
       closedBy: currentUser.name,
-      history: [...(record?.history ?? []), { at, by: currentUser.name, action: 'close', ...(note.trim() ? { note: note.trim() } : {}) }],
+      history: [...(record?.history ?? []), { at, by: currentUser.name, action: 'close', note: reasonNote }],
     };
     try {
       saveGroupClear(rec);
       // เคลียร์ตามนัด — นัดเคลียร์เงินที่ยังไม่ยกเลิกเปลี่ยนเป็น "เข้าพบแล้ว"
       const appt = clearAppointmentOf(appointments, summary.periodId);
       if (appt && appt.status !== 'attended') void changeAppointmentStatus(appt.id, 'attended', 'เคลียร์เงินกรุ๊ปเรียบร้อย');
-      pushToast('success', 'ปิดการเคลียร์เงินกรุ๊ปแล้ว', p?.groupCode ?? summary.periodId);
+      pushToast(kind === 'complete' ? 'success' : 'info', kind === 'complete' ? 'เคลียร์ครบ — ปิดการเคลียร์แล้ว' : 'ปิดแบบมีค้างแล้ว', p?.groupCode ?? summary.periodId);
       onSaved();
     } catch (e) {
       pushToast('error', e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
@@ -77,8 +115,13 @@ export function GroupClearDrawer({
   const reopen = () => {
     if (!record || !window.confirm('เปิดการเคลียร์เงินกรุ๊ปนี้ใหม่? ยอดเงินคืนที่บันทึกไว้จะถูกล้าง')) return;
     const at = toISODateTime(new Date());
-    // เปิดใหม่ — ล้างเงินคืน/ผู้ปิด (นัดหมายคงไว้ตามเดิม)
-    saveGroupClear({ periodId: record.periodId, returned: [], history: [...record.history, { at, by: currentUser.name, action: 'reopen' }] });
+    // เปิดใหม่ — ล้างเงินคืน/ผู้ปิด/ชนิดการปิด · จ่ายเพิ่ม / ไม่มีเบี้ยเลี้ยง คงไว้ (เป็นข้อเท็จจริงที่เกิดแล้ว) · นัดหมายคงไว้
+    saveGroupClear({
+      periodId: record.periodId, returned: [],
+      ...(record.paidExtra ? { paidExtra: record.paidExtra } : {}),
+      ...(record.noPerDiem ? { noPerDiem: true } : {}),
+      history: [...record.history, { at, by: currentUser.name, action: 'reopen' }],
+    });
     pushToast('info', 'เปิดการเคลียร์เงินกรุ๊ปใหม่แล้ว', p?.groupCode ?? summary.periodId);
     onSaved();
   };
@@ -98,13 +141,15 @@ export function GroupClearDrawer({
         </div>
       ) : (
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
-          <span className="text-xs zego-text-warning">
-            {summary.stage === 'traveling' ? 'ยังไม่จบทริป'
-              : summary.stage === 'waiting_docs' ? `มีเอกสารรอตรวจ ${summary.toReview.receipts + (summary.toReview.perDiem ? 1 : 0)} ใบ — ตรวจให้ครบก่อนปิด`
-                : summary.pendingDocs > 0 ? `หัวหน้าทัวร์ยังไม่ส่งเอกสาร ${summary.pendingDocs} ใบ (ร่าง / ส่งกลับแก้ไข) — รอส่งก่อนปิด`
-                  : summary.stage === 'waiting_leader' ? 'หัวหน้าทัวร์ยังไม่ส่งใบเสร็จ/ใบเบิก — ปิดได้ถ้าคืนเงินครบแล้ว' : ''}
+          <span className={cx('text-xs', allOk ? 'text-emerald-700' : 'zego-text-warning')}>
+            {summary.stage === 'traveling' ? 'ยังไม่จบทริป — ยังปิดไม่ได้' : allOk ? 'เช็กลิสต์ผ่านครบ — ปิดเป็น "เคลียร์ครบ"' : `ยังค้าง ${checks.length - okCount} ข้อ — ปิดได้แบบ "ปิดแบบมีค้าง" (ต้องใส่เหตุผล)`}
           </span>
-          <Button variant="primary" disabled={!canClose || badAmount} onClick={close}>ปิดการเคลียร์เงินกรุ๊ป</Button>
+          <span className="flex gap-2">
+            <Button variant="secondary" disabled={badAmount} onClick={saveProgress}>บันทึก (ยังไม่ปิด)</Button>
+            <Button variant={allOk ? 'primary' : 'secondary'} disabled={!canClose || badAmount || needReason} onClick={close}>
+              {allOk ? 'ปิด · เคลียร์ครบ' : 'ปิดแบบมีค้าง'}
+            </Button>
+          </span>
         </div>
       )}
     >
@@ -114,6 +159,36 @@ export function GroupClearDrawer({
           <span className="zego-text-secondary">กำหนดเคลียร์ {formatDate(summary.dueDate)}</span>
           {summary.overdue && <span className="text-xs font-semibold zego-text-danger">เกินกำหนด</span>}
         </div>
+
+        {/* เช็กลิสต์ความครบถ้วน — ครบทุกข้อ = เคลียร์ครบ */}
+        <section>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold zego-text">เช็กลิสต์ความครบถ้วน</h3>
+            <span className={cx('rounded-full px-2 py-0.5 text-xs font-semibold', allOk ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800')}>ครบ {okCount}/{checks.length}</span>
+          </div>
+          <ul className="divide-y divide-[var(--zego-border-soft)] rounded-lg border zego-border-color text-sm">
+            {checks.map((c) => (
+              <li key={c.key} className="flex items-start gap-2 px-3 py-2">
+                <span className={cx('mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full', c.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-50 text-rose-600')}>
+                  <Icon name={c.ok ? 'check' : 'x'} className="h-3.5 w-3.5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium zego-text">{c.label}</span>
+                  <span className={cx('block text-xs', c.ok ? 'zego-text-tertiary' : 'zego-text-warning')}>{c.detail}</span>
+                </span>
+                {c.key === 'perDiem' && !closed && !summary.perDiem && (
+                  <label className="flex shrink-0 items-center gap-1.5 text-xs zego-text-secondary">
+                    <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={noPerDiem} onChange={(e) => setNoPerDiem(e.target.checked)} />
+                    ไม่มีเบี้ยเลี้ยง
+                  </label>
+                )}
+              </li>
+            ))}
+          </ul>
+          {closed && record?.closeKind === 'partial' && record.partialReason && (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">ปิดแบบมีค้าง — เหตุผล: {record.partialReason}</p>
+          )}
+        </section>
 
         {/* สรุปเงินแยกสกุล */}
         <section>
@@ -220,7 +295,7 @@ export function GroupClearDrawer({
             periodId={summary.periodId}
             groupCode={p?.groupCode ?? summary.periodId}
             leader={leader}
-            canAppoint={canClose}
+            canAppoint={canAppoint}
             blockedReason={summary.stage === 'traveling' ? 'ยังไม่จบทริป'
               : summary.stage === 'waiting_docs' ? 'ยังมีเอกสารรอตรวจ'
                 : 'หัวหน้าทัวร์ยังไม่ส่งเอกสารครบ'}
@@ -229,10 +304,11 @@ export function GroupClearDrawer({
 
         {/* ปิดการเคลียร์ */}
         <section>
-          <h3 className="mb-2 text-sm font-semibold zego-text">{closed ? 'ผลการเคลียร์' : 'บันทึกรับเงินคืน'}</h3>
+          <h3 className="mb-2 text-sm font-semibold zego-text">{closed ? 'ผลการเคลียร์' : 'บันทึกรับเงินคืน / จ่ายเพิ่ม'}</h3>
           {closed ? (
             <div className="space-y-1 rounded-lg zego-surface-soft-bg px-3 py-2 text-sm">
-              <p className="zego-text">รับเงินคืน: <span className="font-semibold tabular-nums">{fmtTotals(record?.returned ?? []) === '—' ? 'ไม่มี' : fmtTotals(record?.returned ?? [])}</span></p>
+              <p className="zego-text">รับเงินคืน: <span className="font-semibold tabular-nums">{(record?.returned.length ?? 0) > 0 ? fmtTotals(record!.returned) : 'ไม่มี'}</span></p>
+              {(record?.paidExtra?.length ?? 0) > 0 && <p className="zego-text">บริษัทจ่ายเพิ่ม: <span className="font-semibold tabular-nums">{fmtTotals(record!.paidExtra!)}</span></p>}
               {record?.note && <p className="zego-text-secondary">หมายเหตุ: {record.note}</p>}
             </div>
           ) : (
@@ -243,7 +319,10 @@ export function GroupClearDrawer({
                 <div className="grid gap-2 sm:grid-cols-3">
                   {summary.balance.filter((b) => b.remaining > 0).map((b) => (
                     <label key={b.currency} className="block text-xs">
-                      <span className="mb-1 block font-medium zego-text-secondary">รับคืนจริง ({b.currency}) · ต้องคืน {money(b.remaining)}</span>
+                      <span className="mb-1 flex items-center justify-between gap-2 font-medium zego-text-secondary">
+                        <span>รับคืนจริง ({b.currency}) · ต้องคืน {money(b.remaining)}</span>
+                        <button type="button" className="font-medium zego-text-info hover:underline" onClick={() => setReturned((m) => ({ ...m, [b.currency]: String(Math.round(b.remaining * 100) / 100) }))}>เท่ายอด</button>
+                      </span>
                       <input
                         type="number" inputMode="decimal" min={0}
                         className="h-9 w-full rounded-lg border zego-border-color bg-white px-2.5 text-right text-sm tabular-nums"
@@ -254,10 +333,30 @@ export function GroupClearDrawer({
                   ))}
                 </div>
               )}
+              {/* ใช้เกินเงินในซอง — บันทึกว่าบริษัทจ่ายเพิ่มให้หัวหน้าทัวร์แล้ว */}
               {summary.balance.some((b) => b.remaining < 0) && (
-                <Callout tone="amber" title="ใช้เกินเงินในซอง">
-                  {summary.balance.filter((b) => b.remaining < 0).map((b) => `${b.currency} ${money(-b.remaining)}`).join(' · ')} — บริษัทต้องจ่ายเพิ่มให้หัวหน้าทัวร์
-                </Callout>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {summary.balance.filter((b) => b.remaining < 0).map((b) => (
+                    <label key={b.currency} className="block text-xs">
+                      <span className="mb-1 flex items-center justify-between gap-2 font-medium zego-text-secondary">
+                        <span>บริษัทจ่ายเพิ่มแล้ว ({b.currency}) · ใช้เกิน {money(-b.remaining)}</span>
+                        <button type="button" className="font-medium zego-text-info hover:underline" onClick={() => setPaidExtra((m) => ({ ...m, [b.currency]: String(Math.round(-b.remaining * 100) / 100) }))}>เท่ายอด</button>
+                      </span>
+                      <input
+                        type="number" inputMode="decimal" min={0}
+                        className="h-9 w-full rounded-lg border zego-border-color bg-white px-2.5 text-right text-sm tabular-nums"
+                        value={paidExtra[b.currency] ?? ''}
+                        onChange={(e) => { const v = e.target.value; setPaidExtra((m) => ({ ...m, [b.currency]: v })); }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+              {!allOk && summary.stage !== 'traveling' && (
+                <label className="block text-xs">
+                  <span className="mb-1 block font-medium zego-text-secondary">เหตุผลที่ปิดแบบมีค้าง <span className="text-rose-600">*</span> <span className="font-normal zego-text-tertiary">(ใช้เมื่อจำเป็นต้องปิดก่อนครบ)</span></span>
+                  <textarea rows={2} className="w-full rounded-lg border border-amber-300 bg-white px-2.5 py-2 text-sm" value={partialReason} onChange={(e) => setPartialReason(e.target.value)} placeholder="เช่น หัวหน้าทัวร์ลาออก ติดตามเงินคืนผ่านฝ่ายบุคคล" />
+                </label>
               )}
               <label className="block text-xs">
                 <span className="mb-1 block font-medium zego-text-secondary">หมายเหตุ <span className="font-normal zego-text-tertiary">(ไม่บังคับ)</span></span>

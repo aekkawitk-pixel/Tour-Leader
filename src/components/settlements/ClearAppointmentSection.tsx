@@ -15,10 +15,11 @@ import { APPOINTMENT_MODE, APPOINTMENT_STATUS } from '@/lib/labels';
 import { formatDate, toISODate, toISODateTime } from '@/lib/format';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import { clearAppointmentOf } from '@/services/appointmentStore';
+import { firstFreeSlot, SLOT_DURATIONS, slotOptions } from '@/lib/logic/appointmentSlots';
 import type { Appointment, AppointmentMode } from '@/types';
 
 const DEFAULT_LOCATION: Record<Exclude<AppointmentMode, 'document'>, string> = {
-  office: 'สำนักงานใหญ่ · ฝ่ายบัญชี',
+  office: 'บริษัท ซีโก้ ทราเวล จำกัด ห้องการเงิน ชั้น 1',
   online: 'ลิงก์ประชุมออนไลน์ (ส่งให้ทางไลน์)',
 };
 
@@ -42,8 +43,9 @@ export function ClearAppointmentSection({
   const today = toISODate(new Date());
   const [form, setForm] = useState(() => ({
     date: appt?.date ?? today,
-    time: appt?.time ?? '10:00',
-    durationMinutes: String(appt?.durationMinutes ?? 60),
+    // นัดห่างกันช่วงละ 30 นาที — นัดใหม่ตั้งต้นที่ช่องว่างช่องแรกของวัน
+    time: appt?.time ?? firstFreeSlot(appointments, today, 30),
+    durationMinutes: String(appt?.durationMinutes ?? 30),
     mode: (appt?.mode === 'online' ? 'online' : 'office') as 'office' | 'online',
     location: appt?.location ?? DEFAULT_LOCATION.office,
     note: appt?.note ?? '',
@@ -56,7 +58,7 @@ export function ClearAppointmentSection({
     const at = toISODateTime(new Date());
     const when = `${formatDate(form.date)} ${form.time} น.`;
     const fields = {
-      date: form.date, time: form.time, durationMinutes: Number(form.durationMinutes) || 60,
+      date: form.date, time: form.time, durationMinutes: Number(form.durationMinutes) || 30,
       mode: form.mode as AppointmentMode, location: form.location.trim(), note: form.note.trim(),
       leaderId: leader.id, staffName: currentUser.name,
     };
@@ -104,12 +106,19 @@ export function ClearAppointmentSection({
         <div className="space-y-3 rounded-lg border zego-border-color px-3 py-3">
           <p className="text-xs zego-text-secondary">นัด <span className="font-semibold zego-text">{leader.name}</span> เข้ามาเคลียร์เงินกรุ๊ป {groupCode} — นัดขึ้นในปฏิทินเมนูนัดหมาย และหัวหน้าทัวร์เห็นในพอร์ทัล แล้วกดยืนยันหรือขอเลื่อน</p>
           <div className="grid gap-3 sm:grid-cols-3">
-            <label className="block"><span className={label}>วันที่</span><input type="date" min={today} className={input} value={form.date} onChange={(e) => set('date', e.target.value)} /></label>
-            <label className="block"><span className={label}>เวลา</span><input type="time" className={input} value={form.time} onChange={(e) => set('time', e.target.value)} /></label>
+            <label className="block"><span className={label}>วันที่</span><input type="date" min={today} className={input} value={form.date} onChange={(e) => { const d = e.target.value; setForm((f) => ({ ...f, date: d, time: firstFreeSlot(appointments, d, Number(f.durationMinutes) || 30, appt?.id) })); }} /></label>
+            <label className="block">
+              <span className={label}>เวลา (ช่องละ 30 นาที)</span>
+              <select className={input} value={form.time} onChange={(e) => set('time', e.target.value)}>
+                {slotOptions(appointments, form.date, Number(form.durationMinutes) || 30, appt?.id, form.time).map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
             <label className="block">
               <span className={label}>ระยะเวลา</span>
               <select className={input} value={form.durationMinutes} onChange={(e) => set('durationMinutes', e.target.value)}>
-                {[30, 45, 60, 90, 120].map((m) => <option key={m} value={m}>{m} นาที</option>)}
+                {[...new Set([...SLOT_DURATIONS, Number(form.durationMinutes) || 30])].sort((a, b) => a - b).map((m) => <option key={m} value={m}>{m} นาที</option>)}
               </select>
             </label>
           </div>

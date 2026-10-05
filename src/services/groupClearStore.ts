@@ -26,6 +26,13 @@ export interface GroupClearRecord {
   periodId: string;
   /** เงินที่หัวหน้าทัวร์คืนจริงตอนเคลียร์ แยกสกุล (0 = ไม่ต้องคืน) */
   returned: { currency: string; amount: number }[];
+  /** บริษัทจ่ายเพิ่มให้หัวหน้าทัวร์แล้ว (กรณีใช้เกินเงินในซอง) แยกสกุล */
+  paidExtra?: { currency: string; amount: number }[];
+  /** กรุ๊ปนี้ไม่มีเบี้ยเลี้ยง — ข้อ "เบี้ยเลี้ยงโอนแล้ว" ถือว่าผ่าน */
+  noPerDiem?: boolean;
+  /** complete = เช็กลิสต์ผ่านครบตอนปิด · partial = ปิดทั้งที่มีข้อค้าง (ต้องมีเหตุผล) */
+  closeKind?: 'complete' | 'partial';
+  partialReason?: string;
   note?: string;
   closedAt?: string;
   closedBy?: string;
