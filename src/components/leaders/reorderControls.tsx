@@ -250,7 +250,7 @@ export function RowMenu({ items, label = 'เมนูจัดการ' }: { i
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-30 mt-1 w-40 overflow-hidden rounded-xl border zego-border-color zego-surface-bg py-1 shadow-xl"
+          className="absolute right-0 top-full z-30 mt-1 w-max min-w-40 overflow-hidden rounded-xl border zego-border-color zego-surface-bg py-1 shadow-xl"
         >
           {items.map((item) => (
             <button
@@ -263,7 +263,7 @@ export function RowMenu({ items, label = 'เมนูจัดการ' }: { i
                 item.onClick();
               }}
               className={cx(
-                'block w-full px-3 py-2 text-left text-xs font-medium transition-colors',
+                'block w-full whitespace-nowrap px-3 py-2 text-left text-xs font-medium transition-colors',
                 item.disabled
                   ? 'cursor-not-allowed zego-text-disabled'
                   : item.danger

@@ -16,7 +16,7 @@
 import { useMemo, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { LEADER_STATUS, LEADER_TYPE, LEADER_USAGE_STATUS, USAGE_STATUS_TERM } from '@/lib/labels';
+import { LEADER_STATUS, LEADER_TYPE, LEADER_USAGE_STATUS, READINESS_TERM } from '@/lib/labels';
 import {
   computeAvailabilityStatus,
   type AvailabilityStatusKey,
@@ -354,29 +354,31 @@ function StatusCell({
   );
 }
 
-/** สร้างรายการเมนู "จัดการ" ตามสิทธิ์ */
+/** แท็บในหน้าโปรไฟล์ที่เมนู "จัดการ" พาไป — ต้องตรงกับ TAB_KEYS ใน src/app/leaders/[id]/page.tsx */
+type ProfileTab = 'summary' | 'schedule' | 'leave' | 'account';
+
+/**
+ * สร้างรายการเมนู "จัดการ" ตามสิทธิ์ — แต่ละรายการพาไปแท็บที่มีอยู่จริงในหน้าโปรไฟล์ (ไม่ซ้ำกัน)
+ *   ดูโปรไฟล์ · แก้ไขข้อมูลส่วนตัว · ตารางงาน · สถานะ / การลา · บัญชีผู้ใช้ · เปลี่ยนความพร้อมรับงาน · ลบข้อมูล
+ */
 function buildManageItems(
   leader: TourLeader,
   opts: {
     canEdit: boolean;
     canChangeStatus: boolean;
-    onView: (l: TourLeader) => void;
-    onViewHistory: (l: TourLeader) => void;
-    onManageStatus: (l: TourLeader) => void;
-    onManageLeave: (l: TourLeader) => void;
+    onOpenTab: (l: TourLeader, tab: ProfileTab) => void;
     onEdit: (l: TourLeader) => void;
     onChangeStatus: (l: TourLeader) => void;
     onDelete: (l: TourLeader) => void;
   },
 ): RowMenuItem[] {
-  const items: RowMenuItem[] = [{ label: 'ดูรายละเอียด', onClick: () => opts.onView(leader) }];
-  // §3 เปิดหน้าโปรไฟล์แทนการเปิดฟอร์มแก้ไขซ้ำ — ผู้ใช้เลือกกดแก้ไขใน Card ที่ต้องการเอง
-  if (opts.canEdit) items.push({ label: 'ดูและจัดการข้อมูล', onClick: () => opts.onEdit(leader) });
-  items.push({ label: USAGE_STATUS_TERM, onClick: () => opts.onManageStatus(leader) });
-  items.push({ label: 'วันลาและช่วงไม่พร้อม', onClick: () => opts.onManageLeave(leader) });
-  items.push({ label: 'ดูโปรแกรมทัวร์', onClick: () => opts.onViewHistory(leader) });
+  const items: RowMenuItem[] = [{ label: 'ดูโปรไฟล์', onClick: () => opts.onOpenTab(leader, 'summary') }];
+  if (opts.canEdit) items.push({ label: 'แก้ไขข้อมูลส่วนตัว', onClick: () => opts.onEdit(leader) });
+  items.push({ label: 'ตารางงาน', onClick: () => opts.onOpenTab(leader, 'schedule') });
+  items.push({ label: 'สถานะ / การลา', onClick: () => opts.onOpenTab(leader, 'leave') });
+  if (opts.canEdit) items.push({ label: 'บัญชีผู้ใช้ (Login)', onClick: () => opts.onOpenTab(leader, 'account') });
   if (opts.canChangeStatus) {
-    items.push({ label: 'เปลี่ยนสถานะ', onClick: () => opts.onChangeStatus(leader) });
+    items.push({ label: `เปลี่ยน${READINESS_TERM}`, onClick: () => opts.onChangeStatus(leader) });
     items.push({ label: 'ลบข้อมูล', onClick: () => opts.onDelete(leader), danger: true });
   }
   return items;
@@ -435,17 +437,12 @@ export function LeaderTable({
   }, [leaders, countries]);
 
   const onView = (leader: TourLeader) => router.push(`/leaders/${leader.id}`);
-  const onViewHistory = (leader: TourLeader) => router.push(`/leaders/${leader.id}?tab=tourJobs`);
-  const onManageStatus = (leader: TourLeader) => router.push(`/leaders/${leader.id}?tab=status`);
-  const onManageLeave = (leader: TourLeader) => router.push(`/leaders/${leader.id}?tab=leave`);
+  const onOpenTab = (leader: TourLeader, tab: ProfileTab) => router.push(`/leaders/${leader.id}?tab=${tab}`);
 
   const menuOpts = {
     canEdit,
     canChangeStatus,
-    onView,
-    onViewHistory,
-    onManageStatus,
-    onManageLeave,
+    onOpenTab,
     onEdit,
     onChangeStatus,
     onDelete,
