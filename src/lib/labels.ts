@@ -6,6 +6,7 @@
 import type {
   AppointmentMode,
   AppointmentStatus,
+  AppointmentKind,
   AuditCategory,
   ContactType,
   DocHoldingStatus,
@@ -385,7 +386,7 @@ export const MONEY_CATEGORY_ORDER: MoneyCategory[] = [
   'refund_topup',
 ];
 
-/* --------------------------- สถานะเคลียร์งาน -------------------------- */
+/* --------------------------- สถานะเคลียร์เงินกรุ๊ป -------------------------- */
 
 export const SETTLEMENT_STATUS: Record<SettlementStatus, StatusMeta> = {
   awaiting_docs: { label: 'รอส่งเอกสาร', tone: 'slate' },
@@ -415,12 +416,23 @@ export const REVIEW_DECISION: Record<ReviewDecision, StatusMeta> = {
 
 /* ---------------------------- สถานะนัดหมาย ---------------------------- */
 
+/*
+  pending = นัดแล้ว รอหัวหน้าทัวร์ยืนยัน (นัดใหม่ / เจ้าหน้าที่เลื่อนนัด → กลับมาที่นี่)
+  rescheduled = หัวหน้าทัวร์ขอเลื่อน — รอเจ้าหน้าที่นัดใหม่
+*/
 export const APPOINTMENT_STATUS: Record<AppointmentStatus, StatusMeta> = {
-  pending: { label: 'รอยืนยัน', tone: 'amber' },
+  pending: { label: 'รอหัวหน้าทัวร์ยืนยัน', tone: 'amber' },
   confirmed: { label: 'ยืนยันแล้ว', tone: 'sky' },
-  rescheduled: { label: 'เลื่อนนัด', tone: 'violet' },
+  rescheduled: { label: 'หัวหน้าทัวร์ขอเลื่อน', tone: 'violet' },
   attended: { label: 'เข้าพบแล้ว', tone: 'green' },
   cancelled: { label: 'ยกเลิก', tone: 'red' },
+};
+
+export const APPOINTMENT_KIND: Record<AppointmentKind, StatusMeta> = {
+  clear: { label: 'เคลียร์เงินกรุ๊ป', tone: 'teal' },
+  document: { label: 'ส่งเอกสาร', tone: 'blue' },
+  meeting: { label: 'ประชุม / พบหัวหน้าทัวร์', tone: 'violet' },
+  other: { label: 'อื่น ๆ', tone: 'slate' },
 };
 
 export const APPOINTMENT_MODE: Record<AppointmentMode, StatusMeta> = {

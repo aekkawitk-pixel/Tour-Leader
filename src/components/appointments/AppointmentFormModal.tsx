@@ -1,6 +1,10 @@
 'use client';
 
-/** ฟอร์มสร้าง / แก้ไขนัดหมาย พร้อมตรวจสอบเวลาซ้อน (จำลอง) */
+/**
+ * ฟอร์มสร้าง / แก้ไขนัดหมาย (ปฏิทินรวมเมนูนัดหมาย) พร้อมตรวจสอบเวลาซ้อน
+ * ประเภทนัด (เคลียร์เงินกรุ๊ป / ส่งเอกสาร / ประชุม / อื่น ๆ) · กรุ๊ป = งานที่หัวหน้าทัวร์คนนั้นคอนเฟิร์มแล้ว
+ * นัดใหม่ = รอหัวหน้าทัวร์ยืนยัน (หัวหน้าทัวร์ยืนยัน / ขอเลื่อนในพอร์ทัลของตัวเอง)
+ */
 
 import { useMemo, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
@@ -9,11 +13,13 @@ import { SelectInput, TextArea, TextInput } from '@/components/ui/FormField';
 import { DateField } from '@/components/ui/DateInput';
 import { TimeField } from '@/components/ui/TimeInput';
 import { useDemo } from '@/store/DemoStore';
-import { APPOINTMENT_MODE } from '@/lib/labels';
+import { APPOINTMENT_KIND, APPOINTMENT_MODE } from '@/lib/labels';
+import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { hasTimeOverlap } from '@/lib/logic/conflicts';
 import { makeStatusEvent } from '@/lib/logic/workflow';
-import { formatDate } from '@/lib/format';
-import type { Appointment, AppointmentMode } from '@/types';
+import { formatDate, formatDateRange, toISODate, toISODateTime } from '@/lib/format';
+import type { Appointment, AppointmentKind, AppointmentMode } from '@/types';
 
 const MODE_DEFAULT_LOCATION: Record<AppointmentMode, string> = {
   office: 'สำนักงานใหญ่ ชั้น 8 ห้องประชุมบัญชี 1',
@@ -27,6 +33,7 @@ interface FormState {
   durationMinutes: string;
   leaderId: string;
   jobId: string;
+  kind: AppointmentKind;
   staffName: string;
   mode: AppointmentMode;
   location: string;
@@ -40,6 +47,8 @@ export function AppointmentFormModal(props: {
   appointment: Appointment | null;
   presetLeaderId?: string;
   presetJobId?: string;
+  /** วันที่ตั้งต้น (เช่น กดวันในปฏิทิน) */
+  presetDate?: string;
   onCreated?: (appointment: Appointment) => void;
 }) {
   if (!props.open) return null;
@@ -51,24 +60,26 @@ function AppointmentForm({
   appointment,
   presetLeaderId,
   presetJobId,
+  presetDate,
   onCreated,
 }: {
   onClose: () => void;
   appointment: Appointment | null;
   presetLeaderId?: string;
   presetJobId?: string;
+  presetDate?: string;
   onCreated?: (appointment: Appointment) => void;
 }) {
   const {
     leaders,
-    jobs,
     appointments,
     saveAppointment,
     createAppointmentId,
     saving,
     currentUser,
-    today,
   } = useDemo();
+  // วันที่จริงของเครื่อง (ไม่ใช้วันจำลองของ Demo)
+  const today = toISODate(new Date());
 
   const [form, setForm] = useState<FormState>(
     appointment
@@ -78,17 +89,19 @@ function AppointmentForm({
           durationMinutes: String(appointment.durationMinutes),
           leaderId: appointment.leaderId,
           jobId: appointment.jobId,
+          kind: appointment.kind ?? 'other',
           staffName: appointment.staffName,
           mode: appointment.mode,
           location: appointment.location,
           note: appointment.note,
         }
       : {
-          date: today,
+          date: presetDate ?? today,
           time: '10:00',
           durationMinutes: '60',
           leaderId: presetLeaderId ?? '',
           jobId: presetJobId ?? '',
+          kind: 'meeting',
           staffName: currentUser.name,
           mode: 'office',
           location: MODE_DEFAULT_LOCATION.office,
@@ -130,7 +143,8 @@ function AppointmentForm({
     if (!form.date) next.date = 'กรุณาเลือกวันที่';
     if (!form.time) next.time = 'กรุณาเลือกเวลา';
     if (!form.leaderId) next.leaderId = 'กรุณาเลือกหัวหน้าทัวร์';
-    if (!form.jobId) next.jobId = 'กรุณาเลือกงานทัวร์';
+    // นัดเคลียร์เงินต้องผูกกรุ๊ป · ประเภทอื่นไม่ผูกก็ได้
+    if (form.kind === 'clear' && !form.jobId) next.jobId = 'นัดเคลียร์เงินต้องเลือกกรุ๊ป';
     if (!form.staffName.trim()) next.staffName = 'กรุณาระบุเจ้าหน้าที่ผู้รับผิดชอบ';
     if (!form.location.trim()) next.location = 'กรุณาระบุสถานที่หรือลิงก์ประชุม';
     setErrors(next);
@@ -144,8 +158,9 @@ function AppointmentForm({
       ...(appointment ?? {
         id,
         status: 'pending' as const,
-        history: [makeStatusEvent(null, 'pending', currentUser.name, `${today}T09:00`)],
+        history: [makeStatusEvent(null, 'pending', currentUser.name, toISODateTime(new Date()), `สร้างนัด${APPOINTMENT_KIND[form.kind].label}`)],
       }),
+      kind: form.kind,
       id,
       date: form.date,
       time: form.time,
@@ -163,11 +178,17 @@ function AppointmentForm({
     onClose();
   };
 
-  const leaderJobs = form.leaderId
-    ? jobs.filter(
-        (j) => j.leaderId === form.leaderId || j.assistantLeaderIds.includes(form.leaderId),
-      )
-    : jobs;
+  /** กรุ๊ปของหัวหน้าทัวร์ที่เลือก — งานที่คอนเฟิร์มแล้ว ล่าสุดก่อน (นัดเดิมที่ผูกกรุ๊ปอื่นไว้ยังเลือกค้างได้) */
+  const leaderGroups = useMemo(() => {
+    if (!form.leaderId) return [];
+    const ids = new Set(loadActiveGuideAssignments()
+      .filter((a) => a.tourLeaderId === form.leaderId && a.assignmentStatus === 'CONFIRMED')
+      .map((a) => a.periodId));
+    if (form.jobId) ids.add(form.jobId);
+    return [...ids]
+      .map((id) => ({ id, p: getTourPeriodById(id) }))
+      .sort((a, b) => (b.p?.startDate ?? '').localeCompare(a.p?.startDate ?? ''));
+  }, [form.leaderId, form.jobId]);
 
   return (
     <Modal
@@ -175,7 +196,7 @@ function AppointmentForm({
       onClose={onClose}
       size="md"
       title={appointment ? `แก้ไขนัดหมาย ${appointment.id}` : 'สร้างนัดหมายใหม่'}
-      description="นัดหมายเพื่อเคลียร์งานหรือส่งเอกสารกับฝ่ายบัญชี"
+      description="นัดหมายเพื่อเคลียร์เงินกรุ๊ปหรือส่งเอกสารกับฝ่ายบัญชี"
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={saving}>
@@ -188,6 +209,12 @@ function AppointmentForm({
       }
     >
       <div className="space-y-4">
+        <SelectInput
+          label="ประเภทนัด"
+          value={form.kind}
+          onChange={(e) => set('kind', e.target.value as AppointmentKind)}
+          options={(Object.keys(APPOINTMENT_KIND) as AppointmentKind[]).map((k) => ({ value: k, label: APPOINTMENT_KIND[k].label }))}
+        />
         <div className="grid gap-4 sm:grid-cols-3">
           <DateField
             label="วันที่"
@@ -238,20 +265,20 @@ function AppointmentForm({
             placeholder="เลือกหัวหน้าทัวร์"
             value={form.leaderId}
             error={errors.leaderId}
-            onChange={(e) => set('leaderId', e.target.value)}
+            onChange={(e) => { set('leaderId', e.target.value); set('jobId', ''); }}
             options={leaders.map((l) => ({
               value: l.id,
               label: `${l.firstName} ${l.lastName} (${l.id})`,
             }))}
           />
           <SelectInput
-            label="งานทัวร์"
-            required
-            placeholder="เลือกงานทัวร์"
+            label="กรุ๊ป"
+            required={form.kind === 'clear'}
+            placeholder={form.leaderId ? (form.kind === 'clear' ? 'เลือกกรุ๊ป' : 'ไม่ผูกกรุ๊ป') : 'เลือกหัวหน้าทัวร์ก่อน'}
             value={form.jobId}
             error={errors.jobId}
             onChange={(e) => set('jobId', e.target.value)}
-            options={leaderJobs.map((j) => ({ value: j.id, label: `${j.id} — ${j.title}` }))}
+            options={leaderGroups.map(({ id, p }) => ({ value: id, label: p ? `${p.groupCode} · ${formatDateRange(p.startDate, p.endDate)}` : id }))}
           />
         </div>
 

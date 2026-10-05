@@ -119,7 +119,7 @@ const TAB_KEYS = [
 
 type TabKey = (typeof TAB_KEYS)[number];
 
-/* ------------------------- การเคลียร์งาน (ในแท็บตารางงาน) ------------------------- */
+/* ------------------------- การเคลียร์เงินกรุ๊ป (ในแท็บตารางงาน) ------------------------- */
 
 type SettlementFilterKey = 'all' | 'pending' | 'overdue' | 'done';
 
@@ -130,7 +130,7 @@ const SETTLEMENT_FILTERS: { key: SettlementFilterKey; label: string }[] = [
   { key: 'done', label: 'เคลียร์แล้ว' },
 ];
 
-/** สถานะที่ถือว่าเคลียร์งานจบแล้ว — ที่เหลือยังอยู่ระหว่างดำเนินการ */
+/** สถานะที่ถือว่าเคลียร์เงินกรุ๊ปจบแล้ว — ที่เหลือยังอยู่ระหว่างดำเนินการ */
 const SETTLED_STATUSES = new Set<SettlementStatus>(['settled', 'closed']);
 
 /** เกินกำหนด = ยังไม่จบ และเลยวันกำหนดส่งแล้ว (คำนวณจากวันจริง ไม่ใช่สถานะที่บันทึกไว้) */
@@ -302,7 +302,7 @@ export default function LeaderDetailPage() {
     [settlements, params.id],
   );
 
-  /** ตัวกรองรายการเคลียร์งานในแท็บ "ตารางงาน" — ทั้งหมด / รอเคลียร์ / เกินกำหนด / เคลียร์แล้ว */
+  /** ตัวกรองรายการเคลียร์เงินกรุ๊ปในแท็บ "ตารางงาน" — ทั้งหมด / รอเคลียร์ / เกินกำหนด / เคลียร์แล้ว */
   const [settlementFilter, setSettlementFilter] = useState<SettlementFilterKey>('all');
   const shownSettlements = useMemo(
     () => leaderSettlements.filter((s) => matchesSettlementFilter(s, settlementFilter, today)),
@@ -877,13 +877,13 @@ export default function LeaderDetailPage() {
       <TabPanel active={tab === 'schedule'}>
         <LeaderScheduleTab leader={leader} today={today} />
 
-        {/* ---- การเคลียร์งาน — ย้ายมาจากแท็บ "เอกสารส่วนตัว"
-             การเคลียร์งาน 1 รายการ = 1 งานทัวร์ (ผูกด้วย jobId) ไม่ใช่เอกสารส่วนบุคคล
-             สถานะการเคลียร์งาน (SETTLEMENT_STATUS) แยกจากสถานะการมอบหมายงาน (JOB_STATUS) ---- */}
+        {/* ---- การเคลียร์เงินกรุ๊ป — ย้ายมาจากแท็บ "เอกสารส่วนตัว"
+             การเคลียร์เงินกรุ๊ป 1 รายการ = 1 งานทัวร์ (ผูกด้วย jobId) ไม่ใช่เอกสารส่วนบุคคล
+             สถานะการเคลียร์เงินกรุ๊ป (SETTLEMENT_STATUS) แยกจากสถานะการมอบหมายงาน (JOB_STATUS) ---- */}
         <div className="mt-6 zego-divider-top pt-5">
           <Card>
             <CardHeader
-              title="การเคลียร์งาน"
+              title="การเคลียร์เงินกรุ๊ป"
               description={`${leaderSettlements.length} รายการ · ผูกกับงานทัวร์รายกรุ๊ป — เปิดรายละเอียดจากงานที่เกี่ยวข้อง`}
               action={
                 <div className="flex flex-wrap items-center gap-1">
@@ -914,12 +914,12 @@ export default function LeaderDetailPage() {
                 icon="checklist"
                 title={
                   leaderSettlements.length === 0
-                    ? 'ยังไม่มีรายการเคลียร์งาน'
+                    ? 'ยังไม่มีรายการเคลียร์เงินกรุ๊ป'
                     : 'ไม่พบรายการตามตัวกรองที่เลือก'
                 }
                 description={
                   leaderSettlements.length === 0
-                    ? 'เมื่อจบทัวร์และมีการเปิดรอบเคลียร์งาน รายการจะแสดงที่นี่โดยอัตโนมัติ'
+                    ? 'เมื่อจบทัวร์และมีการเปิดรอบเคลียร์เงินกรุ๊ป รายการจะแสดงที่นี่โดยอัตโนมัติ'
                     : undefined
                 }
               />
@@ -966,7 +966,7 @@ export default function LeaderDetailPage() {
                             </span>
                           </p>
                         </div>
-                        {/* สถานะการเคลียร์งาน — คนละชุดกับสถานะการมอบหมายงาน */}
+                        {/* สถานะการเคลียร์เงินกรุ๊ป — คนละชุดกับสถานะการมอบหมายงาน */}
                         <StatusBadge meta={SETTLEMENT_STATUS[settlement.status]} size="sm" />
                       </div>
                     </li>
@@ -1192,8 +1192,8 @@ export default function LeaderDetailPage() {
             </Card>
 
             {/*
-              การ์ด "การเคลียร์งาน" ถูกย้ายไปแท็บ "ตารางงาน" แล้ว —
-              การเคลียร์งานผูกกับงานทัวร์รายกรุ๊ป (jobId) ไม่ใช่เอกสารส่วนบุคคล
+              การ์ด "การเคลียร์เงินกรุ๊ป" ถูกย้ายไปแท็บ "ตารางงาน" แล้ว —
+              การเคลียร์เงินกรุ๊ปผูกกับงานทัวร์รายกรุ๊ป (jobId) ไม่ใช่เอกสารส่วนบุคคล
               ⚠️ ห้ามนำเอกสาร/ยอดค่าใช้จ่ายของกรุ๊ปกลับมาแสดงในแท็บนี้อีก
             */}
           </div>

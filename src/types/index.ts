@@ -863,6 +863,11 @@ export interface ExpenseRequest {
    * ทำแยกใบต่อกรุ๊ป (jobId = periodId) ดู src/lib/logic/leaderClaims.ts
    */
   claimKind?: 'per_diem' | 'tip';
+  /**
+   * หัวเอกสารค่าใช้จ่ายหัวหน้าทัวร์ (ใบเบิกเบี้ยเลี้ยง) — ตามแบบฟอร์มกระดาษ ใช้พิมพ์และให้บัญชีตรวจ
+   * paxCount = จำนวนลูกค้า (ท่าน) · leaderCount = หัวหน้าทัวร์ (+1) · cancelledPax = ลูกค้ายกเลิกเดินทาง
+   */
+  claimForm?: { paxCount: number | null; leaderCount: number; cancelledPax: number | null; refNumber?: string; contactPhone?: string };
   requestedAt: string; // วันที่ขอ
   submittedAt?: string; // เวลาจริงที่กดบันทึก (ISO datetime) — ต่างจาก requestedAt ที่เป็นวันที่ล้วน
   lines: ExpenseLine[];
@@ -890,7 +895,7 @@ export interface AdvanceDocMeta {
 }
 
 /* ------------------------------------------------------------------ */
-/* เคลียร์งาน                                                           */
+/* เคลียร์เงินกรุ๊ป                                                           */
 /* ------------------------------------------------------------------ */
 
 export type SettlementStatus =
@@ -1028,6 +1033,8 @@ export type AppointmentStatus =
   | 'cancelled'; // ยกเลิก
 
 export type AppointmentMode = 'office' | 'online' | 'document';
+/** ประเภทนัด — clear = เคลียร์เงินกรุ๊ป (การเงินนัดหลังตรวจเอกสารครบ) · document = ส่งเอกสาร · meeting = ประชุม/พบหัวหน้าทัวร์ · other = อื่น ๆ */
+export type AppointmentKind = 'clear' | 'document' | 'meeting' | 'other';
 
 export interface Appointment {
   id: string; // APT-2026-001
@@ -1035,7 +1042,12 @@ export interface Appointment {
   time: string; // HH:mm
   durationMinutes: number;
   leaderId: string;
+  /** กรุ๊ปที่เกี่ยวข้อง — TourPeriodMaster.internalId (นัดเดิมอาจเป็น JOB-…) · ว่าง = ไม่ผูกกรุ๊ป */
   jobId: string;
+  /** ประเภทนัด — ไม่ระบุ = นัดแบบเดิม (ถือเป็น other) */
+  kind?: AppointmentKind;
+  /** ข้อความจากหัวหน้าทัวร์ตอนขอเลื่อนนัด (วันเวลาที่สะดวก / เหตุผล) */
+  leaderNote?: string;
   staffName: string; // เจ้าหน้าที่ผู้รับผิดชอบ
   mode: AppointmentMode;
   location: string; // สถานที่หรือลิงก์ประชุม

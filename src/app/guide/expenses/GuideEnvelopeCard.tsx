@@ -24,7 +24,7 @@ import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { compressImageToDataUrl } from '@/lib/image/compressImage';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import { ACK_BEFORE_HANDOFF_NOTE, carrierOf, carrierTitle, envelopeBalance, envelopeName, handoverReceiverText, envelopeStage, groupEnvelopeStatus, groupLines, sumAmounts, type CashEnvelope } from '@/lib/logic/cashEnvelope';
-import { EnvelopeStatusBadge, StatusPill, spentByReceipts } from '@/components/expenses/CashEnvelopeDrawer';
+import { EnvelopeRouteTag, EnvelopeStatusBadge, StatusPill, spentByReceipts } from '@/components/expenses/CashEnvelopeDrawer';
 import { PhotoConfirmModal, ProofThumb } from '@/components/expenses/EnvelopeProofPhoto';
 
 /**
@@ -163,7 +163,10 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
             return (
               <li key={env.id} className="space-y-1.5 rounded-lg zego-surface-soft-bg px-3 py-2 text-xs">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold zego-text">{envelopeName(env)}</span>
+                  <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <span className="font-semibold zego-text">{envelopeName(env)}</span>
+                    <EnvelopeRouteTag env={env} groupCode={getTourPeriodById(periodId)?.groupCode} />
+                  </span>
                   <EnvelopeStatusBadge env={env} short />
                 </div>
                 <p className="zego-text-secondary">

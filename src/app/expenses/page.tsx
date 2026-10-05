@@ -7,25 +7,26 @@ import { useDemo } from '@/store/DemoStore';
 import Link from 'next/link';
 import { can, canViewPath } from '@/lib/permissions';
 import { Icon } from '@/components/ui/Icon';
-import { EXPENSE_STATUS, MONEY_CATEGORY, MONEY_CATEGORY_ORDER } from '@/lib/labels';
-import { formatTHB, formatDate, formatDateRange, formatThaiMonthYear } from '@/lib/format';
+import { EXPENSE_STATUS, MONEY_CATEGORY } from '@/lib/labels';
+import { formatDate, formatDateRange, formatThaiMonthYear } from '@/lib/format';
 import { Button, Card, PageHeader, StatusBadge } from '@/components/ui/Primitives';
 import { StatCard } from '@/components/ui/Charts';
+import { CurrencyStatCard } from '@/components/ui/CurrencyStatCard';
 import { SearchBox, SelectInput } from '@/components/ui/FormField';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Tabs } from '@/components/ui/Tabs';
 import { ExpenseFormModal } from '@/components/expenses/ExpenseFormModal';
 import { CurrencyStack } from '@/app/guide/expenses/CurrencyStack';
-import { expenseApprovedTotals, isPartiallyApproved, requestedAtOf } from '@/app/guide/expenses/expenseAmounts';
+import { expenseApprovedTotals, isPartiallyApproved, requestedAtOf, sumByCurrency } from '@/app/guide/expenses/expenseAmounts';
 import { ExpenseDrawer } from '@/components/expenses/ExpenseDrawer';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
-import type { ExpenseRequest, ExpenseStatus, MoneyCategory } from '@/types';
+import type { ExpenseRequest, ExpenseStatus } from '@/types';
 import type { StatusMeta } from '@/lib/labels';
 import { isHolidayFeeLine, SEND_OFF_FEE_TYPE } from '@/lib/logic/staffPortal';
 
+// ไม่มี "ร่าง" — ร่างของผู้อื่นไม่ขึ้นหน้านี้ (ยังไม่ได้ส่ง)
 const ALL_STATUSES: ExpenseStatus[] = [
-  'draft',
   'submitted',
   'revise',
   'rejected',
@@ -53,12 +54,31 @@ function expenseTypeOf(expense: ExpenseRequest): StatusMeta {
   return MONEY_CATEGORY[expense.category];
 }
 
+/**
+ * แท็บ = ประเภทใบที่เข้ามาให้ตรวจจริง (แทนหมวดเงินเดิม)
+ * ตัด "เงินทดรองก่อนเดินทาง" (เอกสารเบิกนำเข้า → จัดซองที่จัดการค่าใช้จ่ายกรุ๊ป) และ "เงินคืน / จ่ายเพิ่ม" (→ เคลียร์เงินกรุ๊ป) ออก
+ * "ค่าตอบแทนหัวหน้าทัวร์" เดิม = ใบเบิกเบี้ยเลี้ยง → ใช้ชื่อ "เบี้ยเลี้ยง"
+ */
+type ReviewTab = 'all' | 'per_diem' | 'actual' | 'sendoff' | 'other';
+function reviewKindOf(expense: ExpenseRequest): Exclude<ReviewTab, 'all'> {
+  if (expense.claimMonth || expense.requesterKind === 'sendoff') return 'sendoff';
+  if (expense.claimKind === 'per_diem') return 'per_diem';
+  if (expense.category === 'actual') return 'actual';
+  return 'other';
+}
+const REVIEW_TABS: { key: Exclude<ReviewTab, 'all'>; label: string }[] = [
+  { key: 'per_diem', label: 'เบี้ยเลี้ยง' },
+  { key: 'actual', label: 'ค่าใช้จ่ายจริง' },
+  { key: 'sendoff', label: 'ค่าส่งกรุ๊ป' },
+  { key: 'other', label: 'อื่น ๆ' },
+];
+
 export default function ExpensesPage() {
   const { expenses, jobs, leaders, currentUser, resetSubmittedExpenses } = useDemo();
   const [resetting, setResetting] = useState(false);
   const submittedCount = expenses.filter((e) => !isGroupAdvanceDoc(e)).length;
 
-  const [tab, setTab] = useState<'all' | MoneyCategory>('all');
+  const [tab, setTab] = useState<ReviewTab>('all');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'all' | ExpenseStatus>('all');
   const [requester, setRequester] = useState<'all' | RequesterRole>('all');
@@ -76,7 +96,9 @@ export default function ExpensesPage() {
    */
   const scoped = useMemo(() => {
     const leaderId = currentUser.leaderId;
-    const submitted = expenses.filter((e) => !isGroupAdvanceDoc(e));
+    // ร่าง = ผู้ขอเบิกยังไม่ส่ง → ไม่ใช่งานตรวจ · เห็นเฉพาะร่างของตัวเอง (เช่น พนักงานที่สร้างใบในระบบ)
+    const submitted = expenses.filter((e) => !isGroupAdvanceDoc(e)
+      && (e.status !== 'draft' || e.requesterId === currentUser.id || (!!leaderId && e.requesterId === leaderId)));
     if (currentUser.role !== 'leader' || !leaderId) return submitted;
     return submitted.filter((e) => e.requesterId === leaderId);
   }, [expenses, currentUser]);
@@ -114,7 +136,7 @@ export default function ExpensesPage() {
     const q = query.trim().toLowerCase();
     return scoped
       .filter((expense) => {
-        if (tab !== 'all' && expense.category !== tab) return false;
+        if (tab !== 'all' && reviewKindOf(expense) !== tab) return false;
         if (status !== 'all' && expense.status !== status) return false;
         if (requester !== 'all' && requesterRoleOf(expense) !== requester) return false;
         if (!q) return true;
@@ -129,21 +151,23 @@ export default function ExpensesPage() {
   }, [scoped, tab, status, requester, query, refOf, requesterRoleOf]);
 
   const pendingCount = scoped.filter((e) => e.status === 'submitted').length;
-  const awaitingPayTotal = scoped
-    .filter((e) => e.status === 'awaiting_payment')
-    .reduce((sum, e) => sum + e.totalTHB, 0);
-  const paidTotal = scoped
-    .filter((e) => e.status === 'paid')
-    .reduce((sum, e) => sum + e.totalTHB, 0);
-  const draftCount = scoped.filter((e) => e.status === 'draft' || e.status === 'revise').length;
+  /*
+    ยอดในการ์ด = รวมแยกสกุลเงิน (เหมือนคอลัมน์ยอดรวม) ไม่แปลงเป็นบาท · ไม่นับบรรทัดที่ไม่อนุมัติ
+    รอจ่าย = อนุมัติแล้วทั้งที่ยังไม่ตั้งเรื่อง (approved) และตั้งเรื่องรอจ่ายแล้ว (awaiting_payment)
+  */
+  const awaitingPay = scoped.filter((e) => e.status === 'approved' || e.status === 'awaiting_payment');
+  const awaitingPayTotals = sumByCurrency(awaitingPay);
+  const paid = scoped.filter((e) => e.status === 'paid');
+  const paidTotals = sumByCurrency(paid);
+  const paidCount = paid.length;
+  const reviseCount = scoped.filter((e) => e.status === 'revise').length;
 
+  // แท็บ "อื่น ๆ" ขึ้นเฉพาะเมื่อมีใบ (เช่น ใบที่สร้างในระบบ / ใบเก่า) — ไม่มีแท็บว่างค้าง
   const tabs = [
     { key: 'all', label: 'ทั้งหมด', badge: scoped.length },
-    ...MONEY_CATEGORY_ORDER.map((c) => ({
-      key: c,
-      label: MONEY_CATEGORY[c].label,
-      badge: scoped.filter((e) => e.category === c).length,
-    })),
+    ...REVIEW_TABS
+      .map((t) => ({ key: t.key, label: t.label, badge: scoped.filter((e) => reviewKindOf(e) === t.key).length }))
+      .filter((t) => t.key !== 'other' || t.badge > 0),
   ];
 
   const columns: Column<ExpenseRequest>[] = [
@@ -247,7 +271,7 @@ export default function ExpensesPage() {
     <>
       <PageHeader
         title="ตรวจสอบรายการจ่าย"
-        description="ตรวจ อนุมัติ และบันทึกการจ่าย — ค่าตอบแทน เงินทดรอง ค่าใช้จ่ายจริง และเงินคืน/จ่ายเพิ่ม"
+        description="ตรวจ อนุมัติ และบันทึกการจ่ายทีละใบ — ใบเสร็จค่าใช้จ่ายจริง เบี้ยเลี้ยง และค่าส่งกรุ๊ป · สรุปยอดรายกรุ๊ปที่เมนูเคลียร์เงินกรุ๊ป"
         actions={
           <div className="flex flex-wrap gap-2">
             {/* ล้างใบเบิกที่ส่งเข้ามาทั้งหมด เพื่อทดสอบ flow ใหม่ — เอกสารเบิกค่าใช้จ่ายกรุ๊ป/ซองเงินไม่ถูกแตะ */}
@@ -295,23 +319,14 @@ export default function ExpensesPage() {
 
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="รออนุมัติ" value={pendingCount} tone="violet" hint="ใบเบิกที่ส่งแล้ว" />
-        <StatCard label="ร่าง / รอแก้ไข" value={draftCount} tone="amber" hint="ยังไม่ส่งอนุมัติ" />
-        <StatCard
-          label="รอจ่าย"
-          value={formatTHB(awaitingPayTotal)}
-          tone="blue"
-          hint="อนุมัติแล้ว รอโอน"
-        />
-        <StatCard
-          label="จ่ายแล้ว (สะสม)"
-          value={formatTHB(paidTotal)}
-          tone="green"
-          hint="ข้อมูลจำลอง"
-        />
+        <StatCard label="ส่งกลับแก้ไข" value={reviseCount} tone="amber" hint="รอผู้ขอเบิกแก้แล้วส่งใหม่" />
+        {/* ยอดเงินหลายสกุล — จำนวนใบเป็นตัวเลขหลัก ยอดเรียงบรรทัดละสกุล (พับเมื่อเกิน 3 สกุล) */}
+        <CurrencyStatCard label="รอจ่าย" count={awaitingPay.length} totals={awaitingPayTotals} tone="blue" hint="อนุมัติแล้ว รอโอน" />
+        <CurrencyStatCard label="จ่ายแล้ว (สะสม)" count={paidCount} totals={paidTotals} tone="green" hint="บันทึกจ่ายแล้ว" />
       </div>
 
       <Card className="mb-5">
-        <Tabs items={tabs} value={tab} onChange={(k) => setTab(k as 'all' | MoneyCategory)} />
+        <Tabs items={tabs} value={tab} onChange={(k) => setTab(k as ReviewTab)} />
 
         <div className="mt-4 grid gap-3 sm:grid-cols-[1.5fr_1fr_1fr_auto] sm:items-end">
           <div className="flex flex-col gap-1.5">

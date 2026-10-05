@@ -16,7 +16,8 @@ import { useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
-import { ACK_BEFORE_HANDOFF_NOTE, carrierOf, carrierTitle, envelopeName, leaderCanAck, leaderEnvelopeState, sumAmounts, type CashEnvelope } from '@/lib/logic/cashEnvelope';
+import { EnvelopeRouteTag } from '@/components/expenses/CashEnvelopeDrawer';
+import { ACK_BEFORE_HANDOFF_NOTE, carrierOf, carrierTitle, depositedViaGroup, envelopeName, leaderCanAck, leaderEnvelopeState, sumAmounts, type CashEnvelope } from '@/lib/logic/cashEnvelope';
 import { formatCurrency, formatDate, formatDateTime, toISODate, toISODateTime } from '@/lib/format';
 import { Button, Card, cx } from '@/components/ui/Primitives';
 import { ConfirmDialog, Modal } from '@/components/ui/Modal';
@@ -127,6 +128,11 @@ export function EnvelopeAckList() {
                   <span className="block text-sm zego-text">
                     <span className="font-semibold">{g.period?.groupCode ?? g.periodId}</span> · {g.envs.length} ซอง
                   </span>
+                  {/* มีซองฝากมากับกรุ๊ปอื่น — บรรทัดเดียวใต้รหัสกรุ๊ป */}
+                  {(() => {
+                    const n = g.envs.filter((e) => depositedViaGroup(e, g.period?.groupCode)).length;
+                    return n > 0 ? <span className="block truncate text-[11px] font-semibold text-amber-700">ซองหลัก {g.envs.length - n} · ซองฝาก {n}</span> : null;
+                  })()}
                   <span className="block text-xs zego-text-tertiary">
                     {g.period ? `ออก ${formatDate(g.period.startDate)} · ` : ''}{fmt(g.totals)}
                   </span>
@@ -155,7 +161,10 @@ export function EnvelopeAckList() {
                               ? <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" checked={!unpicked.has(env.id)} onChange={() => togglePick(env.id)} />
                               : <span className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />}
                             <span className="min-w-0 flex-1">
-                              <span className="block font-medium zego-text">{envelopeName(env)}</span>
+                              <span className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-medium zego-text">{envelopeName(env)}</span>
+                                <EnvelopeRouteTag env={env} groupCode={g.period?.groupCode} />
+                              </span>
                               <span className={cx('block', state === 'to_ack' ? 'text-emerald-700' : state === 'not_received' ? 'text-rose-700' : state === 'at_finance' ? 'zego-text-tertiary' : 'text-violet-700')}>
                                 {state === 'not_received'
                                   ? `แจ้งไม่ได้รับแล้ว · ${formatDateTime(env.notReceived!.at)} · ${env.notReceived!.note}`

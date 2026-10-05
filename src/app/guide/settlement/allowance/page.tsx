@@ -1,40 +1,45 @@
 'use client';
 
 /**
- * เบิกเบี้ยเลี้ยง / ค่าทิป — /guide/settlement/allowance (พอร์ทัลหัวหน้าทัวร์)
+ * เบิกเบี้ยเลี้ยง — /guide/settlement/allowance (พอร์ทัลหัวหน้าทัวร์) · หน้านี้ทำได้เฉพาะใบเบิกเบี้ยเลี้ยง (ค่าทิปยังไม่เปิดใช้)
  *
  * หลักการเคลียร์งานรายกรุ๊ป: แยกเอกสาร 3 ใบต่อกรุ๊ป (ดู src/lib/logic/leaderClaims.ts)
  *   ค่าใช้จ่าย (ใบเสร็จจากเมนูค่าใช้จ่าย) · ใบเบิกเบี้ยเลี้ยง · ใบเบิกค่าทิป
  * หน้านี้แสดงทั้ง 3 อย่างของแต่ละกรุ๊ป และทำ/แก้ใบเบิกเบี้ยเลี้ยงกับค่าทิป
- * - เบี้ยเลี้ยง = อัตราต่อวันตามประเทศ (perDiemRates) × จำนวนวันเดินทาง
+ * - เบี้ยเลี้ยง = "เอกสารค่าใช้จ่ายหัวหน้าทัวร์" ตามแบบฟอร์มบริษัท (LeaderExpenseFormModal) — 6 หมวด
+ *   ข้อ 1 ค่าเบี้ยเลี้ยง = อัตราของโปรแกรม (ฝ่ายจัดหัวหน้าทัวร์ตั้งที่เมนูอัตราเบี้ยเลี้ยง) × จำนวนวันเดินทาง · พิมพ์ฟอร์มได้
  * - ค่าทิป = อัตราต่อลูกค้า (ตามประเทศ / เฉพาะโปรแกรม — ตั้งค่าระบบ → ค่าทิป) × จำนวนลูกค้า
  *   ไม่มีอัตราในระบบ → กรอกอัตราเอง บัญชีตรวจ · จำนวนลูกค้าตั้งต้นจากที่จองไว้ แก้ตามจริงได้ (ใส่หมายเหตุ)
  * ทำได้เมื่อจบทริปแล้ว (วันกลับ ≤ วันนี้) · แก้ได้เมื่อยังไม่อนุมัติ (ส่งอนุมัติ / ให้แก้ไข)
  */
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { loadTipRates } from '@/services/tipRateStore';
+import { loadPerDiemRates } from '@/services/perDiemRateStore';
+import { printLeaderExpenseForm } from '@/lib/printLeaderExpenseForm';
+import { LeaderExpenseFormModal, type LeaderClaimForm } from './LeaderExpenseFormModal';
+import { groupAmountsByCurrency } from '../../expenses/expenseAmounts';
+import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import { findPerDiemRate } from '@/data/perDiemRates';
 import { EXPENSE_STATUS } from '@/lib/labels';
 import { formatCurrency, formatDate, formatDateRange, toISODate, toISODateTime } from '@/lib/format';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import {
-  activeLeaderClaim, EMPTY_TIP_RATES, LEADER_CLAIM_LABEL, tipRateFor, tripDays, type LeaderClaimKind, type TipRates,
+  activeLeaderClaim, EMPTY_TIP_RATES, parsePaxText, LEADER_CLAIM_LABEL, perDiemRateFor, tipRateFor, tripDays, type LeaderClaimKind, type PerDiemProgramRates, type TipRates,
 } from '@/lib/logic/leaderClaims';
 import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { Modal } from '@/components/ui/Modal';
 import { TextArea, TextInput } from '@/components/ui/FormField';
 import { Icon } from '@/components/ui/Icon';
-import type { ExpenseRequest } from '@/types';
+import type { ExpenseLine, ExpenseRequest } from '@/types';
 import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import { SettlementBackHeader } from '../SettlementBackHeader';
 
-const EDITABLE = new Set(['submitted', 'revise']);
+const EDITABLE = new Set(['draft', 'submitted', 'revise']);
 
 export default function GuideAllowancePage() {
   const { currentUser, leaders, expenses, saveExpense, createExpenseId } = useDemo();
@@ -42,11 +47,13 @@ export default function GuideAllowancePage() {
   const leader = leaders.find((l) => l.id === leaderId);
   const today = toISODate(new Date());
   const [tipRates, setTipRates] = useState<TipRates>(EMPTY_TIP_RATES);
+  const [perDiemRates, setPerDiemRates] = useState<PerDiemProgramRates>({});
   const [open, setOpen] = useState<{ kind: LeaderClaimKind; period: TourPeriodMaster; existing: ExpenseRequest | null } | null>(null);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จากภายนอก (localStorage) ครั้งเดียวตอน mount
     setTipRates(loadTipRates());
+    setPerDiemRates(loadPerDiemRates().byProgram);
   }, []);
 
   const periodById = new Map(getTourPeriods().map((p) => [p.internalId, p]));
@@ -101,11 +108,58 @@ export default function GuideAllowancePage() {
     setOpen(null);
   };
 
+  /*
+    เอกสารค่าใช้จ่ายหัวหน้าทัวร์ (เบี้ยเลี้ยง) — หลายรายการ + หัวเอกสาร
+    submit = false → บันทึกร่างไว้ก่อน (ทำได้ตั้งแต่ก่อนเดินทาง) · ใบที่ถูกส่งกลับแก้ไขคงสถานะ "ให้แก้ไข"
+    submit = true  → ส่งอนุมัติ (ได้เมื่อจบทริปแล้ว — กั้นที่ปุ่มในฟอร์ม)
+  */
+  const saveForm = async (period: TourPeriodMaster, lines: ExpenseLine[], form: LeaderClaimForm, note: string, existing: ExpenseRequest | null, submit: boolean) => {
+    const at = toISODateTime(new Date());
+    const totalTHB = lines.reduce((n, l) => n + l.amountTHB, 0);
+    const status = submit ? 'submitted' : existing?.status === 'revise' ? 'revise' : 'draft';
+    const what = submit ? 'ส่งอนุมัติเอกสารค่าใช้จ่ายหัวหน้าทัวร์' : 'บันทึกร่างเอกสารค่าใช้จ่ายหัวหน้าทัวร์';
+    if (existing) {
+      await saveExpense({
+        ...existing, lines, totalTHB, claimForm: form, note, status, ...(submit ? { submittedAt: at } : {}),
+        history: [...existing.history, makeStatusEvent(existing.status, status, currentUser.name, at, what)],
+      });
+    } else {
+      const bank = leader?.bankAccounts.find((b) => b.isPrimary) ?? leader?.bankAccounts[0];
+      await saveExpense({
+        id: await createExpenseId(),
+        jobId: period.internalId,
+        category: 'leader_fee',
+        claimKind: 'per_diem',
+        claimForm: form,
+        requesterId: leaderId ?? '',
+        requesterName: leader ? `${leader.firstName} ${leader.lastName}`.trim() : currentUser.name,
+        requestedAt: at,
+        ...(submit ? { submittedAt: at } : {}),
+        lines,
+        totalTHB,
+        bankAccount: bank
+          ? { bank: bank.bank, accountNoMasked: bank.accountNoMasked, accountName: bank.accountName, branch: bank.branch ?? '' }
+          : { bank: '', accountNoMasked: '', accountName: '', branch: '' },
+        note,
+        status,
+        history: [makeStatusEvent(null, status, currentUser.name, at, `${what} — จากพอร์ทัลหัวหน้าทัวร์`)],
+      });
+    }
+    setOpen(null);
+  };
+  /** จำนวนลูกค้าตามเอกสารเบิกที่นำเข้าของกรุ๊ป (หัวเอกสาร เช่น "34 ท่าน + 1 TL") — ไม่มี = null */
+  const paxFromAdvanceDoc = (periodId: string) => {
+    const doc = expenses.find((e) => isGroupAdvanceDoc(e) && e.jobId === periodId && e.sourceDoc?.pax && e.status !== 'cancelled');
+    const parsed = parsePaxText(doc?.sourceDoc?.pax);
+    return doc && parsed ? { ...parsed, label: `เอกสารเบิก ${doc.id}: ${doc.sourceDoc!.pax}` } : null;
+  };
+  const leaderPhone = leader?.contacts.find((c) => c.type === 'phone' && c.isPrimary)?.value ?? leader?.contacts.find((c) => c.type === 'phone')?.value ?? '';
+
   return (
     <div className="space-y-4">
       <SettlementBackHeader
-        title="เบิกเบี้ยเลี้ยง / ค่าทิป"
-        description="เคลียร์งานรายกรุ๊ป แยกเอกสาร 3 ใบ: ค่าใช้จ่าย · เบี้ยเลี้ยง · ค่าทิป — ทำได้เมื่อจบทริปแล้ว"
+        title="เบิกเบี้ยเลี้ยง"
+        description="ทำเอกสารค่าใช้จ่ายหัวหน้าทัวร์ (เบี้ยเลี้ยง) แยกต่อกรุ๊ป — ทำร่างรอไว้ได้ตลอด ส่งอนุมัติได้เมื่อจบทริปแล้ว"
       />
 
       {myGroups.length === 0 ? (
@@ -113,7 +167,6 @@ export default function GuideAllowancePage() {
       ) : (
         myGroups.map((period) => {
           const finished = (period.endDate ?? period.startDate) <= today;
-          const receipts = expenses.filter((e) => e.jobId === period.internalId && e.category === 'actual' && e.requesterId === leaderId && e.status !== 'cancelled');
           return (
             <Card key={period.internalId} className="space-y-2.5">
               <div>
@@ -122,17 +175,8 @@ export default function GuideAllowancePage() {
                 <p className="text-xs zego-text-tertiary">{period.countryName} · {formatDateRange(period.startDate, period.endDate)}</p>
               </div>
               <ul className="divide-y divide-[var(--zego-border-soft)] rounded-lg border zego-border-color text-sm">
-                {/* 1) ค่าใช้จ่าย — ใบเสร็จที่บันทึกไว้แล้วจากเมนูค่าใช้จ่าย */}
-                <li className="flex items-center justify-between gap-2 px-3 py-2">
-                  <span className="min-w-0">
-                    <span className="block font-medium zego-text">ค่าใช้จ่าย</span>
-                    <span className="block text-xs zego-text-tertiary">
-                      {receipts.length > 0 ? `บันทึกแล้ว ${receipts.length} ใบเสร็จ` : 'ยังไม่มีใบเสร็จ'}
-                    </span>
-                  </span>
-                  <Link href="/guide/finance?tab=during" className="shrink-0 text-xs font-medium zego-text-info hover:underline">ไปที่ค่าใช้จ่าย →</Link>
-                </li>
-                {(['per_diem', 'tip'] as LeaderClaimKind[]).map((kind) => {
+                {/* หน้านี้ทำได้เฉพาะเบี้ยเลี้ยง — ค่าใช้จ่าย (ใบเสร็จ) อยู่เมนูค่าใช้จ่าย · ค่าทิปยังไม่เปิดใช้ */}
+                {(['per_diem'] as LeaderClaimKind[]).map((kind) => {
                   const existing = leaderId ? activeLeaderClaim(expenses, period.internalId, leaderId, kind) : null;
                   return (
                     <li key={kind} className="flex items-center justify-between gap-2 px-3 py-2">
@@ -140,13 +184,21 @@ export default function GuideAllowancePage() {
                         <span className="block font-medium zego-text">{LEADER_CLAIM_LABEL[kind]}</span>
                         {existing ? (
                           <span className="flex flex-wrap items-center gap-1.5 text-xs zego-text-tertiary">
-                            {existing.id} · {formatCurrency(existing.totalTHB, 'THB')}
+                            {existing.id} · {groupAmountsByCurrency(existing.lines.map((l) => ({ amount: l.amount, currency: l.currency }))).map((t) => formatCurrency(t.amount, t.currency)).join(' · ')}
                             <StatusBadge meta={EXPENSE_STATUS[existing.status]} size="sm" />
+                            {existing.status === 'draft' && (
+                              <span className="w-full">{finished ? 'พร้อมส่งอนุมัติแล้ว — กดแก้ไข แล้วส่งอนุมัติ' : `ส่งอนุมัติได้ตั้งแต่ ${formatDate(period.endDate ?? period.startDate)}`}</span>
+                            )}
                           </span>
                         ) : (
-                          <span className="block text-xs zego-text-tertiary">{finished ? 'ยังไม่ได้ทำใบเบิก' : `ทำได้เมื่อจบทริป (หลัง ${formatDate(period.endDate ?? period.startDate)})`}</span>
+                          <span className="block text-xs zego-text-tertiary">{finished ? 'ยังไม่ได้ทำใบเบิก' : `ทำร่างรอไว้ได้ · ส่งอนุมัติได้ตั้งแต่ ${formatDate(period.endDate ?? period.startDate)}`}</span>
                         )}
                       </span>
+                      {existing && kind === 'per_diem' && (
+                        <Button variant="ghost" size="sm" icon="download" onClick={() => printLeaderExpenseForm(existing, period, leaderPhone)}>
+                          พิมพ์
+                        </Button>
+                      )}
                       {existing ? (
                         <Button
                           variant="secondary"
@@ -156,10 +208,10 @@ export default function GuideAllowancePage() {
                           title={EDITABLE.has(existing.status) ? undefined : 'ใบเบิกที่อนุมัติ/ดำเนินการแล้ว แก้ไขไม่ได้'}
                           onClick={() => setOpen({ kind, period, existing })}
                         >
-                          แก้ไข
+                          {existing.status === 'draft' && finished ? 'แก้ไข / ส่งอนุมัติ' : 'แก้ไข'}
                         </Button>
                       ) : (
-                        <Button variant="primary" size="sm" icon="plus" disabled={!finished} onClick={() => setOpen({ kind, period, existing: null })}>
+                        <Button variant="primary" size="sm" icon="plus" onClick={() => setOpen({ kind, period, existing: null })}>
                           ทำใบเบิก
                         </Button>
                       )}
@@ -172,7 +224,20 @@ export default function GuideAllowancePage() {
         })
       )}
 
-      {open && (
+      {open && open.kind === 'per_diem' && (
+        <LeaderExpenseFormModal
+          key={`per_diem-${open.period.internalId}`}
+          period={open.period}
+          existing={open.existing}
+          programRate={perDiemRateFor(open.period, perDiemRates)}
+          paxSource={paxFromAdvanceDoc(open.period.internalId)}
+          defaultPhone={leaderPhone}
+          canSubmit={(open.period.endDate ?? open.period.startDate) <= today}
+          onClose={() => setOpen(null)}
+          onSave={(lines, form, note, submit) => saveForm(open.period, lines, form, note, open.existing, submit)}
+        />
+      )}
+      {open && open.kind === 'tip' && (
         <ClaimModal
           key={`${open.kind}-${open.period.internalId}`}
           kind={open.kind}

@@ -43,7 +43,7 @@ export function nextExpenseStatuses(status: ExpenseStatus): ExpenseStatus[] {
   return EXPENSE_TRANSITIONS[status];
 }
 
-/* ------------------------------- เคลียร์งาน ------------------------------- */
+/* ------------------------------- เคลียร์เงินกรุ๊ป ------------------------------- */
 
 const SETTLEMENT_TRANSITIONS: Record<SettlementStatus, SettlementStatus[]> = {
   awaiting_docs: ['under_review'],

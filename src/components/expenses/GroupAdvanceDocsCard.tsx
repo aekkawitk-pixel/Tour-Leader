@@ -69,12 +69,14 @@ export function GroupAdvanceDocsCard({
           <table className="w-full text-sm">
             <thead className="zego-surface-soft-bg text-left">
               <tr>
+                <th className={th}>ประเทศ</th>
                 <th className={th}>รหัสกรุ๊ป</th>
                 <th className={th}>ชื่อโปรแกรม</th>
+                <th className={th}>วันเดินทางไป-กลับ</th>
                 <th className={`${th} text-center`}>เอกสารเบิก</th>
                 <th className={`${th} text-right`}>จำนวนเงิน</th>
                 <th className={th}>สถานะ</th>
-                <th className={th}><span className="sr-only">การทำงาน</span></th>
+                <th className={`${th} text-right`}>Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--zego-border-soft)]">
@@ -87,26 +89,36 @@ export function GroupAdvanceDocsCard({
                 // ยังไม่ได้จัด / จัดไม่ครบ / ยังส่งมอบไม่ครบ / ส่งมอบแล้วแต่ยังไม่มีผู้ตอบรับ / ระบุไม่มีซอง → การเงินยังเข้าไปจัดการได้
                 const manageable = groupManageable(lines, envs, noEnv);
                 const hasEvents = envs.some((e) => e.history.length > 0);
+                // ยังไม่มีเอกสารเบิก = รอการทำเบิก — ไม่มียอดเงิน และยังจัดซองไม่ได้
+                const noDocs = docs.length === 0;
                 const forwarded = envs.filter((e) => e.packedLineIds.length > 0 && e.leaderForward).sort((a, b) => a.no - b.no);
                 return (
                   <tr key={periodId} className="zego-hover-surface">
                     <td className="px-3 py-2.5 align-top">
+                      <p className="whitespace-nowrap zego-text-secondary">{period?.countryName || '—'}</p>
+                    </td>
+                    <td className="px-3 py-2.5 align-top">
                       <p className="whitespace-nowrap font-semibold zego-text">{period?.groupCode ?? docs[0]?.sourceDoc?.groupCode ?? periodId}</p>
-                      {period && <p className="whitespace-nowrap text-xs zego-text-tertiary">{formatDateRange(period.startDate, period.endDate)}</p>}
                     </td>
                     <td className="max-w-[20rem] px-3 py-2.5 align-top">
                       <p className="line-clamp-2 zego-text-secondary">{period?.displayName ?? docs[0]?.sourceDoc?.programName ?? '—'}</p>
                     </td>
+                    <td className="px-3 py-2.5 align-top">
+                      <p className="whitespace-nowrap tabular-nums zego-text">{period ? formatDateRange(period.startDate, period.endDate) : '—'}</p>
+                    </td>
                     <td className="px-3 py-2.5 text-center align-top">
-                      {docs.map((d) => <p key={d.id} className="whitespace-nowrap zego-text">{d.id}</p>)}
+                      {noDocs
+                        ? <p className="whitespace-nowrap zego-text-tertiary">ไม่พบเอกสารเบิก</p>
+                        : docs.map((d) => <p key={d.id} className="whitespace-nowrap zego-text">{d.id}</p>)}
                     </td>
                     <td className="px-3 py-2.5 text-right align-top tabular-nums">
+                      {noDocs && <p className="zego-text-tertiary">—</p>}
                       {sumAmounts(lines).map((b) => <p key={b.currency} className="whitespace-nowrap font-semibold zego-text">{formatCurrency(b.amount, b.currency)}</p>)}
                     </td>
                     {/* สถานะ = ขั้นตอนปัจจุบันของซองเงินทั้งกรุ๊ป */}
                     <td className="px-3 py-2.5 align-top">
-                      <StatusPill label={status.label} tone={status.tone} />
-                      {status.awaiting && <p className="mt-0.5 whitespace-nowrap text-xs zego-text-tertiary">{status.awaiting}</p>}
+                      {noDocs ? <StatusPill label="รอการทำเบิก" tone="slate" /> : <StatusPill label={status.label} tone={status.tone} />}
+                      {!noDocs && status.awaiting &&<p className="mt-0.5 whitespace-nowrap text-xs zego-text-tertiary">{status.awaiting}</p>}
                       {status.stage === 'sealed' && !status.mismatch && (pickupByPeriod.get(periodId)?.length ?? 0) > 0 && (
                         <p className="mt-0.5 text-xs zego-text-tertiary">ผู้มารับ: {pickupByPeriod.get(periodId)!.join(', ')}</p>
                       )}
@@ -132,11 +144,11 @@ export function GroupAdvanceDocsCard({
                           variant="primary"
                           size="sm"
                           className="min-w-[4.5rem] justify-center"
-                          disabled={!manageable}
-                          title={manageable ? undefined : 'ส่งมอบครบและมีผู้ตอบรับแล้ว — จัดการซองเพิ่มไม่ได้'}
+                          disabled={noDocs || !manageable}
+                          title={noDocs ? 'ยังไม่มีเอกสารเบิก — นำเข้าเอกสารเบิกก่อนจึงจะจัดซองได้' : manageable ? undefined : 'ส่งมอบครบและมีผู้ตอบรับแล้ว — จัดการซองเพิ่มไม่ได้'}
                           onClick={() => setOpen({ periodId, view: 'manage' })}
                         >
-                          {status.label === 'รอจัด' ? 'จัดซอง' : 'จัดการ'}
+                          {noDocs || status.label === 'รอจัด' ? 'จัดซอง' : 'จัดการ'}
                         </Button>
                         <Button
                           variant="secondary"

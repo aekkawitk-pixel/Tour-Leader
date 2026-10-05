@@ -1,79 +1,218 @@
 'use client';
 
 /**
- * เคลียร์ค่าใช้จ่ายรายกรุ๊ป — /guide/settlement/claim
+ * ตรวจสอบก่อนนัดเคลียร์เงิน — /guide/settlement/claim (พอร์ทัลหัวหน้าทัวร์)
  *
- * ขั้นที่ 1 — เลือกกรุ๊ปที่ "เดินทางเสร็จแล้ว" เท่านั้น (endDate ≤ วันนี้) — เคลียร์ค่าใช้จ่ายก่อนเดินทางยังไม่มีประโยชน์
- * ขั้นที่ 2 — กรอกแบบฟอร์มเบิกเบี้ยเลี้ยง/ค่าใช้จ่ายเต็มรูปแบบ (SettlementClaimForm)
+ * ขั้นสุดท้ายก่อนนัดหมาย: บันทึกใบเสร็จ → เบิกเบี้ยเลี้ยง → ตรวจสอบหน้านี้ → นัดหมายเข้ามาเคลียร์เงิน
+ * แต่ละกรุ๊ปมีค่าใช้จ่ายอะไรทำไปแล้วบ้าง และแต่ละรายการอยู่สถานะไหน (ดูอย่างเดียว — กดดูรายละเอียดได้)
+ *   1) ซองเงินที่ได้รับ — สถานะซอง (รอรับ / รับแล้ว / ส่งต่อ ...)
+ *   2) ใบเสร็จค่าใช้จ่าย — ที่บันทึกจากเมนูค่าใช้จ่าย (ExpenseRequest category 'actual') · สถานะตรวจของบัญชี
+ *   3) เอกสารค่าใช้จ่ายหัวหน้าทัวร์ (เบี้ยเลี้ยง) — ร่าง / รออนุมัติ / ให้แก้ไข / อนุมัติ / จ่ายแล้ว
+ * กรุ๊ป = งานที่คอนเฟิร์มแล้วและออกเดินทางแล้ว (หรือมีรายการแล้ว) · ล่าสุดก่อน · สรุปสถานะรวมที่หัวการ์ด
  */
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
-import { formatDateRange, toISODate } from '@/lib/format';
-import { Card } from '@/components/ui/Primitives';
+import { EXPENSE_STATUS } from '@/lib/labels';
+import { formatCurrency, formatDate, formatDateRange, toISODate } from '@/lib/format';
+import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
+import { envelopeName } from '@/lib/logic/cashEnvelope';
+import { Card, cx, StatusBadge } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
+import { EnvelopeStatusBadge } from '@/components/expenses/CashEnvelopeDrawer';
 import { SettlementBackHeader } from '../SettlementBackHeader';
-import { SettlementClaimForm } from './SettlementClaimForm';
-import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
+import { GuideExpenseDetailDrawer } from '../../expenses/GuideExpenseDetailDrawer';
+import { expenseOriginalTotals, requestedAtOf } from '../../expenses/expenseAmounts';
+import type { ExpenseRequest } from '@/types';
+
+const fmtTotals = (list: { amount: number; currency: string }[]) => list.map((t) => formatCurrency(t.amount, t.currency)).join(' · ') || '—';
+
+/** สรุปสถานะรวมของกรุ๊ป — ดูจากใบเสร็จ + ใบเบิกเบี้ยเลี้ยง (ร้ายแรงสุดขึ้นก่อน) */
+function groupSummary(docs: ExpenseRequest[]): { label: string; cls: string } {
+  if (docs.length === 0) return { label: 'ยังไม่มีรายการ', cls: 'bg-slate-100 text-slate-600' };
+  if (docs.some((d) => d.status === 'revise')) return { label: 'มีรายการต้องแก้ไข', cls: 'bg-amber-100 text-amber-800' };
+  if (docs.some((d) => d.status === 'rejected')) return { label: 'มีรายการไม่อนุมัติ', cls: 'bg-rose-50 text-rose-700' };
+  if (docs.some((d) => d.status === 'draft')) return { label: 'มีร่างยังไม่ส่ง', cls: 'bg-slate-100 text-slate-700' };
+  if (docs.some((d) => d.status === 'submitted')) return { label: 'รอบัญชีตรวจ', cls: 'bg-violet-50 text-violet-700' };
+  if (docs.every((d) => d.status === 'paid')) return { label: 'จ่ายครบแล้ว', cls: 'bg-emerald-100 text-emerald-800' };
+  return { label: 'อนุมัติแล้ว', cls: 'bg-sky-50 text-sky-700' };
+}
 
 export default function GuideSettlementClaimPage() {
-  const { currentUser } = useDemo();
+  const { currentUser, expenses, envelopes } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
+  const today = toISODate(new Date());
 
-  const eligibleJobs = useMemo(() => {
-    // หมายเหตุ: ใช้วันที่จริงของเครื่อง ไม่ใช้ DEMO_TODAY — ข้อมูลกรุ๊ป (periods.seed.ts) เป็นชุดข้อมูลจริง
-    // ที่ยึดปฏิทินจริง (ส.ค.–ต.ค. 2569) คนละชุดกับ DEMO_TODAY ที่ตรึงไว้ที่ 13 ก.ค. 2569 สำหรับข้อมูลจำลองเก่า
-    // ถ้าใช้ DEMO_TODAY เทียบ จะไม่มีกรุ๊ปไหนผ่านเงื่อนไข "เดินทางเสร็จแล้ว" ได้เลยแม้แต่กรุ๊ปเดียว
-    const realToday = toISODate(new Date());
+  const groups = useMemo(() => {
     const periodById = new Map(getTourPeriods().map((p) => [p.internalId, p]));
-    return (leaderId ? loadActiveGuideAssignments().filter((a) => a.tourLeaderId === leaderId) : [])
-      .map((assignment) => ({ assignment, period: periodById.get(assignment.periodId) }))
-      .filter((x): x is { assignment: typeof x.assignment; period: NonNullable<typeof x.period> } => Boolean(x.period))
-      // เฉพาะกรุ๊ปที่คอนเฟิร์มแล้วและเดินทางเสร็จแล้ว — เคลียร์ค่าใช้จ่ายก่อนกรุ๊ปเดินทางจริงยังไม่มีประโยชน์
-      .filter((x) => x.assignment.assignmentStatus === 'CONFIRMED' && x.period.endDate <= realToday)
-      .sort((a, b) => b.period.endDate.localeCompare(a.period.endDate));
-  }, [leaderId]);
+    const mine = leaderId ? loadActiveGuideAssignments().filter((a) => a.tourLeaderId === leaderId && a.assignmentStatus === 'CONFIRMED') : [];
+    return [...new Set(mine.map((a) => a.periodId))]
+      .map((id) => periodById.get(id))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p))
+      .map((period) => {
+        const receipts = expenses
+          .filter((e) => e.jobId === period.internalId && e.category === 'actual' && e.requesterId === leaderId && e.status !== 'cancelled')
+          .sort((a, b) => requestedAtOf(b).localeCompare(requestedAtOf(a)));
+        const perDiem = leaderId ? activeLeaderClaim(expenses, period.internalId, leaderId, 'per_diem') : null;
+        const envs = envelopes.filter((e) => e.periodId === period.internalId && e.sealed).sort((a, b) => a.no - b.no);
+        return { period, receipts, perDiem, envs };
+      })
+      // ออกเดินทางแล้ว หรือมีรายการแล้ว — กรุ๊ปที่ยังไม่ออกและยังไม่มีอะไรไม่ต้องตรวจ
+      .filter((g) => g.period.startDate <= today || g.receipts.length > 0 || g.perDiem || g.envs.length > 0)
+      .sort((a, b) => b.period.startDate.localeCompare(a.period.startDate));
+  }, [leaderId, expenses, envelopes, today]);
 
-  const [selectedPeriod, setSelectedPeriod] = useState<TourPeriodMaster | null>(null);
-
-  if (selectedPeriod) {
-    return <SettlementClaimForm period={selectedPeriod} onCancel={() => setSelectedPeriod(null)} onSaved={() => setSelectedPeriod(null)} />;
-  }
+  // เปิดค้างไว้ทีละกรุ๊ป — ค่าเริ่มต้น = กรุ๊ปล่าสุด
+  const [openId, setOpenId] = useState<string | null>(() => groups[0]?.period.internalId ?? null);
+  const [detail, setDetail] = useState<ExpenseRequest | null>(null);
 
   return (
     <div className="space-y-4">
-      <SettlementBackHeader title="เคลียร์ค่าใช้จ่ายรายกรุ๊ป" description="เลือกกรุ๊ปที่เดินทางเสร็จแล้ว เพื่อกรอกแบบฟอร์มเคลียร์ค่าใช้จ่าย" />
+      <SettlementBackHeader title="ตรวจสอบก่อนนัดเคลียร์เงิน" description="ดูว่าแต่ละกรุ๊ปมีค่าใช้จ่ายอะไรทำไปแล้วบ้าง และอยู่สถานะไหน — ครบแล้วนัดหมายเข้ามาเคลียร์เงิน" />
 
-      {eligibleJobs.length === 0 ? (
+      {groups.length === 0 ? (
         <Card>
           <p className="zego-border-color rounded-lg border border-dashed px-4 py-6 text-center text-sm zego-text-tertiary">
-            ยังไม่มีกรุ๊ปที่เดินทางเสร็จแล้วให้เคลียร์ค่าใช้จ่าย
+            ยังไม่มีกรุ๊ปที่ออกเดินทางแล้ว
           </p>
         </Card>
       ) : (
-        <Card padded={false}>
-          <ul className="divide-y divide-[var(--zego-border-soft)]">
-            {eligibleJobs.map((j) => (
-              <li key={j.period.internalId}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedPeriod(j.period)}
-                  className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left zego-hover-surface"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium zego-text">{j.period.groupCode} · {j.period.displayName}</span>
-                    <span className="block text-xs zego-text-tertiary">{j.period.countryName} · {formatDateRange(j.period.startDate, j.period.endDate)}</span>
+        groups.map(({ period, receipts, perDiem, envs }) => {
+          const open = openId === period.internalId;
+          const docs = [...receipts, ...(perDiem ? [perDiem] : [])];
+          const sum = groupSummary(docs);
+          // วันกลับนับเป็นจบทริป (ตรงกับการส่งอนุมัติเบี้ยเลี้ยง)
+          const ended = period.endDate <= today;
+          return (
+            <Card key={period.internalId} padded={false}>
+              <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => setOpenId(open ? null : period.internalId)}
+                className="flex w-full items-start gap-2 px-4 py-3 text-left zego-hover-surface"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold zego-text">{period.groupCode}</span>
+                  <span className="block truncate text-xs zego-text-secondary">{period.displayName}</span>
+                  <span className="block text-xs zego-text-tertiary">
+                    {formatDateRange(period.startDate, period.endDate)}{ended ? '' : ' · กำลังเดินทาง'}
+                    {' · '}ซอง {envs.length} · ใบเสร็จ {receipts.length} · เบี้ยเลี้ยง {perDiem ? 1 : 0}
                   </span>
-                  <Icon name="chevronRight" className="h-4 w-4 shrink-0 zego-text-disabled" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </Card>
+                </span>
+                <span className={cx('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', sum.cls)}>{sum.label}</span>
+                <Icon name="chevronDown" className={cx('mt-0.5 h-4 w-4 shrink-0 zego-text-disabled transition', open && 'rotate-180')} />
+              </button>
+
+              {open && (
+                <div className="space-y-3 zego-divider-top px-4 pb-4 pt-3">
+                  {/* 1) ซองเงินที่ได้รับ */}
+                  <Section title="ซองเงิน" count={envs.length}>
+                    {envs.length === 0 ? <Empty text="ไม่มีซองเงินของกรุ๊ปนี้" /> : envs.map((e) => (
+                      <Row key={e.id} title={envelopeName(e)} sub={e.leaderAck ? `รับแล้ว ${formatDate(e.leaderAck.at)}` : undefined} amount={fmtTotals(e.sealed?.faceTotals ?? [])}>
+                        <EnvelopeStatusBadge env={e} short />
+                      </Row>
+                    ))}
+                  </Section>
+
+                  {/* 2) ใบเสร็จค่าใช้จ่าย */}
+                  <Section
+                    title="ใบเสร็จค่าใช้จ่าย"
+                    count={receipts.length}
+                    action={<Link href={`/guide/expenses/record?period=${encodeURIComponent(period.internalId)}`} className="text-xs font-medium zego-text-info hover:underline">+ บันทึกใบเสร็จ</Link>}
+                  >
+                    {receipts.length === 0 ? <Empty text="ยังไม่ได้บันทึกใบเสร็จ" /> : receipts.map((r) => (
+                      <Row
+                        key={r.id}
+                        onClick={() => setDetail(r)}
+                        title={r.lines[0]?.purpose || r.lines[0]?.expenseType || r.id}
+                        sub={`${r.id} · ${formatDate(requestedAtOf(r))}${r.lines.length > 1 ? ` · ${r.lines.length} รายการ` : ''}`}
+                        amount={fmtTotals(expenseOriginalTotals(r))}
+                      >
+                        <StatusBadge meta={EXPENSE_STATUS[r.status]} size="sm" />
+                      </Row>
+                    ))}
+                  </Section>
+
+                  {/* 3) เอกสารค่าใช้จ่ายหัวหน้าทัวร์ (เบี้ยเลี้ยง) */}
+                  <Section
+                    title="เบี้ยเลี้ยง"
+                    count={perDiem ? 1 : 0}
+                    action={<Link href="/guide/settlement/allowance" className="text-xs font-medium zego-text-info hover:underline">{perDiem ? 'ไปที่เบิกเบี้ยเลี้ยง' : '+ ทำใบเบิก'}</Link>}
+                  >
+                    {!perDiem ? <Empty text={ended ? 'ยังไม่ได้ทำใบเบิกเบี้ยเลี้ยง' : 'ทำร่างรอไว้ได้ · ส่งอนุมัติได้หลังจบทริป'} /> : (
+                      <Row
+                        onClick={() => setDetail(perDiem)}
+                        title="เอกสารค่าใช้จ่ายหัวหน้าทัวร์"
+                        sub={`${perDiem.id} · ${perDiem.lines.length} รายการ`}
+                        amount={fmtTotals(expenseOriginalTotals(perDiem))}
+                      >
+                        <StatusBadge meta={EXPENSE_STATUS[perDiem.status]} size="sm" />
+                      </Row>
+                    )}
+                  </Section>
+                </div>
+              )}
+            </Card>
+          );
+        })
       )}
+
+      {/* ขั้นถัดไป — ทำรายการครบแล้ว นัดหมายเข้ามาเคลียร์เงินกับบัญชี */}
+      {groups.length > 0 && (
+        <Link href="/guide/settlement/appointments" className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm zego-hover-surface">
+          <span className="min-w-0">
+            <span className="block font-semibold text-emerald-800">ขั้นถัดไป: นัดหมายเคลียร์เงิน</span>
+            <span className="block text-xs text-emerald-700">การเงินตรวจครบแล้วจะนัดเข้ามาเคลียร์เงิน — ดูนัดและยืนยันได้ที่นี่</span>
+          </span>
+          <Icon name="chevronRight" className="h-4 w-4 shrink-0 text-emerald-700" />
+        </Link>
+      )}
+
+      <GuideExpenseDetailDrawer expense={detail} onClose={() => setDetail(null)} />
     </div>
   );
+}
+
+function Section({ title, count, action, children }: { title: string; count: number; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold zego-text-secondary">{title} <span className="font-normal zego-text-tertiary">({count})</span></p>
+        {action}
+      </div>
+      <ul className="divide-y divide-[var(--zego-border-soft)] rounded-lg border zego-border-color">{children}</ul>
+    </section>
+  );
+}
+
+function Row({ title, sub, amount, onClick, children }: { title: string; sub?: string; amount: string; onClick?: () => void; children: React.ReactNode }) {
+  const body = (
+    <>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm zego-text">{title}</span>
+        {sub && <span className="block truncate text-[11px] zego-text-tertiary">{sub}</span>}
+      </span>
+      <span className="flex shrink-0 flex-col items-end gap-0.5">
+        <span className="text-xs font-semibold tabular-nums zego-text">{amount}</span>
+        {children}
+      </span>
+    </>
+  );
+  return (
+    <li>
+      {onClick ? (
+        <button type="button" onClick={onClick} className="flex w-full items-center gap-2 px-3 py-2 text-left zego-hover-surface">{body}</button>
+      ) : (
+        <div className="flex items-center gap-2 px-3 py-2">{body}</div>
+      )}
+    </li>
+  );
+}
+
+function Empty({ text }: { text: string }) {
+  return <li className="px-3 py-2.5 text-xs zego-text-tertiary">{text}</li>;
 }

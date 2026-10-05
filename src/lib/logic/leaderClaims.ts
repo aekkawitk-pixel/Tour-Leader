@@ -57,3 +57,38 @@ export function activeLeaderClaim(
 ): ExpenseRequest | null {
   return expenses.find((e) => e.claimKind === kind && e.jobId === periodId && e.requesterId === leaderId && !INACTIVE.has(e.status)) ?? null;
 }
+
+/* ------------------------------------------------------------------ */
+/* เอกสารค่าใช้จ่ายหัวหน้าทัวร์ (ใบเบิกเบี้ยเลี้ยง) — ตามแบบฟอร์มกระดาษของบริษัท */
+/* ------------------------------------------------------------------ */
+
+/**
+ * รายการตั้งต้นในเอกสารค่าใช้จ่ายหัวหน้าทัวร์ (ข้อ 1 = เบี้ยเลี้ยง คำนวณจากอัตราของโปรแกรม)
+ * รายการอื่นนอกจากนี้ หัวหน้าทัวร์กด "เพิ่มรายการ" แล้วตั้งชื่อเอง (expenseType = ชื่อที่พิมพ์)
+ */
+export const LEADER_FORM_ITEMS = ['ค่าเบี้ยเลี้ยง', 'ค่าเบ็ดเตล็ด', 'ค่าเค้กวันเกิด', 'ค่ามื้ออาหารอิสระ', 'ค่าวีซ่า'] as const;
+export type LeaderFormItem = (typeof LEADER_FORM_ITEMS)[number];
+
+/** อัตราเบี้ยเลี้ยง (บาท / วัน) ตามโปรแกรมทัวร์ — ฝ่ายจัดหัวหน้าทัวร์ตั้งไว้ · key = perDiemProgramKey */
+export type PerDiemProgramRates = Record<string, number>;
+
+/** คีย์โปรแกรมของกรุ๊ป — รหัสโปรแกรม (เช่น ZGCTS-2518VZ) ก่อน ไม่มีจึงใช้ชื่อโปรแกรม */
+export function perDiemProgramKey(period: { programCode?: string | null; displayName?: string | null }): string {
+  return (period.programCode ?? '').trim().toUpperCase() || (period.displayName ?? '').trim();
+}
+
+/** อัตราเบี้ยเลี้ยงต่อวันของกรุ๊ป — ไม่มีอัตราของโปรแกรม = null (หัวหน้าทัวร์กรอกเอง บัญชีตรวจ) */
+export function perDiemRateFor(period: { programCode?: string | null; displayName?: string | null }, rates: PerDiemProgramRates): number | null {
+  const r = rates[perDiemProgramKey(period)];
+  return r > 0 ? r : null;
+}
+
+/**
+ * จำนวนลูกค้า / หัวหน้าทัวร์ จากข้อความในเอกสารเบิกที่นำเข้า (AdvanceDocMeta.pax) เช่น "34 ท่าน + 1 TL" · "34+1"
+ * อ่านไม่ออก = null (ใช้ค่าอื่นแทน)
+ */
+export function parsePaxText(text: string | null | undefined): { pax: number; leaders: number | null } | null {
+  const m = (text ?? '').match(/(\d+)\s*(?:ท่าน|คน|pax)?\s*(?:\+\s*(\d+))?/i);
+  if (!m) return null;
+  return { pax: Number(m[1]), leaders: m[2] != null ? Number(m[2]) : null };
+}

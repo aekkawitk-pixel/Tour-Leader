@@ -1,15 +1,23 @@
 'use client';
 
-/** หน้านัดหมาย — มุมมองรายการและปฏิทิน สร้าง ยืนยัน เลื่อน หรือยกเลิกนัด */
+/**
+ * นัดหมาย — ปฏิทินรวมนัดทุกประเภท (เคลียร์เงินกรุ๊ป · ส่งเอกสาร · ประชุม · อื่น ๆ)
+ *
+ * ชุดนัดหมายกลาง (appointmentStore) — นัดเคลียร์เงินที่การเงินนัดจากเมนูเคลียร์เงินกรุ๊ปก็ขึ้นที่นี่
+ * หัวหน้าทัวร์ยืนยัน / ขอเลื่อนในพอร์ทัล → ที่นี่เห็นคำขอ แล้ว "เลื่อนนัด" ให้ (กลับเป็นรอหัวหน้าทัวร์ยืนยัน)
+ * ค่าเริ่มต้นเป็นมุมมองปฏิทิน · กดวันว่างในปฏิทินเพื่อสร้างนัดวันนั้น
+ */
 
 import { useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { can } from '@/lib/permissions';
-import { APPOINTMENT_MODE, APPOINTMENT_STATUS } from '@/lib/labels';
+import Link from 'next/link';
+import { APPOINTMENT_KIND, APPOINTMENT_MODE, APPOINTMENT_STATUS } from '@/lib/labels';
+import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { TONE_ZEGO_COLOR } from '@/lib/tone-tokens';
 import { buildMonthGrid, monthTitle, shiftMonth } from '@/lib/logic/calendar';
 import { hasTimeOverlap } from '@/lib/logic/conflicts';
-import { formatDate, parseDate, TH_WEEKDAYS_SHORT } from '@/lib/format';
+import { formatDate, parseDate, TH_WEEKDAYS_SHORT, toISODate } from '@/lib/format';
 import {
   Button,
   Card,
@@ -28,14 +36,18 @@ import { ConfirmDialog, Drawer, Modal } from '@/components/ui/Modal';
 import { Timeline } from '@/components/ui/Timeline';
 import { Icon } from '@/components/ui/Icon';
 import { AppointmentFormModal } from '@/components/appointments/AppointmentFormModal';
-import type { Appointment, AppointmentStatus } from '@/types';
+import type { Appointment, AppointmentKind, AppointmentStatus } from '@/types';
 
 export default function AppointmentsPage() {
-  const { appointments, leaders, jobs, today, currentUser, changeAppointmentStatus, saving } =
+  const { appointments, leaders, jobs, currentUser, changeAppointmentStatus, saving } =
     useDemo();
+  // วันที่จริงของเครื่อง — นัดหมายเป็นข้อมูลจริง (ไม่ใช้วันจำลองของ Demo ที่ตรึงไว้ ก.ค. 2569)
+  const today = toISODate(new Date());
 
   const todayDate = parseDate(today);
-  const [view, setView] = useState<'list' | 'calendar'>('list');
+  const [view, setView] = useState<'list' | 'calendar'>('calendar');
+  const [kindFilter, setKindFilter] = useState<'all' | AppointmentKind>('all');
+  const [presetDate, setPresetDate] = useState<string | undefined>(undefined);
   const [cursor, setCursor] = useState({
     year: todayDate.getFullYear(),
     month: todayDate.getMonth(),
@@ -68,10 +80,11 @@ export default function AppointmentsPage() {
         .filter((a) => {
           if (status !== 'all' && a.status !== status) return false;
           if (leaderFilter !== 'all' && a.leaderId !== leaderFilter) return false;
+          if (kindFilter !== 'all' && (a.kind ?? 'other') !== kindFilter) return false;
           return true;
         })
         .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`)),
-    [scoped, status, leaderFilter],
+    [scoped, status, leaderFilter, kindFilter],
   );
 
   /** เวลาซ้อน (ของหัวหน้าทัวร์หรือเจ้าหน้าที่คนเดียวกัน) */
@@ -108,11 +121,21 @@ export default function AppointmentsPage() {
     const leader = leaders.find((l) => l.id === id);
     return leader ? `${leader.firstName} ${leader.lastName}` : id;
   };
+  /** กรุ๊ปของนัด — กรุ๊ปจริง (Tour Period) ก่อน · นัดเดิมแบบงาน JOB-… ใช้ชื่องาน */
+  const groupOf = (a: Appointment): string => {
+    if (!a.jobId) return 'ไม่ผูกกรุ๊ป';
+    const p = getTourPeriodById(a.jobId);
+    if (p) return `${p.groupCode} · ${p.displayName}`;
+    const j = jobs.find((x) => x.id === a.jobId);
+    return j ? `${j.id} — ${j.title}` : a.jobId;
+  };
+  const groupCodeOf = (a: Appointment) => (a.jobId ? getTourPeriodById(a.jobId)?.groupCode ?? a.jobId : '');
 
   const upcoming = scoped.filter(
     (a) => a.date >= today && (a.status === 'pending' || a.status === 'confirmed' || a.status === 'rescheduled'),
   );
   const pending = scoped.filter((a) => a.status === 'pending');
+  const askReschedule = scoped.filter((a) => a.status === 'rescheduled');
   const attended = scoped.filter((a) => a.status === 'attended');
 
   const canManage = can(currentUser.role, 'appointment.manage');
@@ -120,9 +143,10 @@ export default function AppointmentsPage() {
   const submitReschedule = async () => {
     if (!selected || !newDate || !newTime) return;
     setRescheduleOpen(false);
+    // เจ้าหน้าที่เลื่อนนัด → กลับเป็นรอหัวหน้าทัวร์ยืนยันวันเวลาใหม่
     await changeAppointmentStatus(
       selected.id,
-      'rescheduled',
+      'pending',
       rescheduleNote.trim() ||
         `เลื่อนจาก ${formatDate(selected.date)} ${selected.time} เป็น ${formatDate(newDate)} ${newTime}`,
       newDate,
@@ -135,7 +159,7 @@ export default function AppointmentsPage() {
     <>
       <PageHeader
         title="นัดหมาย"
-        description="นัดหมายเข้าพบ ประชุมออนไลน์ หรือส่งเอกสารกับฝ่ายบัญชี"
+        description="ปฏิทินรวมนัดทุกประเภท — เคลียร์เงินกรุ๊ป ส่งเอกสาร ประชุม · หัวหน้าทัวร์ยืนยันหรือขอเลื่อนในพอร์ทัลของตัวเอง"
         actions={
           can(currentUser.role, 'appointment.create') && (
             <Button
@@ -143,6 +167,7 @@ export default function AppointmentsPage() {
               icon="plus"
               onClick={() => {
                 setEditingId(null);
+                setPresetDate(undefined);
                 setFormOpen(true);
               }}
             >
@@ -152,13 +177,19 @@ export default function AppointmentsPage() {
         }
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="นัดหมายที่จะถึง" value={upcoming.length} tone="blue" hint="ตั้งแต่วันนี้เป็นต้นไป" />
         <StatCard
           label="รอยืนยัน"
           value={pending.length}
           tone={pending.length > 0 ? 'amber' : 'slate'}
           hint="รอหัวหน้าทัวร์ตอบรับ"
+        />
+        <StatCard
+          label="ขอเลื่อนนัด"
+          value={askReschedule.length}
+          tone={askReschedule.length > 0 ? 'violet' : 'slate'}
+          hint="หัวหน้าทัวร์ขอเลื่อน รอนัดใหม่"
         />
         <StatCard
           label="เวลาซ้อน"
@@ -178,7 +209,16 @@ export default function AppointmentsPage() {
       )}
 
       <Card className="mb-5">
-        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+          <SelectInput
+            label="ประเภทนัด"
+            value={kindFilter}
+            onChange={(e) => setKindFilter(e.target.value as 'all' | AppointmentKind)}
+            options={[
+              { value: 'all', label: 'ทุกประเภท' },
+              ...(Object.keys(APPOINTMENT_KIND) as AppointmentKind[]).map((k) => ({ value: k, label: APPOINTMENT_KIND[k].label })),
+            ]}
+          />
           <SelectInput
             label="สถานะ"
             value={status}
@@ -252,10 +292,11 @@ export default function AppointmentsPage() {
                         )}
                       </p>
                       <p className="zego-text-tertiary truncate text-xs">
-                        {appointment.id} · {appointment.jobId} · {appointment.location}
+                        {appointment.id} · {groupOf(appointment)} · {appointment.location}
                       </p>
                     </div>
 
+                    <StatusBadge meta={APPOINTMENT_KIND[appointment.kind ?? 'other']} size="sm" dot={false} />
                     <StatusBadge meta={APPOINTMENT_MODE[appointment.mode]} size="sm" dot={false} />
                     <StatusBadge meta={APPOINTMENT_STATUS[appointment.status]} size="sm" />
                   </button>
@@ -311,9 +352,14 @@ export default function AppointmentsPage() {
                         cell.inMonth ? 'zego-surface-bg' : 'zego-surface-soft-bg',
                       )}
                     >
-                      <span
+                      <button
+                        type="button"
+                        title="สร้างนัดวันนี้"
+                        aria-label={`สร้างนัดวันที่ ${formatDate(cell.date)}`}
+                        disabled={!can(currentUser.role, 'appointment.create')}
+                        onClick={() => { setEditingId(null); setPresetDate(cell.date); setFormOpen(true); }}
                         className={cx(
-                          'flex h-6 w-6 items-center justify-center rounded-full text-xs',
+                          'flex h-6 w-6 items-center justify-center rounded-full text-xs hover:ring-1 hover:ring-emerald-300 disabled:hover:ring-0',
                           cell.isToday
                             ? 'zego-today-badge font-bold'
                             : cell.inMonth
@@ -322,13 +368,13 @@ export default function AppointmentsPage() {
                         )}
                       >
                         {parseDate(cell.date).getDate()}
-                      </span>
+                      </button>
                       {list.map((appointment) => (
                         <button
                           key={appointment.id}
                           type="button"
                           onClick={() => setSelectedId(appointment.id)}
-                          title={`${appointment.time} — ${leaderName(appointment.leaderId)}`}
+                          title={`${appointment.time} — ${APPOINTMENT_KIND[appointment.kind ?? 'other'].label} · ${leaderName(appointment.leaderId)}${groupCodeOf(appointment) ? ` · ${groupCodeOf(appointment)}` : ''}`}
                           className="zego-surface-soft-bg zego-text-secondary flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] font-medium transition hover:brightness-95"
                         >
                           <span
@@ -339,7 +385,7 @@ export default function AppointmentsPage() {
                             aria-hidden="true"
                           />
                           <span className="truncate">
-                            {appointment.time} {leaderName(appointment.leaderId).split(' ')[0]}
+                            {appointment.time} {appointment.kind === 'clear' ? 'เคลียร์ ' : ''}{leaderName(appointment.leaderId).split(' ')[0]}
                           </span>
                         </button>
                       ))}
@@ -386,7 +432,7 @@ export default function AppointmentsPage() {
                   >
                     เลื่อนนัด
                   </Button>
-                  {selected.status !== 'confirmed' && (
+                  {selected.status === 'pending' && (
                     <Button
                       variant="primary"
                       onClick={async () => {
@@ -420,6 +466,7 @@ export default function AppointmentsPage() {
           <div className="space-y-5">
             <div className="flex flex-wrap gap-2">
               <StatusBadge meta={APPOINTMENT_STATUS[selected.status]} />
+              <StatusBadge meta={APPOINTMENT_KIND[selected.kind ?? 'other']} dot={false} />
               <StatusBadge meta={APPOINTMENT_MODE[selected.mode]} dot={false} />
               {overlapIds.has(selected.id) && (
                 <span className="zego-badge--warning inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium">
@@ -431,16 +478,20 @@ export default function AppointmentsPage() {
 
             <dl className="space-y-2.5 text-sm">
               <Row label="หัวหน้าทัวร์" value={leaderName(selected.leaderId)} />
-              <Row
-                label="งานทัวร์"
-                value={`${selected.jobId} — ${
-                  jobs.find((j) => j.id === selected.jobId)?.title ?? '—'
-                }`}
-              />
+              <Row label="กรุ๊ป" value={groupOf(selected)} />
               <Row label="เจ้าหน้าที่" value={selected.staffName} />
               <Row label="สถานที่ / ลิงก์" value={selected.location} />
               <Row label="ระยะเวลา" value={`${selected.durationMinutes} นาที`} />
             </dl>
+
+            {selected.status === 'rescheduled' && (
+              <Callout tone="amber" title="หัวหน้าทัวร์ขอเลื่อนนัด">
+                {selected.leaderNote || 'ไม่ได้ระบุวันเวลาที่สะดวก'} — กด “เลื่อนนัด” เพื่อนัดวันเวลาใหม่
+              </Callout>
+            )}
+            {selected.kind === 'clear' && (
+              <Link href="/settlements" className="block text-sm font-medium zego-text-info hover:underline">ไปที่เคลียร์เงินกรุ๊ป →</Link>
+            )}
 
             {selected.note && (
               <div className="zego-surface-soft-bg rounded-lg px-4 py-3">
@@ -532,6 +583,7 @@ export default function AppointmentsPage() {
           setEditingId(null);
         }}
         appointment={editing}
+        presetDate={presetDate}
       />
     </>
   );

@@ -118,13 +118,13 @@ export function urgentTasks(
     return l ? `${l.firstName} ${l.lastName}` : id;
   };
 
-  // 1) เคลียร์งานเกินกำหนด
+  // 1) เคลียร์เงินกรุ๊ปเกินกำหนด
   for (const settlement of settlements) {
     const summary = summarizeSettlement(settlement, today);
     if (summary.overdueDays > 0) {
       tasks.push({
         id: `stl-${settlement.id}`,
-        title: `เคลียร์งานเกินกำหนด ${summary.overdueDays} วัน`,
+        title: `เคลียร์เงินกรุ๊ปเกินกำหนด ${summary.overdueDays} วัน`,
         detail: `${settlement.id} · ${leaderName(settlement.leaderId)} · งาน ${settlement.jobId}`,
         href: '/settlements',
         tone: summary.overdueDays > 14 ? 'red' : 'amber',

@@ -286,7 +286,7 @@ export default function JobDetailPage() {
             {settlement && (
               <>
                 <h3 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide zego-text-tertiary">
-                  การเคลียร์งาน
+                  การเคลียร์เงินกรุ๊ป
                 </h3>
                 <Link
                   href="/settlements"

@@ -13,6 +13,7 @@ export type NavKey =
   | 'appointments'
   | 'reports'
   | 'sendOffStaff'
+  | 'perDiemRates'
   | 'zego'
   | 'tourPeriods'
   | 'leaderMaster'
@@ -79,7 +80,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     key: 'settlements',
-    label: 'เคลียร์งาน',
+    label: 'เคลียร์เงินกรุ๊ป',
     href: '/settlements',
     icon: 'checklist',
     roles: ['admin', 'accounting', 'leader'],
@@ -104,6 +105,14 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'เจ้าหน้าที่ส่งกรุ๊ป',
     href: '/send-off-staff',
     icon: 'users',
+    roles: ['admin', 'coordinator'],
+  },
+  {
+    key: 'perDiemRates',
+    // อัตราเบี้ยเลี้ยงหัวหน้าทัวร์ตามโปรแกรมทัวร์ — ฝ่ายจัดหัวหน้าทัวร์เป็นผู้กำหนด (บัญชีใช้ตรวจใบเบิก)
+    label: 'อัตราเบี้ยเลี้ยง',
+    href: '/per-diem-rates',
+    icon: 'money',
     roles: ['admin', 'coordinator'],
   },
   /*
@@ -156,7 +165,7 @@ export const NAV_ITEMS: NavItem[] = [
  *
  * เปิดเมนูเพิ่ม → ใส่ NavKey ลงชุดนี้ · เปิดครบทุกเมนู → ตั้งเป็น null
  */
-const TRIAL_NAV_KEYS: ReadonlySet<NavKey> | null = new Set<NavKey>(['dashboard', 'leaders', 'jobs', 'calendar', 'expenses', 'groupExpenses', 'settlements', 'holidays', 'zego', 'sendOffStaff', 'settings']);
+const TRIAL_NAV_KEYS: ReadonlySet<NavKey> | null = new Set<NavKey>(['dashboard', 'leaders', 'jobs', 'calendar', 'expenses', 'groupExpenses', 'settlements', 'holidays', 'zego', 'sendOffStaff', 'perDiemRates', 'appointments', 'settings']);
 
 /** ป้ายกำกับเมนูที่ยังไม่เปิดให้ใช้ในรอบทดลอง */
 export const IN_DEVELOPMENT_LABEL = 'กำลังพัฒนา';
@@ -368,7 +377,7 @@ export function ownLeaderScope(user: { role: Role; leaderId?: string }): string 
 export const ROLE_SCOPE: Record<Role, string> = {
   admin: 'เห็นทุกเมนูและทุกงาน',
   coordinator: 'จัดงานและหัวหน้าทัวร์ ไม่เห็นการอนุมัติเงิน',
-  accounting: 'ดูแลใบเบิกและการเคลียร์งาน',
+  accounting: 'ดูแลใบเบิกและการเคลียร์เงินกรุ๊ป',
   leader: 'เห็นเฉพาะงานและใบเบิกของตนเอง',
   sendoff: 'ใช้พอร์ทัลเจ้าหน้าที่ส่งกรุ๊ป (/staff) เท่านั้น',
 };

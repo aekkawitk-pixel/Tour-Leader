@@ -22,7 +22,7 @@ import { SearchBox, TextInput } from '@/components/ui/FormField';
 import { Icon } from '@/components/ui/Icon';
 import { formatCurrency, formatDate, formatDateRange, formatDateTime, formatTime, toISODate, toISODateTime } from '@/lib/format';
 import {
-  allocationOf, canEditHandover, canSeal, pendingDepositLabel, type PendingDeposit, carrierOf, carrierTitle, custodyTrail, ENVELOPE_KIND, ENVELOPE_KIND_ORDER, envelopeKindReady, type EnvelopeKind, docChangedSinceSeal, docIdOfLineKey, envelopeTimeline, handoverReceiverText, envelopeName, envelopeShortLabel, envelopeStage, envelopeStatusLabel,
+  allocationOf, canEditHandover, depositedViaGroup, canSeal, pendingDepositLabel, type PendingDeposit, carrierOf, carrierTitle, custodyTrail, ENVELOPE_KIND, ENVELOPE_KIND_ORDER, envelopeKindReady, type EnvelopeKind, docChangedSinceSeal, docIdOfLineKey, envelopeTimeline, handoverReceiverText, envelopeName, envelopeShortLabel, envelopeStage, envelopeStatusLabel,
   envelopeTotals, groupEnvelopeStatus, groupLines, lineKey, newEnvelope, NO_ENVELOPE_REASONS, packingFromAllocation, sumAmounts, unassignedLines,
   type Allocation, type CashEnvelope, type EnvelopeAmount, type EnvelopeTone,
 } from '@/lib/logic/cashEnvelope';
@@ -52,6 +52,17 @@ export function StatusPill({ label, tone }: { label: string; tone: EnvelopeTone 
 
 export function EnvelopeStatusBadge({ env, short = false }: { env: CashEnvelope | undefined; short?: boolean }) {
   return <StatusPill {...(short ? envelopeShortLabel(env) : envelopeStatusLabel(env))} />;
+}
+
+/**
+ * ป้าย "ซองหลัก" / "ซองฝาก · มากับกรุ๊ป X" — ให้หัวหน้าทัวร์แยกออกว่าซองไหนมากับกรุ๊ปตัวเอง ซองไหนฝากมากับกรุ๊ปอื่น
+ * (ซองฝากมาคนละทาง คนละเวลา ต้องตามรับจากผู้ถือของกรุ๊ปนั้น)
+ */
+export function EnvelopeRouteTag({ env, groupCode }: { env: CashEnvelope; groupCode: string | undefined }) {
+  const via = depositedViaGroup(env, groupCode);
+  return via
+    ? <span className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">ซองฝาก · มากับกรุ๊ป {via}</span>
+    : <span className="shrink-0 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">ซองหลัก</span>;
 }
 
 const fmtTotals = (list: EnvelopeAmount[]) => list.map((t) => formatCurrency(t.amount, t.currency)).join(' · ');
@@ -659,6 +670,34 @@ function EnvelopePanel({
   const attachStaff = env.handover
     ? (handedCarrier?.kind === 'staff' ? { id: handedCarrier.id, name: handedCarrier.name } : undefined)
     : staffPerson && { id: staffPerson.id, name: staffPerson.name };
+  /** หัวหน้าทัวร์ที่ถือซองของกรุ๊ปนี้ไป (ฝากส่ง) — ยังไม่ส่งมอบ = ตามฟอร์ม · ส่งมอบแล้ว = ตามที่บันทึก */
+  const attachLeaderCarrier: { id: string; name: string; viaGroup?: string } | undefined = env.handover
+    ? env.handover.nextLeaderCarrier ?? (handedCarrier?.kind === 'leader' ? { id: handedCarrier.id, name: handedCarrier.name, ...(env.handover.viaGroup ? { viaGroup: env.handover.viaGroup } : {}) } : undefined)
+    : leaderCarrier && { id: leaderCarrier.id, name: leaderCarrier.name, ...(via ? { viaGroup: via } : {}) };
+  /*
+    ซองที่รอหัวหน้าทัวร์ (เลือกภายหลัง) — ทอดหัวหน้าทัวร์เลือกได้ต่อซอง ไม่จำเป็นต้องผ่านหัวหน้าทัวร์:
+    · direct = ไม่ผ่านหัวหน้าทัวร์ — เจ้าหน้าที่ส่งถึงหัวหน้าทัวร์หลักของกรุ๊ปเจ้าของซองเอง (หรือหัวหน้าทัวร์ของกรุ๊ปนี้คือคนเดียวกัน)
+    · leader:<id> = ฝากหัวหน้าทัวร์ของกรุ๊ปนี้ (คนที่ถือซองกรุ๊ปนี้ไป / หัวหน้าทัวร์หลักกรุ๊ปนี้)
+  */
+  type LeaderLegOption = { key: string; label: string; carrier?: { id: string; name: string; viaGroup?: string } };
+  const leaderLegOptions = (x: CashEnvelope, staffSide: { id: string; name: string } | undefined): LeaderLegOption[] => {
+    const owner = leaderOfPeriod(x.periodId);
+    const ownerName = owner?.name ?? 'หัวหน้าทัวร์หลักของกรุ๊ปเจ้าของซอง';
+    const sameAsOwner = (id: string) => !!owner && owner.id === id;
+    const opts: LeaderLegOption[] = [];
+    const ownerInThisGroup = (!!leader && sameAsOwner(leader.id)) || (!!attachLeaderCarrier && sameAsOwner(attachLeaderCarrier.id));
+    if (staffSide || ownerInThisGroup) {
+      opts.push({ key: 'direct', label: ownerInThisGroup ? `ส่งถึง ${ownerName} โดยตรง (ไปกับกรุ๊ปนี้อยู่แล้ว)` : `ไม่ผ่านหัวหน้าทัวร์ — ${staffSide!.name} ส่งถึง ${ownerName} เอง` });
+    }
+    if (attachLeaderCarrier && !sameAsOwner(attachLeaderCarrier.id)) {
+      opts.push({ key: `leader:${attachLeaderCarrier.id}`, label: `ฝาก ${attachLeaderCarrier.name} (หัวหน้าทัวร์ที่ถือซองกรุ๊ปนี้ไป)`, carrier: { ...attachLeaderCarrier, viaGroup: attachLeaderCarrier.viaGroup ?? thisGroupCode } });
+    }
+    if (leader && !sameAsOwner(leader.id) && leader.id !== attachLeaderCarrier?.id) {
+      opts.push({ key: `leader:${leader.id}`, label: `ฝาก ${leader.name} (หัวหน้าทัวร์หลักกรุ๊ปนี้)`, carrier: { id: leader.id, name: leader.name, viaGroup: thisGroupCode } });
+    }
+    return opts;
+  };
+  const [leaderPick, setLeaderPick] = useState<Record<string, string>>({});
   /** ซองของกรุ๊ปอื่นที่รอฝากทั้งหมด + เหตุผลถ้ายังฝากกับกรุ๊ปนี้ไม่ได้ (null = ติ๊กได้) */
   const waitingOthers = allEnvelopes
     .filter((x) => x.periodId !== periodId && x.pendingDeposit && x.sealed && !x.handover)
@@ -668,7 +707,7 @@ function EnvelopePanel({
       const myStart = period?.startDate ?? '';
       const reason =
         pd.staff === 'pending' && !attachStaff ? (env.handover ? 'ซองกรุ๊ปนี้ไม่ได้ฝากเจ้าหน้าที่ส่งกรุ๊ป' : 'เลือกเจ้าหน้าที่ส่งกรุ๊ปของกรุ๊ปนี้ก่อน')
-          : pd.leader === 'pending' && !leader ? 'กรุ๊ปนี้ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม'
+          : pd.leader === 'pending' && leaderLegOptions(x, pd.staff === 'pending' ? attachStaff : pd.staff === 'none' ? undefined : pd.staff).length === 0 ? 'กรุ๊ปนี้ยังไม่มีหัวหน้าทัวร์ให้ฝาก'
             // ส่งทันไหม — เจ้าหน้าที่ไปส่งกรุ๊ปนี้ก่อน/วันเดียวกับกรุ๊ปเจ้าของซองออกเดินทาง · หัวหน้าทัวร์ออกเดินทางไม่หลังวันกลับของกรุ๊ปเจ้าของซอง
             : xp && myStart && pd.staff === 'pending' && myStart > xp.startDate ? `กรุ๊ปนี้ออกเดินทางหลังกรุ๊ป ${xp.groupCode} — ส่งไม่ทัน`
               : xp && myStart && pd.staff !== 'pending' && pd.leader === 'pending' && myStart > xp.endDate ? `กรุ๊ปนี้ออกเดินทางหลังกรุ๊ป ${xp.groupCode} กลับแล้ว — ส่งไม่ทัน`
@@ -694,15 +733,19 @@ function EnvelopePanel({
     const pd = x.pendingDeposit!;
     const owner = leaderOfPeriod(x.periodId);
     const staffSide = pd.staff === 'pending' ? attachStaff : pd.staff === 'none' ? undefined : pd.staff;
-    const leaderSide = pd.leader === 'pending'
-      ? leader && { id: leader.id, name: leader.name, viaGroup: thisGroupCode }
-      : pd.leader === 'main' ? undefined : pd.leader;
-    return { owner, staffSide, leaderSide };
+    const legOptions = pd.leader === 'pending' ? leaderLegOptions(x, staffSide) : [];
+    // ค่าเริ่มต้น = ตัวเลือกแรก (ส่งตรงถ้าทำได้) · ตัวที่เลือกไว้ใช้ไม่ได้แล้ว (เปลี่ยนคนในฟอร์ม) → กลับไปตัวแรก
+    const leg = legOptions.find((o) => o.key === leaderPick[x.id]) ?? legOptions[0];
+    const leaderSide = pd.leader === 'pending' ? leg?.carrier : pd.leader === 'main' ? undefined : pd.leader;
+    return { owner, staffSide, leaderSide, legOptions, legKey: leg?.key ?? '' };
   };
   /** ฝากซองของกรุ๊ปอื่นไปกับคนของกรุ๊ปนี้ — ผู้รับปลายทาง = หัวหน้าทัวร์ของกรุ๊ปเจ้าของซอง */
   const handOverAttached = async (x: CashEnvelope) => {
     const { owner, staffSide, leaderSide } = attachRoute(x);
-    const base = { at: toISODateTime(new Date()), byName: '', ...(owner ? { receiverId: owner.id } : {}), receiverName: owner?.name ?? 'หัวหน้าทัวร์ของกรุ๊ป' };
+    const base = {
+      at: toISODateTime(new Date()), byName: '', ...(owner ? { receiverId: owner.id } : {}), receiverName: owner?.name ?? 'หัวหน้าทัวร์ของกรุ๊ป',
+      depositedWith: thisGroupCode, pendingBefore: x.pendingDeposit!,
+    };
     const next: CashEnvelope = {
       ...x,
       handover: staffSide
@@ -772,7 +815,11 @@ function EnvelopePanel({
 
   /** ยังไม่มีผู้ตอบรับ → ยกเลิกการส่งมอบเดิม แล้วเลือกผู้รับใหม่ (หรือเปิดซองแก้ไขการจัดต่อได้) */
   const editHandover = () => {
-    if (!window.confirm(`ยกเลิกการส่งมอบ${name}เดิม (${handoverReceiverText(env.handover!)}) เพื่อแก้ไข?`)) return;
+    // ซองกรุ๊ปอื่นที่ฝากไว้ไม่ถูกยกเลิกตาม — แจ้งให้รู้ ถ้าจะเปลี่ยนด้วยต้องแก้แยกในหัวข้อ 3
+    const others = allEnvelopes.filter((x) => x.periodId !== periodId && canEditHandover(x) && (x.handover!.depositedWith ?? x.handover!.viaGroup) === thisGroupCode).length;
+    if (!window.confirm(`ยกเลิกการส่งมอบ${name}เดิม (${handoverReceiverText(env.handover!)}) เพื่อแก้ไข?${others > 0 ? `
+
+ซองของกรุ๊ปอื่นที่ฝากไว้ ${others} ซองยังไม่ถูกยกเลิก — ถ้าจะเปลี่ยนด้วย ให้กด "แก้ไข · ยกเลิกฝาก" ในหัวข้อ 3` : ''}`)) return;
     const rest: CashEnvelope = { ...env };
     delete rest.handover;
     delete rest.staffHandoff;
@@ -862,7 +909,21 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
   };
 
   /* หัวข้อ 3 แสดงเมื่อมีซองกรุ๊ปอื่นรอฝาก / ฝากมากับกรุ๊ปนี้แล้ว — ไม่แสดงตอนซองนี้เองยังรอเลือกคนฝาก หรือถูกส่งคืนการเงิน */
-  const depositedHere = allEnvelopes.filter((x) => x.periodId !== periodId && x.handover?.viaGroup === thisGroupCode);
+  const depositedHere = allEnvelopes.filter((x) => x.periodId !== periodId && !!x.handover
+    && (x.handover.depositedWith ?? x.handover.viaGroup) === thisGroupCode);
+  /** ยกเลิกฝากซองกรุ๊ปอื่น (ยังไม่มีผู้ตอบรับ) — ซองกลับไปรอฝากตามค่าเดิม แล้วติ๊กใหม่ / เลือกเส้นทางใหม่ได้ */
+  const cancelDeposit = (x: CashEnvelope) => {
+    const h = x.handover!;
+    if (!window.confirm(`ยกเลิกฝาก${envelopeName(x)} ของกรุ๊ป ${getTourPeriodById(x.periodId)?.groupCode ?? x.periodId}?
+เดิม: ${handoverReceiverText(h)}
+ซองจะกลับไปเป็น "รอฝาก" — ติ๊กฝากใหม่และเลือกเส้นทางใหม่ได้`)) return;
+    const rest: CashEnvelope = { ...x, pendingDeposit: h.pendingBefore ?? { at: toISODateTime(new Date()), byName: '', staff: 'pending', leader: 'pending' } };
+    delete rest.handover;
+    delete rest.staffHandoff;
+    return saveEnvelope(rest, 'ยกเลิกฝากไปกับกรุ๊ปอื่น', `${envelopeName(x)} · ยกเลิกฝากไปกับกรุ๊ป ${thisGroupCode} · เดิม: ${handoverReceiverText(h)}`);
+  };
+  /** ใครยืนยันรับแล้ว — แก้ไขไม่ได้ ต้องให้ผู้ถือส่งซองคืนการเงินก่อน */
+  const lockedBy = (x: CashEnvelope) => x.leaderAck?.leaderName ?? x.staffAck?.staffName;
   const showAttach = stage !== 'packing' && !env.staffReturn && !(!env.handover && pending)
     && (waitingOthers.length > 0 || depositedHere.length > 0);
   const attachCarrierText = attachStaff ? ` ${attachStaff.name} (เจ้าหน้าที่ส่งกรุ๊ป)` : leader ? ` ${leader.name} (หัวหน้าทัวร์ของกรุ๊ปนี้)` : 'คนของกรุ๊ปนี้';
@@ -882,16 +943,17 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
       />
       {waitingShown.length === 0 && <p className="px-2 py-1.5 text-xs zego-text-tertiary">ไม่พบกรุ๊ปที่ตรงกับ “{attachQuery.trim()}”</p>}
       {waitingShown.map(({ env: x, period: xp, reason }) => {
-        const { owner, staffSide, leaderSide } = attachRoute(x);
+        const { owner, staffSide, leaderSide, legOptions, legKey } = attachRoute(x);
         const ownerCode = xp?.groupCode ?? x.periodId;
         // เส้นทางเต็มของซองฝาก — ให้เห็นว่าผ่านใคร และปลายทางคือหัวหน้าทัวร์ของกรุ๊ปเจ้าของซอง (ไม่ใช่ของกรุ๊ปนี้)
         const route = [
           staffSide && `${staffSide.name} (เจ้าหน้าที่ส่งกรุ๊ป)`,
-          leaderSide && `${leaderSide.name} (หัวหน้าทัวร์${leader && leaderSide.id === leader.id ? `กรุ๊ป ${thisGroupCode}` : ''} ฝากส่ง)`,
+          leaderSide && `${leaderSide.name} (หัวหน้าทัวร์ฝากส่ง${leaderSide.viaGroup ? ` · ${leaderSide.viaGroup}` : ''})`,
           `${owner?.name ?? 'หัวหน้าทัวร์ (ยังไม่คอนเฟิร์ม)'} (หัวหน้าทัวร์หลักของ ${ownerCode})`,
         ].filter(Boolean) as string[];
         return (
-          <label key={x.id} className={cx('flex items-start gap-2 rounded-md bg-white/70 px-2 py-1.5 text-xs', reason ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')}>
+          <div key={x.id} className={cx('rounded-md bg-white/70 px-2 py-1.5 text-xs', reason && 'opacity-60')}>
+          <label className={cx('flex items-start gap-2', reason ? 'cursor-not-allowed' : 'cursor-pointer')}>
             <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" disabled={!!reason} checked={!reason && attachIds.has(x.id)} onChange={() => toggleAttach(x.id)} />
             <span className="min-w-0 flex-1">
               <span className="block font-medium zego-text">{xp?.groupCode ?? x.periodId} · {envelopeName(x)}</span>
@@ -913,6 +975,21 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
             </span>
             <span className="shrink-0 font-semibold tabular-nums zego-text">{fmtTotals(x.sealed?.faceTotals ?? [])}</span>
           </label>
+          {/* ซองรอหัวหน้าทัวร์ — เลือกได้ว่าทอดหัวหน้าทัวร์ไปทางไหน (ไม่จำเป็นต้องผ่านหัวหน้าทัวร์) */}
+          {!reason && legOptions.length > 1 && (
+            <label className="mt-1.5 block pl-6">
+              <span className="mb-0.5 block zego-text-secondary">ทอดหัวหน้าทัวร์</span>
+              <select
+                aria-label={`ทอดหัวหน้าทัวร์ของ ${ownerCode} · ${envelopeName(x)}`}
+                className="w-full rounded-lg border zego-border-color bg-white px-2 py-1.5 text-xs"
+                value={legKey}
+                onChange={(e) => { const v = e.target.value; setLeaderPick((m) => ({ ...m, [x.id]: v })); }}
+              >
+                {legOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+            </label>
+          )}
+          </div>
         );
       })}
     </div>
@@ -1150,12 +1227,18 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                     <Button variant="primary" size="sm" icon="camera" onClick={() => setPhotoStep('return')}>ยืนยันรับซองคืน (แนบรูป)</Button>
                   </div>
                 )}
-                {canEditHandover(env) && (
-                  <p className="mt-1.5 text-xs zego-text-secondary">
-                    ยังไม่มีผู้ตอบรับ ·{' '}
-                    <button type="button" onClick={() => void editHandover()} className="font-medium zego-text-info hover:underline">
-                      แก้ไขการส่งมอบ
-                    </button>
+                {/* กลับมาแก้ไข — บอกชัดว่าแก้ได้ไหม และแก้แล้วเกิดอะไรขึ้น */}
+                {canEditHandover(env) ? (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+                    <span>
+                      <span className="font-semibold">ยังไม่มีผู้ตอบรับ — แก้ไขได้</span>
+                      <span className="block">กดแก้ไข = ยกเลิกการส่งมอบนี้ แล้วเลือกผู้รับ/เส้นทางใหม่ (หรือเปิดซองแก้การจัดเงิน)</span>
+                    </span>
+                    <Button variant="secondary" size="sm" icon="edit" onClick={() => void editHandover()}>แก้ไขการส่งมอบ</Button>
+                  </div>
+                ) : !env.staffReturn && lockedBy(env) && (
+                  <p className="mt-2 rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-secondary">
+                    แก้ไขไม่ได้ — {lockedBy(env)} ยืนยันรับซองแล้ว · ถ้าต้องเปลี่ยน ให้ผู้ถือซองกด “ส่งซองคืนการเงิน” ในแอปของตัวเองก่อน
                   </p>
                 )}
               </div>
@@ -1321,13 +1404,27 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
           {depositedHere.length > 0 && (
             <div className="space-y-1 rounded-lg border zego-border-color px-3 py-2">
               <p className="text-xs font-semibold zego-text-secondary">ฝากไปกับกรุ๊ปนี้แล้ว {depositedHere.length} ซอง</p>
-              {depositedHere.map((x) => (
-                <div key={x.id} className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="min-w-0 flex-1 font-medium zego-text">{getTourPeriodById(x.periodId)?.groupCode ?? x.periodId} · {envelopeName(x)}</span>
-                  <EnvelopeStatusBadge env={x} />
-                  <span className="shrink-0 font-semibold tabular-nums zego-text">{fmtTotals(x.sealed?.faceTotals ?? [])}</span>
-                </div>
-              ))}
+              {depositedHere.map((x) => {
+                const who = lockedBy(x);
+                return (
+                  <div key={x.id} className="space-y-1 rounded-md border zego-border-color px-2 py-1.5 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="min-w-0 flex-1 font-medium zego-text">{getTourPeriodById(x.periodId)?.groupCode ?? x.periodId} · {envelopeName(x)}</span>
+                      <EnvelopeStatusBadge env={x} />
+                      <span className="shrink-0 font-semibold tabular-nums zego-text">{fmtTotals(x.sealed?.faceTotals ?? [])}</span>
+                    </div>
+                    <p className="zego-text-secondary">{handoverReceiverText(x.handover!)}</p>
+                    {canEditHandover(x) ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-sky-50 px-2 py-1.5 text-sky-900">
+                        <span>ยังไม่มีผู้ตอบรับ — แก้ไขได้: ยกเลิกฝาก แล้วซองกลับไปรอฝาก (ติ๊กใหม่ / เลือกเส้นทางใหม่ด้านบน)</span>
+                        <Button variant="secondary" size="sm" icon="edit" onClick={() => void cancelDeposit(x)}>แก้ไข · ยกเลิกฝาก</Button>
+                      </div>
+                    ) : who && (
+                      <p className="zego-text-tertiary">แก้ไขไม่ได้ — {who} ยืนยันรับซองแล้ว</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
           {attachable.length > 0 && (
@@ -1388,9 +1485,6 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
           </ul>
         </section>
       )}
-
-      {/* เส้นทางซอง — ใครถือซองช่วงไหน ไล่จากประวัติจริง (ตรวจย้อนหลังได้ แม้คนรับไม่ใช่หัวหน้าทัวร์หลักของกรุ๊ป) */}
-      <CustodyTrail env={env} />
     </div>
   );
 }

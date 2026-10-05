@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * แผงเคลียร์งาน — ตรวจค่าใช้จ่ายทีละรายการ คำนวณยอดสุทธิทันที นัดหมาย
- * ยืนยันรับ/จ่ายเงิน และปิดการเคลียร์งาน
+ * แผงเคลียร์เงินกรุ๊ป — ตรวจค่าใช้จ่ายทีละรายการ คำนวณยอดสุทธิทันที นัดหมาย
+ * ยืนยันรับ/จ่ายเงิน และปิดการเคลียร์เงินกรุ๊ป
  */
 
 import { useMemo, useState } from 'react';
@@ -142,7 +142,7 @@ export function SettlementDrawer({
             ส่งกลับให้แก้ไข
           </Button>
           <Button variant="secondary" icon="clock" onClick={() => setAptOpen(true)} disabled={saving}>
-            นัดหมายเคลียร์งาน
+            นัดหมายเคลียร์เงิน
           </Button>
           <Button
             variant="primary"
@@ -177,7 +177,7 @@ export function SettlementDrawer({
 
       {can(currentUser.role, 'settlement.close') && settlement.status === 'settled' && (
         <Button variant="primary" onClick={() => setConfirmClose(true)} disabled={saving}>
-          ปิดการเคลียร์งาน
+          ปิดการเคลียร์เงินกรุ๊ป
         </Button>
       )}
     </>
@@ -188,7 +188,7 @@ export function SettlementDrawer({
       <Drawer
         open={settlement !== null}
         onClose={onClose}
-        title={`เคลียร์งาน ${settlement.id}`}
+        title={`เคลียร์เงินกรุ๊ป ${settlement.id}`}
         description={`${leader ? `${leader.firstName} ${leader.lastName}` : settlement.leaderId} · ${settlement.jobId}`}
         footer={footer}
       >
@@ -225,7 +225,7 @@ export function SettlementDrawer({
 
           {/* สรุปยอด */}
           <div className="zego-border-color rounded-xl border p-4">
-            <h3 className="zego-text mb-3 text-sm font-semibold">สรุปยอดเคลียร์งาน</h3>
+            <h3 className="zego-text mb-3 text-sm font-semibold">สรุปยอดเคลียร์เงินกรุ๊ป</h3>
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <dt className="zego-text-tertiary">เงินทดรองที่ได้รับ</dt>
@@ -390,7 +390,7 @@ export function SettlementDrawer({
           </div>
 
           {settlement.appointmentId && (
-            <Callout tone="sky" title="มีนัดหมายเคลียร์งานแล้ว">
+            <Callout tone="sky" title="มีนัดหมายเคลียร์เงินแล้ว">
               รหัสนัดหมาย {settlement.appointmentId} — ดูรายละเอียดได้ที่หน้า “นัดหมาย”
             </Callout>
           )}
@@ -408,7 +408,7 @@ export function SettlementDrawer({
           )}
 
           <div>
-            <h3 className="zego-text mb-3 text-sm font-semibold">ประวัติการเคลียร์งาน</h3>
+            <h3 className="zego-text mb-3 text-sm font-semibold">ประวัติการเคลียร์เงินกรุ๊ป</h3>
             <Timeline
               events={settlement.history}
               resolve={(key) =>
@@ -567,7 +567,7 @@ export function SettlementDrawer({
         />
       </Modal>
 
-      {/* สร้างนัดหมายจากการเคลียร์งาน */}
+      {/* สร้างนัดหมายจากการเคลียร์เงินกรุ๊ป */}
       <AppointmentFormModal
         open={aptOpen}
         onClose={() => setAptOpen(false)}
@@ -608,13 +608,13 @@ export function SettlementDrawer({
         onClose={() => setConfirmClose(false)}
         onConfirm={async () => {
           setConfirmClose(false);
-          await act('closed', 'ปิดการเคลียร์งานและปิดงานทัวร์');
+          await act('closed', 'ปิดการเคลียร์เงินกรุ๊ปและปิดงานทัวร์');
         }}
         loading={saving}
         tone="primary"
-        title="ยืนยันการปิดการเคลียร์งาน"
-        confirmLabel="ปิดการเคลียร์งาน"
-        message={`ปิดการเคลียร์งาน ${settlement.id} และเปลี่ยนสถานะงาน ${settlement.jobId} เป็น “ปิดงาน” — การกระทำนี้จะบันทึกในประวัติ`}
+        title="ยืนยันการปิดการเคลียร์เงินกรุ๊ป"
+        confirmLabel="ปิดการเคลียร์เงินกรุ๊ป"
+        message={`ปิดการเคลียร์เงินกรุ๊ป ${settlement.id} และเปลี่ยนสถานะงาน ${settlement.jobId} เป็น “ปิดงาน” — การกระทำนี้จะบันทึกในประวัติ`}
       />
     </>
   );

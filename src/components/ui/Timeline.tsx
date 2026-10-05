@@ -1,6 +1,6 @@
 'use client';
 
-/** Timeline ประวัติสถานะ — ใช้ร่วมกันทั้งงานทัวร์ ใบเบิก เคลียร์งาน และนัดหมาย */
+/** Timeline ประวัติสถานะ — ใช้ร่วมกันทั้งงานทัวร์ ใบเบิก เคลียร์เงินกรุ๊ป และนัดหมาย */
 
 import { formatDateTime } from '@/lib/format';
 import type { StatusMeta } from '@/lib/labels';

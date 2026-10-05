@@ -114,6 +114,10 @@ export interface CashEnvelope {
     nextLeaderCarrier?: { id: string; name: string; viaGroup?: string };
     /** ฝากไปกับกรุ๊ปไหน (รหัสกรุ๊ปที่ผู้ถือซองดูแลอยู่) — ไว้ตรวจย้อนหลังว่าซองเดินทางไปกับกรุ๊ปอะไร */
     viaGroup?: string;
+    /** ซองของกรุ๊ปอื่นที่หยิบมาฝากไปกับกรุ๊ปนี้ (รหัสกรุ๊ป) — แสดงในหัวข้อ "ซองของกรุ๊ปอื่นที่ฝากไปด้วย" ของกรุ๊ปนั้น */
+    depositedWith?: string;
+    /** ค่ารอฝากเดิมก่อนหยิบไปฝาก — ยกเลิกฝาก (ยังไม่มีผู้ตอบรับ) แล้วซองกลับไปรอฝากตามเดิม */
+    pendingBefore?: PendingDeposit;
     /** ผู้ถือคนก่อนที่ฝากต่อมา (เช่น "เจ้าหน้าที่ส่งกรุ๊ป ธนกฤต") — ผู้ถือคนใหม่เห็นว่ารับต่อจากใคร */
     relayFrom?: string;
     /** หลักฐานการรับ — อย่างใดอย่างหนึ่ง: เซ็นชื่อบนจอ หรือ ถ่ายรูปผู้รับคู่ซอง */
@@ -176,6 +180,17 @@ export interface PendingDeposit {
   byName: string;
   staff: 'pending' | 'none' | { id: string; name: string };
   leader: 'pending' | 'main' | { id: string; name: string; viaGroup?: string };
+}
+
+/**
+ * ซองนี้เดินทางมากับกรุ๊ปอื่นไหม (ซองฝาก) — คืนรหัสกรุ๊ปที่ฝากมาด้วย · null = ซองหลัก (มากับคนของกรุ๊ปตัวเอง / การเงินส่งตรง)
+ * ดูจาก: หยิบไปฝากกับกรุ๊ปอื่น (depositedWith) · เจ้าหน้าที่/หัวหน้าทัวร์ที่ถือซองไปกับกรุ๊ปอื่น (viaGroup / nextLeaderCarrier.viaGroup)
+ */
+export function depositedViaGroup(env: Pick<CashEnvelope, 'handover'>, ownGroupCode: string | undefined): string | null {
+  const h = env.handover;
+  if (!h) return null;
+  const via = h.depositedWith ?? h.viaGroup ?? h.nextLeaderCarrier?.viaGroup;
+  return via && via !== ownGroupCode ? via : null;
 }
 
 /** ข้อความสถานะรอฝาก — บอกว่ารอฝากไปกับใครของกรุ๊ปอื่น */

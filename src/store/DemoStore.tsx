@@ -44,6 +44,7 @@ import {
 import { loadImportedAdvanceDocs, sampleAdvanceDocs, upsertImportedAdvanceDocs } from '@/services/advanceImportStore';
 import { clearSavedExpenses, loadEvidenceImages, loadSavedExpenses, persistExpense } from '@/services/expenseStore';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
+import { loadAppointments, nextAppointmentId, persistAppointment } from '@/services/appointmentStore';
 import { attachMedia, clearEnvelopes, loadEnvelopeMedia, loadEnvelopes, loadNoEnvelopeMarks, persistEnvelope, persistNoEnvelopeMark, removeEnvelope } from '@/services/cashEnvelopeStore';
 import { envelopeName, type CashEnvelope, type NoEnvelopeMark } from '@/lib/logic/cashEnvelope';
 import { toISODate, toISODateTime } from '@/lib/format';
@@ -213,7 +214,7 @@ interface DemoState {
     paidRef?: string,
   ) => Promise<void>;
 
-  // ---- เคลียร์งาน ----
+  // ---- เคลียร์เงินกรุ๊ป ----
   reviewSettlementItem: (settlementId: string, item: SettlementItem) => Promise<void>;
   changeSettlementStatus: (
     settlementId: string,
@@ -395,7 +396,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
           }));
         });
         setSettlements(snapshot.settlements);
-        setAppointments(snapshot.appointments);
+        // นัดหมาย — ชุดถาวรจาก localStorage (ไม่ใช้ข้อมูลจำลอง JOB-… อีกต่อไป)
+        setAppointments(loadAppointments());
         // §2/§9 โหลดวันลาจาก localStorage (seed เฉพาะเมื่อยังไม่มี Key) — ไม่ทับข้อมูลเดิม
         setAvailabilityRecords(loadLeaveEvents());
         // โหลดประวัติไกด์ถูกยกเลิกงาน (ข้อมูลกลาง — ไม่ผูกผู้ใช้คนใดคนหนึ่ง)
@@ -741,7 +743,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       await service.saveJob(updated);
       setJobs((prev) => prev.map((j) => (j.id === jobId ? updated : j)));
 
-      // เมื่องานเข้าสถานะ "รอเคลียร์" ให้สร้างรายการเคลียร์งานอัตโนมัติ (จำลอง)
+      // เมื่องานเข้าสถานะ "รอเคลียร์" ให้สร้างรายการเคลียร์เงินกรุ๊ปอัตโนมัติ (จำลอง)
       if (status === 'awaiting_settlement' && updated.leaderId) {
         const already = settlements.some((s) => s.jobId === jobId);
         if (!already) {
@@ -1235,7 +1237,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     [expenses, currentUser.name, pushToast],
   );
 
-  /* ------------------------------- เคลียร์งาน ----------------------------- */
+  /* ------------------------------- เคลียร์เงินกรุ๊ป ----------------------------- */
 
   const reviewSettlementItem = useCallback(
     async (settlementId: string, item: SettlementItem) => {
@@ -1278,7 +1280,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       await service.saveSettlement(updated);
       setSettlements((prev) => prev.map((s) => (s.id === settlementId ? updated : s)));
 
-      // ปิดการเคลียร์งาน → ปิดงานทัวร์ด้วย
+      // ปิดการเคลียร์เงินกรุ๊ป → ปิดงานทัวร์ด้วย
       if (status === 'closed') {
         const job = jobs.find((j) => j.id === target.jobId);
         if (job && job.status !== 'closed') {
@@ -1287,7 +1289,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
             status: 'closed',
             history: [
               ...job.history,
-              makeStatusEvent(job.status, 'closed', currentUser.name, stamp(), 'ปิดงานจากการเคลียร์งาน'),
+              makeStatusEvent(job.status, 'closed', currentUser.name, stamp(), 'ปิดงานจากการเคลียร์เงินกรุ๊ป'),
             ],
           };
           await service.saveJob(closedJob);
@@ -1296,7 +1298,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       }
 
       setSaving(false);
-      pushToast('success', 'อัปเดตสถานะการเคลียร์งานแล้ว', settlementId);
+      pushToast('success', 'อัปเดตสถานะการเคลียร์เงินกรุ๊ปแล้ว', settlementId);
     },
     [settlements, jobs, currentUser.name, stamp, pushToast],
   );
@@ -1479,7 +1481,13 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const saveAppointment = useCallback(
     async (appointment: Appointment) => {
       setSaving(true);
-      await service.saveAppointment(appointment);
+      try {
+        persistAppointment(appointment);
+      } catch (e) {
+        setSaving(false);
+        pushToast('error', e instanceof Error ? e.message : 'บันทึกนัดหมายไม่สำเร็จ');
+        throw e;
+      }
       setAppointments((prev) => {
         const exists = prev.some((a) => a.id === appointment.id);
         return exists
@@ -1492,7 +1500,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     [pushToast],
   );
 
-  const createAppointmentId = useCallback(() => service.nextId('APT'), []);
+  // เลขนัดนับต่อจากนัดที่บันทึกไว้ (ชุดถาวร) — รีเฟรชแล้วไม่ซ้ำ
+  const createAppointmentId = useCallback(async () => nextAppointmentId(loadAppointments()), []);
 
   const changeAppointmentStatus = useCallback(
     async (
@@ -1518,7 +1527,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
           makeStatusEvent(target.status, status, currentUser.name, stamp(), note),
         ],
       };
-      await service.saveAppointment(updated);
+      persistAppointment(updated);
       setAppointments((prev) => prev.map((a) => (a.id === appointmentId ? updated : a)));
       setSaving(false);
       pushToast('success', 'อัปเดตนัดหมายแล้ว', appointmentId);

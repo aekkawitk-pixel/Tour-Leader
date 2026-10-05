@@ -1,192 +1,152 @@
 'use client';
 
 /**
- * นัดหมายเคลียร์เงิน — /guide/settlement/appointments
+ * นัดหมาย — /guide/settlement/appointments (พอร์ทัลหัวหน้าทัวร์ · เมนู "นัดหมาย" แถบล่าง)
  *
- * แสดงรายการรอเคลียร์ของตัวเอง + จองคิวนัดหมายกับ Finance ได้ในหน้าเดียว
- * (รวม Settlement Readiness + Appointment Booking ตามที่ตกลงกันไว้)
- *
- * ย้ายมาจาก /guide/settlement เดิม — ตอนนี้เป็นหัวข้อที่ 2 ของเมนู "เคลียร์เงิน" คู่กับ
- * "เคลียร์ค่าใช้จ่ายรายกรุ๊ป" (/guide/settlement/claim) ที่เพิ่มเข้ามาใหม่
+ * นัดทุกประเภทที่เจ้าหน้าที่นัดหัวหน้าทัวร์คนนี้ (ชุดนัดหมายกลาง — เดียวกับปฏิทินเมนูนัดหมายฝั่งผู้จัด)
+ *   เคลียร์เงินกรุ๊ป: การเงินนัดหลังตรวจใบเสร็จ/ใบเบิกครบ — บอกเงินที่ต้องนำมาคืน (แยกสกุล)
+ *   ส่งเอกสาร / ประชุม / อื่น ๆ
+ * หัวหน้าทัวร์: ยืนยันนัด · ขอเลื่อนนัด (บอกวันเวลาที่สะดวก) → เจ้าหน้าที่นัดใหม่ (กลับมารอยืนยัน)
  */
 
-import { useState } from 'react';
+import Link from 'next/link';
+import { useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
-import { SETTLEMENT_STATUS, APPOINTMENT_STATUS, APPOINTMENT_MODE } from '@/lib/labels';
-import { formatDate, formatTHB } from '@/lib/format';
+import { APPOINTMENT_KIND, APPOINTMENT_MODE, APPOINTMENT_STATUS } from '@/lib/labels';
+import { formatCurrency, formatDate, formatDateRange, toISODate, toISODateTime } from '@/lib/format';
 import { makeStatusEvent } from '@/lib/logic/workflow';
+import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { loadGroupClears } from '@/services/groupClearStore';
+import { summarizeGroupClear } from '@/lib/logic/groupClear';
 import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
-import { SelectInput, TextInput } from '@/components/ui/FormField';
-
-import type { Appointment, AppointmentMode, Settlement } from '@/types';
+import { Modal } from '@/components/ui/Modal';
+import { TextArea } from '@/components/ui/FormField';
+import type { Appointment } from '@/types';
 
 export default function GuideSettlementAppointmentsPage() {
-  const {
-    currentUser, settlements, appointments, jobs,
-    saveAppointment, createAppointmentId, linkAppointmentToSettlement, today,
-  } = useDemo();
+  const { currentUser, envelopes, expenses, appointments, saveAppointment, changeAppointmentStatus, saving } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
+  const today = toISODate(new Date());
+  const [asking, setAsking] = useState<Appointment | null>(null);
+  const [askNote, setAskNote] = useState('');
 
-  const mySettlements = settlements
-    .filter((s) => s.leaderId === leaderId)
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  // นัดของฉัน — นัดที่ยังมีผลก่อน (เรียงตามวันเวลา) แล้วตามด้วยที่เข้าพบแล้ว/ยกเลิก
+  const mine = useMemo(() => appointments
+    .filter((a) => a.leaderId === leaderId)
+    .sort((a, b) => {
+      const done = (x: Appointment) => (x.status === 'attended' || x.status === 'cancelled' ? 1 : 0);
+      return done(a) - done(b) || `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`);
+    }), [appointments, leaderId]);
 
-  if (mySettlements.length === 0) {
-    return (
-      <div className="space-y-4">
-        <PageTitle />
-        <Card>
-          <EmptyState icon="money" title="ยังไม่มีรายการรอเคลียร์" description="รายการจะปรากฏที่นี่หลังงานทัวร์ของคุณจบและเข้าสถานะรอเคลียร์" />
-        </Card>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <PageTitle />
-
-      {mySettlements.map((s) => (
-        <SettlementCard
-          key={s.id}
-          settlement={s}
-          jobTitle={jobs.find((j) => j.id === s.jobId)?.title ?? s.jobId}
-          appointment={appointments.find((a) => a.id === s.appointmentId)}
-          leaderId={leaderId!}
-          actorName={currentUser.name}
-          today={today}
-          onBook={async (date, time, mode) => {
-            const id = await createAppointmentId();
-            const appt: Appointment = {
-              id,
-              date,
-              time,
-              durationMinutes: 30,
-              leaderId: leaderId!,
-              jobId: s.jobId,
-              staffName: 'รอมอบหมาย',
-              mode,
-              location: mode === 'office' ? 'สำนักงานใหญ่ ชั้น 8' : mode === 'online' ? 'ลิงก์ประชุมจะแจ้งภายหลัง' : 'ส่งเอกสารทางไปรษณีย์',
-              note: '',
-              status: 'pending',
-              history: [makeStatusEvent(null, 'pending', currentUser.name, today, 'จองจากพอร์ทัลหัวหน้าทัวร์')],
-            };
-            await saveAppointment(appt);
-            await linkAppointmentToSettlement(s.id, id);
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function SettlementCard({
-  settlement, jobTitle, appointment, leaderId, actorName, today, onBook,
-}: {
-  settlement: Settlement;
-  jobTitle: string;
-  appointment: Appointment | undefined;
-  leaderId: string;
-  actorName: string;
-  today: string;
-  onBook: (date: string, time: string, mode: AppointmentMode) => Promise<void>;
-}) {
-  const [booking, setBooking] = useState(false);
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
-  const [mode, setMode] = useState<AppointmentMode>('office');
-  const [saving, setSaving] = useState(false);
-
-  const approvedTotal = settlement.items.reduce((sum, i) => sum + i.approvedTHB, 0);
-  const canBook = !settlement.appointmentId && settlement.status !== 'settled' && settlement.status !== 'closed';
-
-  const submit = async () => {
-    if (!date || !time) return;
-    setSaving(true);
-    try {
-      await onBook(date, time, mode);
-      setBooking(false);
-    } finally {
-      setSaving(false);
-    }
+  const requestReschedule = async (a: Appointment, note: string) => {
+    await saveAppointment({
+      ...a,
+      status: 'rescheduled',
+      leaderNote: note,
+      history: [...a.history, makeStatusEvent(a.status, 'rescheduled', currentUser.name, toISODateTime(new Date()), `หัวหน้าทัวร์ขอเลื่อน: ${note}`)],
+    });
   };
 
   return (
-    <Card padded={false}>
-      <div className="zego-divider-bottom px-4 py-2.5">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold zego-text">{jobTitle}</p>
-            <p className="text-xs zego-text-tertiary">{settlement.id} · กำหนด {formatDate(settlement.dueDate)}</p>
-          </div>
-          <StatusBadge meta={SETTLEMENT_STATUS[settlement.status]} size="sm" />
-        </div>
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-lg font-semibold zego-text">นัดหมาย</h1>
+        <p className="text-sm zego-text-secondary">นัดจากเจ้าหน้าที่ เช่น เคลียร์เงินกรุ๊ป — ยืนยันนัด หรือขอเลื่อนได้ที่นี่</p>
       </div>
 
-      <div className="px-4 py-3 text-sm zego-text-secondary">
-        <div className="flex justify-between">
-          <span>เงินทดรองที่ได้รับ</span>
-          <span className="font-medium zego-text">{formatTHB(settlement.advanceTHB)}</span>
-        </div>
-        {settlement.items.length > 0 && (
-          <div className="mt-1 flex justify-between">
-            <span>ยอดที่ตรวจอนุมัติแล้ว ({settlement.items.length} รายการ)</span>
-            <span className="font-medium zego-text">{formatTHB(approvedTotal)}</span>
-          </div>
-        )}
-      </div>
-
-      {appointment && (
-        <div className="zego-divider-top px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide zego-text-tertiary">นัดหมาย</p>
-          <div className="mt-1 flex items-center justify-between gap-2">
-            <p className="text-sm zego-text-secondary">
-              {formatDate(appointment.date)} · {appointment.time} · {APPOINTMENT_MODE[appointment.mode].label}
-            </p>
-            <StatusBadge meta={APPOINTMENT_STATUS[appointment.status]} size="sm" />
-          </div>
-        </div>
-      )}
-
-      {canBook && !booking && (
-        <div className="zego-divider-top px-4 py-3">
-          <Button variant="primary" size="sm" icon="clock" className="w-full" onClick={() => setBooking(true)}>
-            จองคิว Finance
-          </Button>
-        </div>
-      )}
-
-      {canBook && booking && (
-        <div className="space-y-3 zego-divider-top px-4 py-3">
-          <div className="grid grid-cols-2 gap-2">
-            <TextInput label="วันที่" type="date" min={today} value={date} onChange={(e) => setDate(e.target.value)} />
-            <TextInput label="เวลา" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
-          </div>
-          <SelectInput
-            label="รูปแบบ"
-            value={mode}
-            onChange={(e) => setMode(e.target.value as AppointmentMode)}
-            options={Object.entries(APPOINTMENT_MODE).map(([value, meta]) => ({ value, label: meta.label }))}
+      {mine.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon="calendar"
+            title="ยังไม่มีนัดหมาย"
+            description="เมื่อการเงินตรวจใบเสร็จและใบเบิกของกรุ๊ปครบ จะนัดให้เข้ามาเคลียร์เงิน — นัดจะขึ้นที่นี่"
           />
-          <div className="flex gap-2">
-            <Button variant="secondary" className="flex-1" onClick={() => setBooking(false)}>ยกเลิก</Button>
-            <Button variant="primary" className="flex-1" disabled={!date || !time || saving} loading={saving} onClick={submit}>
-              ยืนยันจอง
-            </Button>
+          <div className="mt-2 text-center">
+            <Link href="/guide/settlement/claim" className="text-sm font-medium zego-text-info hover:underline">ตรวจสอบรายการก่อนนัดเคลียร์เงิน →</Link>
           </div>
-        </div>
-      )}
-    </Card>
-  );
-}
+        </Card>
+      ) : mine.map((a) => {
+        const p = a.jobId ? getTourPeriodById(a.jobId) : null;
+        // นัดเคลียร์เงิน — เงินที่ต้องนำมาคืน (คำนวณสดเหมือนฝั่งการเงิน)
+        const toReturn = a.kind === 'clear' && p
+          ? summarizeGroupClear({ periodId: a.jobId, endDate: p.endDate, today, envelopes, expenses, closed: !!loadGroupClears()[a.jobId]?.closedAt }).balance.filter((b) => b.remaining > 0)
+          : null;
+        const open = a.status === 'pending' || a.status === 'confirmed';
+        return (
+          <Card key={a.id} className="space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <StatusBadge meta={APPOINTMENT_KIND[a.kind ?? 'other']} size="sm" dot={false} />
+                <p className="mt-1 text-sm font-semibold zego-text">{p?.groupCode ?? (a.jobId || 'ไม่ผูกกรุ๊ป')}</p>
+                {p && <p className="truncate text-xs zego-text-secondary">{p.displayName} · {formatDateRange(p.startDate, p.endDate)}</p>}
+              </div>
+              <StatusBadge meta={APPOINTMENT_STATUS[a.status]} size="sm" />
+            </div>
 
-/** หัวหน้า — เป็นเมนูหลักที่แถบล่าง (นัดหมาย) จึงไม่มีลิงก์ย้อนกลับ */
-function PageTitle() {
-  return (
-    <div className="mb-3">
-      <h1 className="text-lg font-bold zego-text">นัดหมายเคลียร์เงิน</h1>
-      <p className="text-sm zego-text-tertiary">เตรียมเอกสารเคลียร์เงินและจองคิว Finance</p>
+            <div className="rounded-lg zego-surface-soft-bg px-3 py-2.5 text-sm">
+              <p className="font-semibold zego-text">{formatDate(a.date)} · {a.time} น. <span className="font-normal zego-text-tertiary">({a.durationMinutes} นาที)</span></p>
+              <p className="zego-text-secondary">{APPOINTMENT_MODE[a.mode].label} · {a.location}</p>
+              <p className="text-xs zego-text-tertiary">ผู้นัด {a.staffName}{a.note ? ` · ${a.note}` : ''}</p>
+            </div>
+
+            {toReturn && open && (
+              <div className="text-xs">
+                <p className="mb-1 font-semibold zego-text-secondary">เงินที่ต้องนำมาคืน</p>
+                {toReturn.length > 0
+                  ? <p className="text-sm font-semibold tabular-nums zego-text-danger">{toReturn.map((b) => formatCurrency(b.remaining, b.currency)).join(' · ')}</p>
+                  : <p className="zego-text-tertiary">ไม่มี</p>}
+              </div>
+            )}
+
+            {a.status === 'rescheduled' && (
+              <p className="rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-800">ส่งคำขอเลื่อนแล้ว — รอเจ้าหน้าที่นัดใหม่{a.leaderNote ? ` · ${a.leaderNote}` : ''}</p>
+            )}
+
+            {open && (
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="secondary" size="sm" className="justify-center" onClick={() => { setAsking(a); setAskNote(''); }}>ขอเลื่อนนัด</Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon="check"
+                  className="justify-center"
+                  loading={saving}
+                  disabled={a.status === 'confirmed'}
+                  onClick={() => void changeAppointmentStatus(a.id, 'confirmed', 'หัวหน้าทัวร์ยืนยันนัด')}
+                >
+                  {a.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยืนยันนัด'}
+                </Button>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+
+      {asking && (
+        <Modal
+          open
+          onClose={() => setAsking(null)}
+          size="sm"
+          title="ขอเลื่อนนัด"
+          description={`${asking.id} · นัดเดิม ${formatDate(asking.date)} ${asking.time} น.`}
+          footer={
+            <div className="grid w-full grid-cols-2 gap-2">
+              <Button variant="secondary" onClick={() => setAsking(null)}>ยกเลิก</Button>
+              <Button variant="primary" loading={saving} disabled={!askNote.trim()} onClick={async () => { await requestReschedule(asking, askNote.trim()); setAsking(null); }}>ส่งคำขอ</Button>
+            </div>
+          }
+        >
+          <TextArea
+            label="วันเวลาที่สะดวก / เหตุผล"
+            required
+            rows={3}
+            value={askNote}
+            onChange={(e) => setAskNote(e.target.value)}
+            placeholder="เช่น สะดวกวันพฤหัสที่ 12 ช่วงบ่าย"
+          />
+        </Modal>
+      )}
     </div>
   );
 }
