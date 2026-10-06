@@ -7,9 +7,9 @@
  *   เคลียร์เงินกรุ๊ป: การเงินนัดหลังตรวจใบเสร็จ/ใบเบิกครบ — บอกเงินที่ต้องนำมาคืน (แยกสกุล)
  *   ส่งเอกสาร / ประชุม / อื่น ๆ
  * หัวหน้าทัวร์: ยืนยันนัด · ขอเลื่อนนัด (บอกวันเวลาที่สะดวก) → เจ้าหน้าที่นัดใหม่ (กลับมารอยืนยัน)
+ * ด้านบนเป็นปฏิทินรายเดือน (AppointmentCalendar) — วันที่มีนัดมีจุดสี · แตะวัน = ดูเฉพาะนัดวันนั้น
  */
 
-import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
@@ -23,6 +23,7 @@ import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitive
 import { Modal } from '@/components/ui/Modal';
 import { TextArea } from '@/components/ui/FormField';
 import type { Appointment } from '@/types';
+import { AppointmentCalendar } from './AppointmentCalendar';
 
 export default function GuideSettlementAppointmentsPage() {
   const { currentUser, envelopes, expenses, appointments, saveAppointment, changeAppointmentStatus, saving } = useDemo();
@@ -38,6 +39,16 @@ export default function GuideSettlementAppointmentsPage() {
       const done = (x: Appointment) => (x.status === 'attended' || x.status === 'cancelled' ? 1 : 0);
       return done(a) - done(b) || `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`);
     }), [appointments, leaderId]);
+
+  /*
+    ปฏิทิน — เดือนที่ดู (เริ่มที่เดือนนี้) + วันที่เลือก (null = ทั้งเดือน)
+    รายการด้านล่างแสดงเฉพาะนัดของวัน/เดือนที่เลือก
+  */
+  const [month, setMonth] = useState(() => today.slice(0, 7));
+  const [day, setDay] = useState<string | null>(null);
+  const shown = mine.filter((a) => (day ? a.date === day : a.date.startsWith(month)));
+  // นัดถัดไปที่ยังมีผล (นอกเดือนที่ดูอยู่) — ไว้พาไปดูเมื่อเดือนนี้ไม่มีนัด
+  const nextApt = mine.find((a) => a.date >= today && a.status !== 'cancelled' && a.status !== 'attended');
 
   const requestReschedule = async (a: Appointment, note: string) => {
     await saveAppointment({
@@ -55,18 +66,32 @@ export default function GuideSettlementAppointmentsPage() {
         <p className="text-sm zego-text-secondary">นัดจากเจ้าหน้าที่ เช่น เคลียร์เงินกรุ๊ป — ยืนยันนัด หรือขอเลื่อนได้ที่นี่</p>
       </div>
 
-      {mine.length === 0 ? (
+      <AppointmentCalendar month={month} onMonth={setMonth} selected={day} onSelect={setDay} appointments={mine} today={today} />
+
+      <p className="px-1 text-xs font-semibold zego-text-secondary">
+        {day ? `นัดวันที่ ${formatDate(day)}` : 'นัดในเดือนนี้'} <span className="font-normal zego-text-tertiary">({shown.length})</span>
+      </p>
+
+      {shown.length === 0 ? (
         <Card>
           <EmptyState
             icon="calendar"
-            title="ยังไม่มีนัดหมาย"
-            description="เมื่อการเงินตรวจใบเสร็จและใบเบิกของกรุ๊ปครบ จะนัดให้เข้ามาเคลียร์เงิน — นัดจะขึ้นที่นี่"
+            title={mine.length === 0 ? 'ยังไม่มีนัดหมาย' : day ? 'ไม่มีนัดในวันนี้' : 'ไม่มีนัดในเดือนนี้'}
+            description={mine.length === 0 ? 'กรุ๊ปที่ทำครบแล้ว กดทำนัดหมายเคลียร์เงินได้ที่หน้าตรวจสอบ · นัดจากการเงินจะขึ้นที่นี่ด้วย' : undefined}
           />
-          <div className="mt-2 text-center">
-            <Link href="/guide/settlement/claim" className="text-sm font-medium zego-text-info hover:underline">ตรวจสอบรายการก่อนนัดเคลียร์เงิน →</Link>
+          <div className="mt-2 space-y-1 text-center">
+            {nextApt && !nextApt.date.startsWith(month) && (
+              <button
+                type="button"
+                onClick={() => { setMonth(nextApt.date.slice(0, 7)); setDay(nextApt.date); }}
+                className="block w-full text-sm font-medium zego-text-info hover:underline"
+              >
+                นัดถัดไป {formatDate(nextApt.date)} {nextApt.time} น. →
+              </button>
+            )}
           </div>
         </Card>
-      ) : mine.map((a) => {
+      ) : shown.map((a) => {
         const p = a.jobId ? getTourPeriodById(a.jobId) : null;
         // นัดเคลียร์เงิน — เงินที่ต้องนำมาคืน (คำนวณสดเหมือนฝั่งการเงิน)
         const toReturn = a.kind === 'clear' && p

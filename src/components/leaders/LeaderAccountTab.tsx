@@ -173,7 +173,7 @@ export function LeaderAccountTab({ leader }: { leader: TourLeader }) {
                   variant="secondary"
                   icon="mail"
                   disabled={!channel || account.status === 'disabled'}
-                  onClick={() => sendLink(account.passwordPending && account.history.every((h) => h.action !== 'send_reset') ? 'send_setup' : 'send_reset')}
+                  onClick={() => sendLink(account.passwordPending && account.history.every((h) => h.action !== 'send_reset' && h.action !== 'self_reset') ? 'send_setup' : 'send_reset')}
                 >
                   {account.passwordPending ? 'ส่งลิงก์ตั้งรหัสผ่านอีกครั้ง' : 'ส่งลิงก์รีเซ็ตรหัสผ่าน'}
                 </Button>

@@ -20,6 +20,8 @@ import { Icon, type IconName } from '@/components/ui/Icon';
 const TOPICS: { href: string; label: string; description: string; icon: IconName }[] = [
   { href: '/guide/profile/general', label: 'ข้อมูลทั่วไป', description: 'ชื่อ เพศ วันเกิด สัญชาติ', icon: 'guide' },
   { href: '/guide/profile/contact', label: 'ข้อมูลติดต่อ', description: 'เบอร์โทร อีเมล ที่อยู่ ผู้ติดต่อฉุกเฉิน', icon: 'phone' },
+  { href: '/guide/profile/employment', label: 'ข้อมูลการร่วมงาน', description: 'รูปแบบการร่วมงาน วันที่เริ่ม สถานะโปรไฟล์', icon: 'briefcase' },
+  { href: '/guide/profile/work-history', label: 'ประวัติการทำงาน', description: 'สถานประกอบการที่เคยทำงาน', icon: 'briefcase' },
   { href: '/guide/profile/languages', label: 'ภาษา', description: 'ภาษาที่พูดได้และระดับความสามารถ', icon: 'chat' },
   { href: '/guide/profile/skills', label: 'ความเชี่ยวชาญและทักษะ', description: 'ประเทศ/เส้นทาง และกลุ่มลูกค้าที่ถนัด', icon: 'star' },
   { href: '/guide/profile/documents', label: 'เอกสารประจำตัว', description: 'พาสปอร์ต บัตรหัวหน้าทัวร์ วีซ่า', icon: 'file' },
@@ -27,6 +29,7 @@ const TOPICS: { href: string; label: string; description: string; icon: IconName
   { href: '/guide/profile/bank', label: 'เอกสารการเงิน', description: 'บัญชีธนาคารที่ใช้รับเงิน', icon: 'money' },
   { href: '/guide/profile/leave', label: 'สถานะ/การลา', description: 'ความพร้อมรับงาน และขอลา', icon: 'calendar' },
   { href: '/guide/profile/survey', label: 'คะแนนแบบสอบถาม', description: 'ผลประเมินจากลูกทัวร์รายกรุ๊ป', icon: 'chart' },
+  { href: '/guide/profile/account', label: 'บัญชีผู้ใช้', description: 'User name และเปลี่ยนรหัสผ่าน', icon: 'settings' },
 ];
 
 export default function GuideProfilePage() {

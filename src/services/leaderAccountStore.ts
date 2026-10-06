@@ -1,5 +1,6 @@
 /**
- * บัญชีผู้ใช้สำหรับเข้าสู่ระบบของหัวหน้าทัวร์ (User name / Login) — แท็บ "บัญชีผู้ใช้" ในหน้าโปรไฟล์
+ * บัญชีผู้ใช้สำหรับเข้าสู่ระบบของหัวหน้าทัวร์ (User name / Login) — แท็บ "บัญชีผู้ใช้" ในหน้าโปรไฟล์ (ฝั่งผู้จัด)
+ * และหัวข้อ "บัญชีผู้ใช้" ในโปรไฟล์ของพอร์ทัลหัวหน้าทัวร์ (ดู + ขอลิงก์เปลี่ยนรหัสผ่านเอง)
  *
  * ⚠️ ไม่เก็บรหัสผ่านในระบบนี้เด็ดขาด — การตั้ง/รีเซ็ตรหัสผ่านทำผ่าน "ส่งลิงก์ตั้งรหัสผ่าน" ให้หัวหน้าทัวร์ตั้งเอง
  *    (Demo: บันทึกเฉพาะว่าส่งลิงก์ไปช่องทางไหน เมื่อไร ไม่ได้ส่งจริง)
@@ -17,12 +18,14 @@ export const LEADER_ACCOUNT_STATUS: Record<LeaderAccountStatus, { label: string;
   disabled: { label: 'ปิดการใช้งาน', tone: 'slate' },
 };
 
-export type LeaderAccountAction = 'create' | 'rename' | 'send_setup' | 'send_reset' | 'lock' | 'unlock' | 'disable' | 'enable';
+export type LeaderAccountAction = 'create' | 'rename' | 'send_setup' | 'send_reset' | 'self_reset' | 'lock' | 'unlock' | 'disable' | 'enable';
 export const LEADER_ACCOUNT_ACTION: Record<LeaderAccountAction, string> = {
   create: 'สร้างบัญชี',
   rename: 'เปลี่ยน User name',
   send_setup: 'ส่งลิงก์ตั้งรหัสผ่าน',
   send_reset: 'ส่งลิงก์รีเซ็ตรหัสผ่าน',
+  /** หัวหน้าทัวร์ขอลิงก์เปลี่ยนรหัสผ่านเองจากพอร์ทัล (โปรไฟล์ → บัญชีผู้ใช้) */
+  self_reset: 'หัวหน้าทัวร์ขอลิงก์เปลี่ยนรหัสผ่าน',
   lock: 'ล็อกบัญชี',
   unlock: 'ปลดล็อกบัญชี',
   disable: 'ปิดการใช้งาน',
