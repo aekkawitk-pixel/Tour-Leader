@@ -80,6 +80,9 @@ export function clearReadiness(input: {
         ? { label: 'ใบเสร็จ', ok: false, text: `ร่างยังไม่ส่ง ${draft} รายการ` }
         : receipts.length > 0
           ? { label: 'ใบเสร็จ', ok: true, text: `บันทึกแล้ว ${receipts.length} รายการ` }
+          // ถือเงินแต่ยังไม่มีใบเสร็จ — ยังไม่จบทริปเป็นเรื่องปกติ (บันทึกระหว่างเดินทาง) · จบทริปแล้วจึงเป็นเรื่องค้าง
+          : needsReceipts && !input.ended
+            ? { label: 'ใบเสร็จ', ok: true, na: true, text: 'บันทึกระหว่างเดินทาง' }
           : needsReceipts
             ? { label: 'ใบเสร็จ', ok: false, text: 'ยังไม่ได้บันทึก' }
             : envPending

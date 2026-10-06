@@ -95,7 +95,7 @@ export default function GuideSettlementAppointmentsPage() {
         const p = a.jobId ? getTourPeriodById(a.jobId) : null;
         // นัดเคลียร์เงิน — เงินที่ต้องนำมาคืน (คำนวณสดเหมือนฝั่งการเงิน)
         const toReturn = a.kind === 'clear' && p
-          ? summarizeGroupClear({ periodId: a.jobId, endDate: p.endDate, today, envelopes, expenses, closed: !!loadGroupClears()[a.jobId]?.closedAt }).balance.filter((b) => b.remaining > 0)
+          ? summarizeGroupClear({ periodId: a.jobId, startDate: p.startDate, endDate: p.endDate, today, envelopes, expenses, closed: !!loadGroupClears()[a.jobId]?.closedAt }).balance.filter((b) => b.remaining > 0)
           : null;
         const open = a.status === 'pending' || a.status === 'confirmed';
         // คุณขอนัดเอง และการเงินยังไม่ยืนยัน — ไม่มีปุ่มให้ยืนยันนัดของตัวเอง

@@ -21,7 +21,7 @@ import { Icon } from '@/components/ui/Icon';
 import { EXPENSE_STATUS } from '@/lib/labels';
 import { formatCurrency, formatDate, formatDateRange, formatDateTime, toISODateTime } from '@/lib/format';
 import { envelopeName } from '@/lib/logic/cashEnvelope';
-import { clearChecklist, effectiveClearValues, followUpsFromClose, GROUP_CLEAR_STAGE, type GroupClearSummary } from '@/lib/logic/groupClear';
+import { clearChecklist, clearNotEnded, effectiveClearValues, followUpsFromClose, GROUP_CLEAR_STAGE, type GroupClearSummary } from '@/lib/logic/groupClear';
 import { CLEAR_EVENT_LABEL, saveGroupClear, type GroupClearRecord } from '@/services/groupClearStore';
 import { ClearAppointmentSection } from './ClearAppointmentSection';
 import { FollowUpSection } from './FollowUpSection';
@@ -64,9 +64,12 @@ export function GroupClearDrawer({
     ? effectiveClearValues(record)
     : { returned: toList(returned), paidExtra: toList(paidExtra), noPerDiem });
   const allOk = checks.every((c) => c.ok);
-  const okCount = checks.filter((c) => c.ok).length;
+  // นับเฉพาะข้อที่เกี่ยวข้อง — ข้อสีเทา (ไม่เกี่ยวข้อง / ยังไม่ถึงเวลาตรวจ) ไม่นับ
+  const counted = checks.filter((c) => !c.na);
+  const okCount = counted.filter((c) => c.ok).length;
+  const notEnded = clearNotEnded(summary.stage);
   // ปิดได้เมื่อจบทริปแล้ว — ครบ = เคลียร์ครบ · ไม่ครบ = ปิดแบบมีค้าง (ต้องมีเหตุผล)
-  const canClose = summary.stage !== 'traveling';
+  const canClose = !notEnded;
   const canAppoint = summary.stage === 'ready' || (summary.stage === 'waiting_leader' && summary.pendingDocs === 0);
   const badAmount = [...Object.values(returned), ...Object.values(paidExtra)].some((v) => v.trim() !== '' && !(Number(v) >= 0));
   const needReason = !allOk && !partialReason.trim();
@@ -81,7 +84,7 @@ export function GroupClearDrawer({
   const saveProgress = () => {
     try {
       saveGroupClear({ ...(record ?? { history: [] }), periodId: summary.periodId, ...values() });
-      pushToast('success', 'บันทึกแล้ว (ยังไม่ปิด)', `${p?.groupCode ?? summary.periodId} · ครบ ${okCount}/${checks.length}`);
+      pushToast('success', 'บันทึกแล้ว (ยังไม่ปิด)', `${p?.groupCode ?? summary.periodId} · ครบ ${okCount}/${counted.length}`);
       onSaved();
     } catch (e) {
       pushToast('error', e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
@@ -153,7 +156,7 @@ export function GroupClearDrawer({
       ) : (
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
           <span className={cx('text-xs', allOk ? 'text-emerald-700' : 'zego-text-warning')}>
-            {summary.stage === 'traveling' ? 'ยังไม่จบทริป — ยังปิดไม่ได้' : allOk ? 'เช็กลิสต์ผ่านครบ — ปิดเป็น "เคลียร์ครบ"' : `ยังค้าง ${checks.length - okCount} ข้อ — ปิดได้แบบ "ปิดแบบมีค้าง" (ต้องใส่เหตุผล)`}
+            {notEnded ? 'ยังไม่จบทริป — ยังปิดไม่ได้' : allOk ? 'เช็กลิสต์ผ่านครบ — ปิดเป็น "เคลียร์ครบ"' : `ยังค้าง ${counted.length - okCount} ข้อ — ปิดได้แบบ "ปิดแบบมีค้าง" (ต้องใส่เหตุผล)`}
           </span>
           <span className="flex gap-2">
             <Button variant="secondary" disabled={badAmount} onClick={saveProgress}>บันทึก (ยังไม่ปิด)</Button>
@@ -167,7 +170,7 @@ export function GroupClearDrawer({
       <div className="space-y-5">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <StatusPill label={s.label} tone={s.tone} />
-          <span className="zego-text-secondary">กำหนดเคลียร์ {formatDate(summary.dueDate)}</span>
+          {summary.dueDate && <span className="zego-text-secondary">กำหนดเคลียร์ {formatDate(summary.dueDate)}</span>}
           {summary.overdue && <span className="text-xs font-semibold zego-text-danger">เกินกำหนด</span>}
         </div>
 
@@ -175,16 +178,17 @@ export function GroupClearDrawer({
         <section>
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold zego-text">เช็กลิสต์ความครบถ้วน</h3>
-            <span className={cx('rounded-full px-2 py-0.5 text-xs font-semibold', allOk ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800')}>ครบ {okCount}/{checks.length}</span>
+            <span className={cx('rounded-full px-2 py-0.5 text-xs font-semibold', notEnded ? 'bg-slate-100 text-slate-600' : allOk ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800')}>{notEnded ? 'ตรวจได้หลังจบทริป' : `ครบ ${okCount}/${counted.length}`}</span>
           </div>
           <ul className="divide-y divide-[var(--zego-border-soft)] rounded-lg border zego-border-color text-sm">
             {checks.map((c) => (
               <li key={c.key} className="flex items-start gap-2 px-3 py-2">
-                <span className={cx('mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full', c.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-50 text-rose-600')}>
-                  <Icon name={c.ok ? 'check' : 'x'} className="h-3.5 w-3.5" />
+                {/* เขียว = ผ่าน · แดง = ค้าง · เทา = ไม่เกี่ยวข้อง / ยังไม่ถึงเวลาตรวจ */}
+                <span className={cx('mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full', c.na ? 'bg-slate-100 text-slate-400' : c.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-50 text-rose-600')}>
+                  {c.na ? <span className="text-xs font-bold leading-none">–</span> : <Icon name={c.ok ? 'check' : 'x'} className="h-3.5 w-3.5" />}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block font-medium zego-text">{c.label}</span>
+                  <span className={cx('block font-medium', c.na ? 'zego-text-tertiary' : 'zego-text')}>{c.label}</span>
                   <span className={cx('block text-xs', c.ok ? 'zego-text-tertiary' : 'zego-text-warning')}>{c.detail}</span>
                 </span>
                 {c.key === 'perDiem' && !closed && !summary.perDiem && (
@@ -239,7 +243,7 @@ export function GroupClearDrawer({
                       <td className="px-2 py-1.5 text-right zego-text-tertiary">{b.pending > 0 ? money(b.pending) : '—'}</td>
                       <td className="px-2 py-1.5 text-right">
                         <span className={b.remaining > 0 ? 'font-semibold zego-text-danger' : b.remaining < 0 ? 'font-semibold text-emerald-700' : 'zego-text'}>{money(Math.abs(b.remaining))}</span>
-                        <span className="block text-[11px] zego-text-tertiary">{b.remaining > 0 ? 'หัวหน้าทัวร์ต้องคืน' : b.remaining < 0 ? 'บริษัทจ่ายเพิ่ม' : 'พอดี'}</span>
+                        <span className="block text-[11px] zego-text-tertiary">{notEnded ? 'คงเหลือในซอง' : b.remaining > 0 ? 'หัวหน้าทัวร์ต้องคืน' : b.remaining < 0 ? 'บริษัทจ่ายเพิ่ม' : 'พอดี'}</span>
                       </td>
                     </tr>
                   ))}
@@ -312,7 +316,7 @@ export function GroupClearDrawer({
             groupCode={p?.groupCode ?? summary.periodId}
             leader={leader}
             canAppoint={canAppoint}
-            blockedReason={summary.stage === 'traveling' ? 'ยังไม่จบทริป'
+            blockedReason={notEnded ? 'ยังไม่จบทริป'
               : summary.stage === 'waiting_docs' ? 'ยังมีเอกสารรอตรวจ'
                 : 'หัวหน้าทัวร์ยังไม่ส่งเอกสารครบ'}
           />
@@ -368,7 +372,7 @@ export function GroupClearDrawer({
                   ))}
                 </div>
               )}
-              {!allOk && summary.stage !== 'traveling' && (
+              {!allOk && !notEnded && (
                 <label className="block text-xs">
                   <span className="mb-1 block font-medium zego-text-secondary">เหตุผลที่ปิดแบบมีค้าง <span className="text-rose-600">*</span> <span className="font-normal zego-text-tertiary">(ใช้เมื่อจำเป็นต้องปิดก่อนครบ)</span></span>
                   <textarea rows={2} className="w-full rounded-lg border border-amber-300 bg-white px-2.5 py-2 text-sm" value={partialReason} onChange={(e) => setPartialReason(e.target.value)} placeholder="เช่น หัวหน้าทัวร์ลาออก ติดตามเงินคืนผ่านฝ่ายบุคคล" />

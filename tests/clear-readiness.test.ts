@@ -73,6 +73,10 @@ test('พร้อมเคลียร์ — ยังไม่จบทริ
   assert.equal(r.checks[2].text, 'ส่งได้ตั้งแต่ 12/10/26');
   // ไม่มีซอง ระหว่างเดินทาง
   assert.equal(run({ ended: false }).checks[1].text, 'บันทึกระหว่างเดินทาง');
+  // ถือเงินแต่ยังไม่จบทริป = ยังไม่ใช่เรื่องค้าง
+  const heldBefore = run({ started: true, ended: false, envs: [env(true)] });
+  assert.equal(heldBefore.checks[1].na, true);
+  assert.equal(heldBefore.checks[1].text, 'บันทึกระหว่างเดินทาง');
   // จบทริปแล้ว เบี้ยเลี้ยงยังไม่ทำ = ต้องทำ
   assert.equal(run({}).checks[2].ok, false);
 });

@@ -36,7 +36,7 @@ export function GroupAdvanceDocsCard({
   /** ข้อความเมื่อไม่มีเอกสาร (เช่น กรองแล้วไม่พบ) */
   emptyText?: string;
 }) {
-  const { envelopes, noEnvelopeMarks } = useDemo();
+  const { envelopes, noEnvelopeMarks, leaders } = useDemo();
   /*
     ซองปิดแล้วแต่ยังไม่ส่งมอบ ยังไม่มีชื่อผู้รับในซอง — ใช้เจ้าหน้าที่ส่งกรุ๊ปที่ผู้จัดสเก็ตจัดให้กรุ๊ปนั้นแทน
     (คนกลุ่มเดียวกับที่ขึ้นเป็นตัวเลือกแรกตอนกดส่งมอบ) การเงินจะได้รู้ล่วงหน้าว่าใครจะมารับซอง
@@ -119,6 +119,23 @@ export function GroupAdvanceDocsCard({
                     <td className="px-3 py-2.5 align-top">
                       {noDocs ? <StatusPill label="รอการทำเบิก" tone="slate" /> : <StatusPill label={status.label} tone={status.tone} />}
                       {!noDocs && status.awaiting &&<p className="mt-0.5 whitespace-nowrap text-xs zego-text-tertiary">{status.awaiting}</p>}
+                      {/* หัวหน้าทัวร์ที่รับซองแล้ว — ชื่อ นามสกุล (ชื่อเล่น) ของผู้กดยืนยันรับ (ไม่ซ้ำ) */}
+                      {(() => {
+                        const acked = envs.filter((e) => e.packedLineIds.length > 0 && e.leaderAck);
+                        if (acked.length === 0) return null;
+                        const nameOf = (ack: NonNullable<(typeof acked)[number]['leaderAck']>) => {
+                          const l = leaders.find((x) => x.id === ack.leaderId);
+                          if (!l) return ack.leaderName;
+                          const full = `${l.firstName} ${l.lastName}`.trim() || ack.leaderName;
+                          return l.nickname ? `${full} (${l.nickname})` : full;
+                        };
+                        const names = [...new Set(acked.map((e) => nameOf(e.leaderAck!)))].join(', ');
+                        return (
+                          <p className="mt-0.5 whitespace-nowrap text-xs zego-text-secondary">
+                            ผู้รับ: <span className="font-medium zego-text">{names}</span>
+                          </p>
+                        );
+                      })()}
                       {status.stage === 'sealed' && !status.mismatch && (pickupByPeriod.get(periodId)?.length ?? 0) > 0 && (
                         <p className="mt-0.5 text-xs zego-text-tertiary">ผู้มารับ: {pickupByPeriod.get(periodId)!.join(', ')}</p>
                       )}
