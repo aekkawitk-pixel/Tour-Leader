@@ -54,7 +54,7 @@ export default function GuideExpensesRecordPage() {
 
   const [selectedPeriod, setSelectedPeriod] = useState<TourPeriodMaster | null>(null);
   const [travelFilter, setTravelFilter] = useState<'during' | 'after'>('during');
-  /** เข้าจาก "บันทึกใบเสร็จย้อนหลัง" (หน้าการเงิน แท็บหลังเดินทาง) — แสดงเฉพาะกรุ๊ปหลังเดินทาง ไม่มีตัวสลับ */
+  /** เข้าจาก "บันทึกใบเสร็จย้อนหลัง" (หน้าการเงิน หัวเรื่องหลังเดินทาง) — แสดงเฉพาะกรุ๊ปหลังเดินทาง ไม่มีตัวสลับ */
   const [afterOnly, setAfterOnly] = useState(false);
   const router = useRouter();
   /** เพิ่งบันทึกสำเร็จ → ถามว่าจะไปหน้าหลัก หรือทำรายการต่อ (กรุ๊ปเดิม) */
@@ -72,7 +72,7 @@ export default function GuideExpensesRecordPage() {
   };
 
   /*
-    เปิดจากหน้าการเงิน: ?period=<id> = เลือกกรุ๊ปนั้นให้เลย (ข้ามขั้นเลือกกรุ๊ป) · ?filter=after = เปิดแท็บหลังเดินทาง
+    เปิดจากหน้าการเงิน: ?period=<id> = เลือกกรุ๊ปนั้นให้เลย (ข้ามขั้นเลือกกรุ๊ป) · ?filter=after = แสดงเฉพาะกรุ๊ปหลังเดินทาง
     อ่าน URL ฝั่ง client ครั้งเดียวหลัง mount (หน้านี้ถูก prerender)
   */
   useEffect(() => {

@@ -66,7 +66,7 @@ export function listGuideAlerts(input: {
       kind: 'envelope',
       title: `มีซองรอรับ ${n} ซอง`,
       detail: p ? `${p.groupCode} · ${formatDateRange(p.startDate, p.endDate)}` : periodId,
-      href: '/guide/finance?tab=before',
+      href: '/guide/finance/envelopes',
     });
   }
 
