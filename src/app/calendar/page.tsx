@@ -14,16 +14,16 @@ import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { addDays, formatDate, formatDateRange, parseDate, TH_WEEKDAYS_SHORT } from '@/lib/format';
 import { buildMonthGrid, buildWeekGrid, monthTitle, shiftMonth, shiftWeek } from '@/lib/logic/calendar';
-import { Button, Callout, Card, cx, EmptyState, PageHeader, StatusBadge } from '@/components/ui/Primitives';
+import { Button, Card, cx, EmptyState, PageHeader, StatusBadge } from '@/components/ui/Primitives';
 import { SelectInput, SearchBox } from '@/components/ui/FormField';
 import { MultiSelect } from '@/components/ui/MultiSelect';
 import { SegmentedControl } from '@/components/ui/Tabs';
-import { ConfirmDialog, Drawer } from '@/components/ui/Modal';
+import { Drawer } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
 import { nextMonthStart, nextMonthStartFromNow } from '@/components/ui/MonthPicker';
 import { getAssignablePeriods, getTourPeriods } from '@/services/tourPeriodMaster';
 import { getHolidayMap } from '@/services/holidayService';
-import { loadActiveGuideAssignments, setAssignmentStatus } from '@/services/guideAssignmentStore';
+import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { periodScheduleDisplay, BOARD_STATUS, boardStatusFromAssignment } from '@/lib/logic/guideBoard';
 import { leaderDisplayName } from '@/lib/logic/leaderExpertise';
 import { SALE_STATUS_LABEL } from '@/data/schedule/saleStatus';
@@ -105,7 +105,7 @@ const BAR_FONT = {
 };
 
 export default function CalendarPage() {
-  const { leaders, today, currentUser, pushToast } = useDemo();
+  const { leaders, today, currentUser } = useDemo();
 
   /*
    * ค่าเริ่มต้น = เงื่อนไขเดียวกับเมนูการจัดสเก็ต — เดือนถัดไปจากวันที่จริงของเครื่องผู้ใช้ (nextMonthStartFromNow)
@@ -146,7 +146,7 @@ export default function CalendarPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dayOpen, setDayOpen] = useState<string | null>(null); // วันที่ ISO ที่กางรายการกรุ๊ปทั้งวันอยู่
 
-  const [assignments, setAssignments] = useState(() => (typeof window !== 'undefined' ? loadActiveGuideAssignments() : []));
+  const [assignments] = useState(() => (typeof window !== 'undefined' ? loadActiveGuideAssignments() : []));
   const assignmentByPeriod = useMemo(() => new Map(assignments.map((a) => [a.periodId, a])), [assignments]);
 
   /*
@@ -435,19 +435,6 @@ export default function CalendarPage() {
     setView(next);
   };
 
-  /*
-    หัวหน้าทัวร์ตอบรับ/ปฏิเสธงานของตัวเอง (§7)
-
-    ทำได้เฉพาะงานที่ผู้จัดมอบหมายให้ตัวเองและยังรอคอนเฟิร์มอยู่เท่านั้น
-    เขียนผ่าน Store ตัวเดียวกับหน้าจัดสเก็ต จึงมี Audit ครบและผู้จัดเห็นผลทันที
-  */
-  const respond = (assignmentId: string, status: 'CONFIRMED' | 'DECLINED') => {
-    setAssignments(setAssignmentStatus(assignmentId, status, currentUser.name, `${today}T00:00`));
-    setSelectedId(null);
-    pushToast('success', status === 'CONFIRMED'
-      ? 'ยืนยันรับงานแล้ว'
-      : 'ปฏิเสธงานแล้ว — ผู้จัดจะเห็นสถานะนี้และจัดหัวหน้าทัวร์คนอื่นแทน');
-  };
 
   const renderChip = (p: TourPeriodMaster) => {
     const leader = leaderOf(p);
@@ -952,37 +939,23 @@ export default function CalendarPage() {
         sendOffJob={selected ? sendOffOf(selected) ?? null : null}
         leaders={leaders}
         onClose={() => setSelectedId(null)}
-        ownLeaderId={ownScope}
-        onRespond={respond}
       />
     </>
   );
 }
 
-function PeriodDrawer({ period, assignment, sendOffJob, leaders, onClose, ownLeaderId, onRespond }: {
+function PeriodDrawer({ period, assignment, sendOffJob, leaders, onClose }: {
   period: TourPeriodMaster | null;
   assignment: ReturnType<typeof loadActiveGuideAssignments>[number] | null;
   /** งานเจ้าหน้าที่ส่งกรุ๊ปของพีเรียดนี้ — null = ไม่ต้องมีคนไปส่ง (ไม่ใช่ "ขาด") */
   sendOffJob: SendOffJob | null;
   leaders: ReturnType<typeof useDemo>['leaders'];
   onClose: () => void;
-  /** รหัสหัวหน้าทัวร์ของผู้ใช้ปัจจุบัน — null = ไม่ใช่บทบาทหัวหน้าทัวร์ */
-  ownLeaderId: string | null;
-  onRespond: (assignmentId: string, status: 'CONFIRMED' | 'DECLINED') => void;
 }) {
-  const [confirmDecline, setConfirmDecline] = useState(false);
   const disp = period ? periodScheduleDisplay(period) : null;
   const board = boardStatusFromAssignment(assignment?.assignmentStatus);
   const leader = assignment ? leaders.find((l) => l.id === assignment.tourLeaderId) ?? null : null;
   const num = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('th-TH'));
-
-  /*
-    ปุ่มตอบรับขึ้นเฉพาะเมื่อครบสามข้อ — เป็นบทบาทหัวหน้าทัวร์ · เป็นงานของตัวเอง · ยังรอคอนเฟิร์ม
-    งานที่ตอบไปแล้วหรือของคนอื่นต้องไม่มีปุ่มให้กด
-  */
-  const canRespond = Boolean(
-    assignment && ownLeaderId && assignment.tourLeaderId === ownLeaderId && board === 'PENDING_CONFIRMATION',
-  );
 
   return (
     <>
@@ -990,22 +963,10 @@ function PeriodDrawer({ period, assignment, sendOffJob, leaders, onClose, ownLea
       footer={period && (
         <>
           <Button variant="secondary" onClick={onClose}>ปิด</Button>
-          {canRespond && assignment && (
-            <>
-              <Button variant="danger" onClick={() => setConfirmDecline(true)}>ปฏิเสธงาน</Button>
-              <Button variant="primary" onClick={() => onRespond(assignment.assignmentId, 'CONFIRMED')}>ยืนยันรับงาน</Button>
-            </>
-          )}
         </>
       )}>
       {period && (
         <div className="space-y-4">
-          {canRespond && (
-            <Callout tone="amber" title="งานนี้รอการตอบรับจากคุณ">
-              <p className="text-sm">กด “ยืนยันรับงาน” เพื่อรับงานนี้ หรือ “ปฏิเสธงาน” หากรับไม่ได้ — ผู้จัดจะเห็นผลทันที</p>
-            </Callout>
-          )}
-
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge meta={BOARD_STATUS[board]} />
             <span className="zego-surface-soft-bg zego-text-secondary rounded px-2 py-0.5 text-xs">ขาย: {SALE_STATUS_LABEL[period.saleStatus]}</span>
@@ -1052,18 +1013,6 @@ function PeriodDrawer({ period, assignment, sendOffJob, leaders, onClose, ownLea
         </div>
       )}
     </Drawer>
-
-    <ConfirmDialog
-      open={confirmDecline}
-      onClose={() => setConfirmDecline(false)}
-      onConfirm={() => { if (assignment) onRespond(assignment.assignmentId, 'DECLINED'); setConfirmDecline(false); }}
-      title="ปฏิเสธงานนี้"
-      message={period
-        ? `ปฏิเสธงาน ${period.groupCode} (${formatDateRange(period.startDate, period.endDate)}) — ผู้จัดจะเห็นสถานะนี้และจัดหัวหน้าทัวร์คนอื่นแทน`
-        : ''}
-      confirmLabel="ปฏิเสธงาน"
-      tone="danger"
-    />
     </>
   );
 }

@@ -30,6 +30,7 @@ import { SettlementBackHeader } from '../SettlementBackHeader';
 import { GuideExpenseDetailDrawer } from '../../expenses/GuideExpenseDetailDrawer';
 import { expenseOriginalTotals, requestedAtOf } from '../../expenses/expenseAmounts';
 import type { ExpenseRequest } from '@/types';
+import { tripEnded, tripStarted } from '@/lib/logic/tripPhase';
 
 const fmtTotals = (list: { amount: number; currency: string }[]) => list.map((t) => formatCurrency(t.amount, t.currency)).join(' · ') || '—';
 
@@ -64,7 +65,7 @@ export default function GuideSettlementClaimPage() {
         return { period, receipts, perDiem, envs };
       })
       // ออกเดินทางแล้ว หรือมีรายการแล้ว — กรุ๊ปที่ยังไม่ออกและยังไม่มีอะไรไม่ต้องตรวจ
-      .filter((g) => g.period.startDate <= today || g.receipts.length > 0 || g.perDiem || g.envs.length > 0)
+      .filter((g) => tripStarted(g.period, today) || g.receipts.length > 0 || g.perDiem || g.envs.length > 0)
       .sort((a, b) => b.period.startDate.localeCompare(a.period.startDate));
   }, [leaderId, expenses, envelopes, today]);
 
@@ -119,7 +120,7 @@ export default function GuideSettlementClaimPage() {
           const docs = [...receipts, ...(perDiem ? [perDiem] : [])];
           const sum = groupSummary(docs);
           // วันกลับนับเป็นจบทริป (ตรงกับการส่งอนุมัติเบี้ยเลี้ยง)
-          const ended = period.endDate <= today;
+          const ended = tripEnded(period, today);
           return (
             <Card key={period.internalId} padded={false}>
               <button

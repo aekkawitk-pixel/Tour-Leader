@@ -60,33 +60,15 @@ describe('การแปลงสถานะ Assignment', () => {
 
 /* ---------------- หัวหน้าทัวร์ตอบรับ/ปฏิเสธงานของตัวเอง ---------------- */
 
-describe('ปุ่มตอบรับงานในปฏิทิน', () => {
-  test('มีปุ่มยืนยันรับงานและปฏิเสธงาน', () => {
-    assert.ok(SRC.includes('ยืนยันรับงาน'));
-    assert.ok(SRC.includes('ปฏิเสธงาน'));
+describe('ปฏิทินไม่มีขั้นตอบรับงาน', () => {
+  // ผู้จัดมอบหมายงาน = คอนเฟิร์มทันที — ไม่มีปุ่มให้หัวหน้าทัวร์ยืนยันรับ/ปฏิเสธงานอีก
+  test('ไม่มีปุ่มยืนยันรับงานหรือปฏิเสธงาน', () => {
+    assert.equal(SRC.includes('ยืนยันรับงาน'), false);
+    assert.equal(SRC.includes('ปฏิเสธงาน'), false);
   });
 
-  test('ขึ้นเฉพาะงานของตัวเองที่ยังรอคอนเฟิร์ม — ครบทั้งสามเงื่อนไข', () => {
-    const block = SRC.match(/const canRespond = Boolean\([\s\S]*?\);/)?.[0] ?? '';
-    assert.ok(block, 'ต้องหาเงื่อนไขเจอ');
-    assert.ok(block.includes('ownLeaderId'), 'ต้องเป็นบทบาทหัวหน้าทัวร์');
-    assert.ok(block.includes('assignment.tourLeaderId === ownLeaderId'), 'ต้องเป็นงานของตัวเอง');
-    assert.ok(block.includes("board === 'PENDING_CONFIRMATION'"), 'ต้องยังรอคอนเฟิร์มอยู่');
-  });
-
-  test('ปฏิเสธต้องผ่านกล่องยืนยันก่อน ไม่ปฏิเสธทันทีจากปุ่มเดียว', () => {
-    assert.ok(SRC.includes('setConfirmDecline(true)'), 'ปุ่มปฏิเสธต้องเปิดกล่องยืนยัน');
-    assert.ok(SRC.includes('open={confirmDecline}'));
-    assert.ok(/onConfirm=\{\(\) => \{[^}]*onRespond\([^)]*'DECLINED'\)/.test(SRC), 'ปฏิเสธจริงต้องอยู่หลังการยืนยัน');
-  });
-
-  test('ยืนยันรับงานกดได้ทันที (ไม่ใช่การกระทำที่ย้อนยาก)', () => {
-    assert.ok(/onClick=\{\(\) => onRespond\(assignment\.assignmentId, 'CONFIRMED'\)\}/.test(SRC));
-  });
-
-  test('เขียนผ่าน Store กลาง จึงมี Audit และผู้จัดเห็นผลทันที', () => {
-    assert.ok(SRC.includes("from '@/services/guideAssignmentStore'"));
-    assert.ok(SRC.includes('setAssignmentStatus('), 'ต้องใช้ฟังก์ชันเดียวกับหน้าจัดสเก็ต ไม่เขียน localStorage เอง');
+  test('ปฏิทินไม่เปลี่ยนสถานะการจัดงานเอง', () => {
+    assert.equal(SRC.includes('setAssignmentStatus('), false);
   });
 });
 

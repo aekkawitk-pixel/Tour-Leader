@@ -6,13 +6,13 @@
  * หน้าสรุป ไม่ใช่ทางลัดเมนู (เมนูอยู่แถบล่างแล้ว):
  *   1) จำนวนงาน — เดือนนี้ · เดือนหน้า (เลื่อนดูเดือนย้อนหลังได้)
  *   2) กรุ๊ปงานถัดไป — กรุ๊ปที่จะออกเดินทางใกล้สุด (นับถอยหลังวันออกเดินทาง)
- *   3) มีซองเงินส่งถึงคุณ (พร้อมรับ / ระหว่างทาง) → รายการย่อกรุ๊ปละบรรทัด กดขยายแล้วยืนยันรับทั้งกรุ๊ป (EnvelopeAckList) แทนสรุปการเงิน
- *      ไม่มี → สรุปการเงิน (ซองเงินที่ถืออยู่ · สถานะใบเสร็จที่บันทึก)
+ *   3) มีซองเงินค้าง (รอรับ / กำลังมา / แจ้งไม่ได้รับ) → การ์ดเตือนกรุ๊ปละบรรทัด แตะไปยืนยันที่แท็บ "ก่อนเดินทาง"
+ *      (ยืนยันรับซองทำที่เดียว — การ์ดซองเงินชุดเดียวกับหน้ารายละเอียดงาน ไม่มีหน้าตาที่สองที่หน้าหลัก)
+ *   4) สรุปการเงิน (ซองเงินที่ถืออยู่ · สถานะใบเสร็จที่บันทึก)
  * ไม่มี checklist/attendance/customer-care ที่เพิ่มภาระรายวัน (ตัดออกแล้วตามที่คุยกัน)
  */
 
 import Link from 'next/link';
-import { EnvelopeAckList } from './EnvelopeAckList';
 import { CarrierLeaderSection } from './CarrierLeaderSection';
 import { useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
@@ -22,7 +22,7 @@ import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { boardStatusMeta } from '@/lib/logic/guideBoard';
 import { useLeaderDocumentsView } from '@/lib/useLeaderDocuments';
 import { listDocumentExpiryAlerts } from '@/lib/logic/documentExpiryAlerts';
-import { formatCurrency, formatDateRange, toISODate } from '@/lib/format';
+import { formatCurrency, formatDate, formatDateRange, toISODate } from '@/lib/format';
 import { leaderEnvelopeState, sumAmounts } from '@/lib/logic/cashEnvelope';
 import { Card, Callout, StatusBadge, cx } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
@@ -191,8 +191,42 @@ export default function GuideHomePage() {
       {/* ซองของกรุ๊ปอื่นที่ฝากคุณนำส่ง (ถ้ามี) — แยกจากซองของกรุ๊ปตัวเอง */}
       <CarrierLeaderSection />
 
-      {/* 3) มีซองรอยืนยันรับ → การ์ดซองเงิน (ยืนยันรับได้ที่นี่) แทนสรุปการเงิน */}
-      {ackGroups.length > 0 ? <EnvelopeAckList /> : (
+      {/* 3) ซองเงินค้าง — แค่เตือน แล้วพาไปยืนยันที่แท็บก่อนเดินทาง (ที่เดียวที่ยืนยันรับซอง) */}
+      {ackGroups.length > 0 && (
+        <Link href="/guide/finance?tab=before" className="block">
+          <Card padded={false} className="border-amber-200 hover:border-amber-300">
+            <div className="zego-divider-bottom flex items-center justify-between gap-2 bg-amber-50 px-4 py-2.5">
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">
+                <Icon name="money" className="h-4 w-4" />
+                ซองเงินรอคุณ · {ackGroups.length} กรุ๊ป
+              </p>
+              <span className="flex items-center gap-0.5 text-xs font-medium text-amber-900">
+                ไปยืนยันรับ
+                <Icon name="chevronRight" className="h-4 w-4" />
+              </span>
+            </div>
+            <ul className="divide-y divide-[var(--zego-border-soft)]">
+              {ackGroups.map((p) => {
+                const n = (list: typeof envToAck) => list.filter((e) => e.periodId === p.internalId).length;
+                const parts = [
+                  n(envToAck) && `ถึงมือแล้ว ${n(envToAck)} ซอง`,
+                  n(envInTransit) && `กำลังนำมาส่ง ${n(envInTransit)} ซอง`,
+                  n(envAtFinance) && `ยังอยู่ที่การเงิน ${n(envAtFinance)} ซอง`,
+                  n(envReported) && `แจ้งไม่ได้รับ ${n(envReported)} ซอง`,
+                ].filter(Boolean);
+                return (
+                  <li key={p.internalId} className="px-4 py-2">
+                    <p className="text-sm font-medium zego-text">{p.groupCode}</p>
+                    <p className="text-xs zego-text-tertiary">ออก {formatDate(p.startDate)} · {parts.join(' · ')}</p>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        </Link>
+      )}
+
+      {/* 4) สรุปการเงิน */}
       <Link href="/guide/finance" className="block">
         <Card padded={false} className="hover:border-emerald-300">
           <div className="zego-divider-bottom flex items-center justify-between px-4 py-2.5">
@@ -217,7 +251,6 @@ export default function GuideHomePage() {
           </div>
         </Card>
       </Link>
-      )}
     </div>
   );
 }

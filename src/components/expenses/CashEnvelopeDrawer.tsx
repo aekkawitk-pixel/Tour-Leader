@@ -22,7 +22,7 @@ import { SearchBox, TextInput } from '@/components/ui/FormField';
 import { Icon } from '@/components/ui/Icon';
 import { formatCurrency, formatDate, formatDateRange, formatDateTime, formatTime, toISODate, toISODateTime } from '@/lib/format';
 import {
-  allocationOf, canEditHandover, depositedViaGroup, canSeal, pendingDepositLabel, type PendingDeposit, carrierOf, carrierTitle, custodyTrail, ENVELOPE_KIND, ENVELOPE_KIND_ORDER, envelopeKindReady, type EnvelopeKind, docChangedSinceSeal, docIdOfLineKey, envelopeTimeline, handoverReceiverText, envelopeName, envelopeShortLabel, envelopeStage, envelopeStatusLabel,
+  allocationOf, canEditHandover, depositedViaGroup, canSeal, pendingDepositLabel, type PendingDeposit, carrierOf, carrierTitle, ENVELOPE_KIND, ENVELOPE_KIND_ORDER, envelopeKindReady, type EnvelopeKind, docChangedSinceSeal, docIdOfLineKey, envelopeTimeline, handoverReceiverText, envelopeName, envelopeShortLabel, envelopeStage, envelopeStatusLabel,
   envelopeTotals, groupEnvelopeStatus, groupLines, lineKey, newEnvelope, NO_ENVELOPE_REASONS, packingFromAllocation, sumAmounts, unassignedLines,
   type Allocation, type CashEnvelope, type EnvelopeAmount, type EnvelopeTone,
 } from '@/lib/logic/cashEnvelope';
@@ -77,37 +77,34 @@ export function spentByReceipts(expenses: ExpenseRequest[], periodId: string, le
   );
 }
 
-/** เส้นทางซอง (ตรวจย้อนหลัง) — ทุกทอดที่ซองเปลี่ยนมือ เรียงเก่า → ใหม่ พร้อมเวลา ผู้กด และรูปหลักฐาน */
-export function CustodyTrail({ env, title }: { env: CashEnvelope; title?: string }) {
-  const trail = custodyTrail(env);
-  if (trail.length === 0) return null;
-  return (
-    <details className="rounded-lg border zego-border-color px-3 py-2 text-sm">
-      <summary className="cursor-pointer font-semibold zego-text">{title ?? 'เส้นทางซอง (ตรวจย้อนหลัง)'} · {trail.length} ทอด</summary>
-      <ol className="mt-2 space-y-2 border-l-2 border-emerald-200 pl-3">
-        {trail.map((h, i) => (
-          <li key={i} className="space-y-0.5">
-            <p className="text-xs tabular-nums zego-text-tertiary">{formatDateTime(h.at)} · โดย {h.byName}</p>
-            <p className="font-medium zego-text">{h.action}</p>
-            {h.note && <p className="text-xs zego-text-secondary">{h.note}</p>}
-            <ProofThumb src={h.photo} label={`${h.action} · ${formatDateTime(h.at)} · ${h.byName}`} />
-          </li>
-        ))}
-      </ol>
-    </details>
-  );
-}
-
 /** Timeline ความเคลื่อนไหวของซองเงินทั้งกรุ๊ป (แบบติดตามพัสดุ) — ล่าสุดอยู่บนและเน้นสี */
 export function EnvelopeTimeline({ envs, limit = 5 }: { envs: CashEnvelope[]; limit?: number }) {
   const [all, setAll] = useState(false);
-  const events = envelopeTimeline(envs);
-  // มีซองเดียว — ไม่ต้องติดป้ายชื่อซองทุกบรรทัด
-  const multi = new Set(events.map((e) => e.envelopeId)).size > 1;
+  /** กรองดูทีละซอง (null = ทุกซอง) — ใช้ไล่เส้นทางของซองที่แยกกันไปคนละทาง แทน "เส้นทางซอง" แยกที่เคยซ้ำกับ Timeline */
+  const [onlyEnv, setOnlyEnv] = useState<string | null>(null);
+  const allEvents = envelopeTimeline(envs);
+  const envOptions = envs.filter((e) => allEvents.some((ev) => ev.envelopeId === e.id));
+  // มีซองเดียว — ไม่ต้องมีตัวกรองและไม่ต้องติดป้ายชื่อซองทุกบรรทัด
+  const multi = envOptions.length > 1;
+  const events = onlyEnv ? allEvents.filter((ev) => ev.envelopeId === onlyEnv) : allEvents;
   const shown = all ? events : events.slice(0, limit);
+  const chip = (on: boolean) => cx(
+    'rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset',
+    on ? 'bg-emerald-600 text-white ring-emerald-600' : 'zego-surface-bg zego-text-secondary ring-[var(--zego-border-soft)] zego-hover-surface',
+  );
   return (
     <section className="rounded-xl border zego-border-color px-3 py-3 sm:px-4">
       <h3 className="mb-3 text-sm font-semibold zego-text">Timeline</h3>
+      {multi && (
+        <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="กรองตามซอง">
+          <button type="button" aria-pressed={!onlyEnv} onClick={() => setOnlyEnv(null)} className={chip(!onlyEnv)}>ทุกซอง</button>
+          {envOptions.map((e) => (
+            <button key={e.id} type="button" aria-pressed={onlyEnv === e.id} onClick={() => setOnlyEnv(e.id)} className={chip(onlyEnv === e.id)}>
+              {envelopeName(e)}
+            </button>
+          ))}
+        </div>
+      )}
       {events.length === 0 ? (
         <p className="text-sm zego-text-tertiary">ยังไม่มีความเคลื่อนไหว — เริ่มจากการเงินจัดซอง</p>
       ) : (
@@ -134,7 +131,7 @@ export function EnvelopeTimeline({ envs, limit = 5 }: { envs: CashEnvelope[]; li
                   </p>
                   <p className="flex flex-wrap items-center gap-2">
                     <span className={cx('text-sm font-semibold', latest ? 'text-emerald-700' : 'zego-text')}>{ev.title}</span>
-                    {multi && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium zego-text-secondary">{ev.envName}</span>}
+                    {multi && !onlyEnv && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium zego-text-secondary">{ev.envName}</span>}
                   </p>
                   {ev.details.length > 0 && (
                     <ul className="space-y-0.5 text-sm zego-text-secondary">
@@ -196,8 +193,6 @@ export function GroupTimelineDrawer({ periodId, docs, onClose }: { periodId: str
             ))}
           </ul>
         )}
-        {/* เส้นทางของแต่ละซอง — ซองที่แยกกันไปคนละเส้นทางก็ไล่ได้ทีละซอง */}
-        {used.map((e) => <CustodyTrail key={e.id} env={e} title={`เส้นทาง${envelopeName(e)}`} />)}
         <EnvelopeTimeline envs={envs} limit={50} />
       </div>
     </Drawer>

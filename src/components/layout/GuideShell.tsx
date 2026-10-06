@@ -9,6 +9,8 @@
  * เพื่อให้ตรงกับสิ่งที่จะเห็นจริงตอนใช้งานบนมือถือเสมอ ไม่ใช่ responsive แบบขยายเต็มจอ
  */
 
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useDemo } from '@/store/DemoStore';
 import { Icon, type IconName } from '@/components/ui/Icon';
@@ -17,7 +19,11 @@ import { landingPathForRole, ownLeaderScope } from '@/lib/permissions';
 import { ROLE } from '@/lib/labels';
 import { useLeaderDocumentsView } from '@/lib/useLeaderDocuments';
 import { listDocumentExpiryAlerts } from '@/lib/logic/documentExpiryAlerts';
-import { countPendingConfirmationJobs } from '@/lib/logic/pendingConfirmationAlerts';
+import { listGuideAlerts, type GuideAlertKind } from '@/lib/logic/guideAlerts';
+import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
+import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { loadSeenJobIds, SEEN_JOBS_EVENT } from '@/services/guideSeenJobsStore';
+import { toISODate } from '@/lib/format';
 import type { Role } from '@/types';
 
 interface GuideNavItem {
@@ -38,10 +44,16 @@ const GUIDE_NAV: GuideNavItem[] = [
   { href: '/guide/profile', label: 'โปรไฟล์', icon: 'guide' },
 ];
 
+const ALERT_STYLE: Record<GuideAlertKind, { icon: IconName; tone: string }> = {
+  new_job: { icon: 'briefcase', tone: 'bg-emerald-100 text-emerald-700' },
+  envelope: { icon: 'money', tone: 'bg-amber-100 text-amber-700' },
+  appointment: { icon: 'calendar', tone: 'bg-sky-100 text-sky-700' },
+};
+
 export function GuideShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, leaders, today, setRole } = useDemo();
+  const { currentUser, leaders, today, setRole, envelopes, appointments } = useDemo();
 
   /*
    * เอกสารต้องตาม — ต้องเรียก Hook นี้เสมอไม่ว่าบทบาทปัจจุบันจะเป็นอะไร (กฎของ Hook)
@@ -51,8 +63,24 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
   const ownDocuments = useLeaderDocumentsView(ownLeader, true);
   const docAlertCount = listDocumentExpiryAlerts(ownDocuments, today).length;
 
-  /** งานที่ยังไม่ได้กดคอนเฟิร์ม — แจ้งเตือนอื่นนอกเหนือจากเอกสาร */
-  const pendingJobCount = countPendingConfirmationJobs(ownLeaderScope(currentUser), today);
+  /** กระดิ่ง — เรื่องที่ต้องทำจริง: ได้รับงานใหม่ · มีซองรอรับ · นัดหมายรอยืนยัน (ใช้วันที่จริงของเครื่อง เหมือนหน้าอื่นในพอร์ทัล) */
+  const alerts = listGuideAlerts({
+    leaderId: ownLeaderScope(currentUser),
+    today: toISODate(new Date()),
+    assignments: loadActiveGuideAssignments(),
+    periodById: getTourPeriodById,
+    seenJobIds: loadSeenJobIds(),
+    envelopes,
+    appointments,
+  });
+  const [bellOpen, setBellOpen] = useState(false);
+  // เปิดดูงานแล้ว (หน้ารายละเอียดงาน) → นับกระดิ่งใหม่ทันที ไม่ต้องรอเปลี่ยนหน้า
+  const [, setSeenTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setSeenTick((n) => n + 1);
+    window.addEventListener(SEEN_JOBS_EVENT, bump);
+    return () => window.removeEventListener(SEEN_JOBS_EVENT, bump);
+  }, []);
 
   /** แท็บที่ active — ใช้ href ยาวสุดที่ตรงกับ path ปัจจุบัน กัน "/guide" จับคู่ผิดกับ "/guide/xxx" */
   const activeHref = [...GUIDE_NAV]
@@ -109,24 +137,55 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
             <p className="zego-text truncate text-xs font-semibold leading-tight">{currentUser.name}</p>
             <p className="zego-text-tertiary truncate text-[11px] leading-tight">พอร์ทัลหัวหน้าทัวร์</p>
           </div>
-          <button
-            type="button"
-            onClick={() => router.push('/guide/jobs')}
-            title={pendingJobCount > 0 ? `งานรอคอนเฟิร์ม ${pendingJobCount} รายการ` : 'ไม่มีงานรอคอนเฟิร์ม'}
-            className="zego-guide-icon-btn relative rounded-lg p-2"
-          >
-            <Icon name="bell" className="h-4 w-4" />
-            {pendingJobCount > 0 ? (
-              <span className="zego-count-badge absolute right-0.5 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-0.5 text-[9px] font-bold">
-                {pendingJobCount}
-              </span>
-            ) : (
-              <span
-                aria-label="ไม่มีงานรอคอนเฟิร์ม"
-                className="zego-guide-dot--idle absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full"
-              />
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setBellOpen((v) => !v)}
+              aria-expanded={bellOpen}
+              title={alerts.length > 0 ? `มี ${alerts.length} เรื่องที่ต้องทำ` : 'ไม่มีเรื่องที่ต้องทำ'}
+              className="zego-guide-icon-btn relative rounded-lg p-2"
+            >
+              <Icon name="bell" className="h-4 w-4" />
+              {alerts.length > 0 ? (
+                <span className="zego-count-badge absolute right-0.5 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-0.5 text-[9px] font-bold">
+                  {alerts.length}
+                </span>
+              ) : (
+                <span
+                  aria-label="ไม่มีเรื่องที่ต้องทำ"
+                  className="zego-guide-dot--idle absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full"
+                />
+              )}
+            </button>
+            {bellOpen && (
+              <>
+                {/* แตะนอกกล่องเพื่อปิด */}
+                <button type="button" aria-label="ปิดการแจ้งเตือน" className="fixed inset-0 z-40 cursor-default" onClick={() => setBellOpen(false)} />
+                <div className="absolute right-0 top-full z-50 mt-1 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border zego-border-color zego-surface-bg shadow-lg">
+                  <p className="zego-divider-bottom px-3 py-2 text-xs font-semibold zego-text">เรื่องที่ต้องทำ</p>
+                  {alerts.length === 0 ? (
+                    <p className="px-3 py-6 text-center text-xs zego-text-tertiary">ไม่มีเรื่องที่ต้องทำตอนนี้</p>
+                  ) : (
+                    <ul className="max-h-80 overflow-y-auto">
+                      {alerts.map((al) => (
+                        <li key={al.id} className="zego-divider-bottom last:border-b-0">
+                          <Link href={al.href} onClick={() => setBellOpen(false)} className="flex items-start gap-2.5 px-3 py-2.5 zego-hover-surface">
+                            <span className={cx('mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', ALERT_STYLE[al.kind].tone)}>
+                              <Icon name={ALERT_STYLE[al.kind].icon} className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium zego-text">{al.title}</span>
+                              <span className="block text-xs zego-text-tertiary">{al.detail}</span>
+                            </span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
             )}
-          </button>
+          </div>
           <button
             type="button"
             onClick={() => router.push('/guide/profile/documents')}

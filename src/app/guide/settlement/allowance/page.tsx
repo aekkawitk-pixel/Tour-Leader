@@ -38,6 +38,7 @@ import { Icon } from '@/components/ui/Icon';
 import type { ExpenseLine, ExpenseRequest } from '@/types';
 import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import { SettlementBackHeader } from '../SettlementBackHeader';
+import { tripEnded } from '@/lib/logic/tripPhase';
 
 const EDITABLE = new Set(['draft', 'submitted', 'revise']);
 
@@ -166,7 +167,7 @@ export default function GuideAllowancePage() {
         <Card><EmptyState icon="briefcase" title="ยังไม่มีงานที่คอนเฟิร์มแล้ว" /></Card>
       ) : (
         myGroups.map((period) => {
-          const finished = (period.endDate ?? period.startDate) <= today;
+          const finished = tripEnded(period, today);
           return (
             <Card key={period.internalId} className="space-y-2.5">
               <div>
@@ -232,7 +233,7 @@ export default function GuideAllowancePage() {
           programRate={perDiemRateFor(open.period, perDiemRates)}
           paxSource={paxFromAdvanceDoc(open.period.internalId)}
           defaultPhone={leaderPhone}
-          canSubmit={(open.period.endDate ?? open.period.startDate) <= today}
+          canSubmit={tripEnded(open.period, today)}
           onClose={() => setOpen(null)}
           onSave={(lines, form, note, submit) => saveForm(open.period, lines, form, note, open.existing, submit)}
         />

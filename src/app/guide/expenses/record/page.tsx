@@ -7,7 +7,7 @@
  * เลือกกรุ๊ปจากการ์ดที่มีรายละเอียดเต็ม (ไม่ใช่ dropdown ข้อความ) แล้วค่อยเข้าฟอร์ม (ขั้นที่ 2)
  * ซึ่งเห็นรายละเอียดกรุ๊ปที่เลือก + ค่าใช้จ่ายที่เคยบันทึกไว้แล้วของกรุ๊ปนั้นก่อนกรอก
  *
- * รายการค่าใช้จ่ายทั้งหมดแยกตามกรุ๊ปดูได้ที่เมนู "ค่าใช้จ่ายรายกรุ๊ป" (/guide/expenses/by-group)
+ * สรุปค่าใช้จ่ายทั้งหมดของกรุ๊ปดูได้ที่หน้ารายละเอียดงาน (/guide/jobs/[id])
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -16,7 +16,7 @@ import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
-import { formatDateRange, toISODate } from '@/lib/format';
+import { formatDateRange, formatThaiMonthYear, toISODate } from '@/lib/format';
 import { Button, Card, cx } from '@/components/ui/Primitives';
 import { GuideEnvelopeCard } from '../GuideEnvelopeCard';
 import { Icon } from '@/components/ui/Icon';
@@ -28,6 +28,7 @@ import { expenseOriginalTotals } from '../expenseAmounts';
 import { leaderBudgetItems } from '@/lib/logic/groupBudget';
 import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import type { ExpenseRequest } from '@/types';
+import { tripEnded, tripOngoing } from '@/lib/logic/tripPhase';
 
 // บันทึกใบเสร็จส่วนใหญ่ทำระหว่างเดินทาง — "ระหว่างทาง" เป็นค่าเริ่มต้น · หลังเดินทางทำบ้างเป็นบางครั้ง
 const TRAVEL_FILTERS: { value: 'during' | 'after'; label: string }[] = [
@@ -90,14 +91,25 @@ export default function GuideExpensesRecordPage() {
     setJustSaved(null);
   };
 
-  // ระหว่างทาง = วันนี้อยู่ในช่วงเดินทาง · หลังเดินทาง = กลับมาแล้ว (เลยวันกลับ)
+  // ระหว่างทาง / หลังเดินทาง — กติกากลาง (วันกลับขึ้นทั้งสองแท็บ) ดู src/lib/logic/tripPhase.ts
   // ใช้วันที่จริงของเครื่อง ไม่ใช้ DEMO_TODAY — เหตุผลเดียวกับหน้าเคลียร์ค่าใช้จ่ายรายกรุ๊ป (ดูคอมเมนต์ที่ /guide/settlement/claim)
   const realToday = toISODate(new Date());
   const filteredJobs = myJobs.filter((j) => (travelFilter === 'during'
-    ? j.period.startDate <= realToday && j.period.endDate >= realToday
-    : j.period.endDate < realToday));
+    ? tripOngoing(j.period, realToday)
+    : tripEnded(j.period, realToday)));
 
-  // ไม่รวมรายการที่ยกเลิกแล้วในพรีวิวนี้ (แค่เช็คบริบทก่อนบันทึกใหม่) — ดูประวัติเต็มรวมรายการที่ยกเลิกได้ที่ "ค่าใช้จ่ายรายกรุ๊ป"
+  // จัดกลุ่มตามเดือนเดินทาง (เดือนของวันไป) · หลังเดินทางเรียงเดือนล่าสุดขึ้นก่อน — กรุ๊ปที่เพิ่งกลับอยู่บนสุด
+  const byMonth = new Map<string, typeof filteredJobs>();
+  for (const j of filteredJobs) {
+    const month = j.period.startDate.slice(0, 7);
+    byMonth.set(month, [...(byMonth.get(month) ?? []), j]);
+  }
+  const sortedMonths = [...byMonth.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const jobsByMonth = travelFilter === 'after'
+    ? sortedMonths.reverse().map(([m, list]) => [m, [...list].reverse()] as const)
+    : sortedMonths;
+
+  // ไม่รวมรายการที่ยกเลิกแล้วในพรีวิวนี้ (แค่เช็คบริบทก่อนบันทึกใหม่) — ดูภาพรวมของกรุ๊ปได้ที่หน้ารายละเอียดงาน
   const jobExpenses = selectedPeriod
     ? myExpenses.filter((e) => e.jobId === selectedPeriod.internalId && e.status !== 'cancelled')
     : [];
@@ -143,23 +155,33 @@ export default function GuideExpensesRecordPage() {
               {travelFilter === 'during' ? 'ไม่มีกรุ๊ปที่กำลังเดินทางอยู่' : 'ไม่มีกรุ๊ปหลังเดินทาง'}
             </p>
           ) : (
-          <ul className="space-y-2">
-            {filteredJobs.map((j) => (
-              <li key={j.period.internalId}>
-                <button
-                  type="button"
-                  onClick={() => selectPeriod(j.period)}
-                  className="flex w-full items-center justify-between gap-2 rounded-lg border zego-border-color px-3 py-2.5 text-left hover:border-emerald-300 hover:bg-emerald-50/40"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium zego-text">{j.period.groupCode} · {j.period.displayName}</span>
-                    <span className="block text-xs zego-text-tertiary">{j.period.countryName} · {formatDateRange(j.period.startDate, j.period.endDate)}</span>
-                  </span>
-                  <Icon name="chevronRight" className="h-4 w-4 shrink-0 zego-text-disabled" />
-                </button>
-              </li>
+          <div className="space-y-4">
+            {jobsByMonth.map(([month, list]) => (
+              <section key={month} className="space-y-2">
+                <p className="flex items-baseline justify-between text-xs font-semibold zego-text-secondary">
+                  <span>{formatThaiMonthYear(`${month}-01`)}</span>
+                  <span className="font-normal zego-text-tertiary">{list.length} กรุ๊ป</span>
+                </p>
+                <ul className="space-y-2">
+                  {list.map((j) => (
+                    <li key={j.period.internalId}>
+                      <button
+                        type="button"
+                        onClick={() => selectPeriod(j.period)}
+                        className="flex w-full items-center justify-between gap-2 rounded-lg border zego-border-color px-3 py-2.5 text-left hover:border-emerald-300 hover:bg-emerald-50/40"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium zego-text">{j.period.groupCode} · {j.period.displayName}</span>
+                          <span className="block text-xs zego-text-tertiary">{j.period.countryName} · {formatDateRange(j.period.startDate, j.period.endDate)}</span>
+                        </span>
+                        <Icon name="chevronRight" className="h-4 w-4 shrink-0 zego-text-disabled" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
           )}
         </Card>
       ) : (

@@ -6,20 +6,24 @@
  */
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
-import { loadActiveGuideAssignments, setAssignmentStatus } from '@/services/guideAssignmentStore';
+import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
+import { markJobSeen } from '@/services/guideSeenJobsStore';
 import { getPeriodAttachments, getPeriodDocCategories } from '@/services/periodAttachmentStore';
 import { loadSendOffAssignments } from '@/services/sendOffAssignmentStore';
 import { loadSendOffStaff } from '@/services/sendOffStaffStore';
-import { boardStatusMeta, splitFlightLegs } from '@/lib/logic/guideBoard';
+import { sendOffStaffName } from '@/lib/logic/sendOffStaff';
+import { jobArrival } from '@/lib/logic/sendOffJobs';
+import { loadManualFlightTimes } from '@/services/sendOffFlightTimeStore';
+import { loadSendOffRules } from '@/services/sendOffRulesStore';
+import { boardStatusMeta, periodTurnaround, splitFlightLegs } from '@/lib/logic/guideBoard';
 import { airportByIata } from '@/data/airports';
-import { formatDateRange } from '@/lib/format';
-import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
-import { ConfirmDialog } from '@/components/ui/Modal';
+import { addDays, formatDate, formatDateRange } from '@/lib/format';
+import { Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import type { TourSector } from '@/data/schedule/masterTypes';
 import { GuideEnvelopeCard } from '../../expenses/GuideEnvelopeCard';
@@ -65,34 +69,15 @@ function FlightLegGroup({ title, sectors }: { title: string; sectors: TourSector
 
 export default function GuideJobDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { currentUser, today, pushToast, expenses, envelopes, noEnvelopeMarks } = useDemo();
+  const { currentUser, expenses, envelopes, noEnvelopeMarks } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
   const period = getTourPeriodById(id);
-  const [rev, setRev] = useState(0);
-  void rev;
   const assignment = loadActiveGuideAssignments().find((a) => a.periodId === id && a.tourLeaderId === leaderId);
-  const [declineOpen, setDeclineOpen] = useState(false);
-  const [actionSaving, setActionSaving] = useState(false);
-
-  const acceptJob = () => {
-    if (!assignment) return;
-    setActionSaving(true);
-    setAssignmentStatus(assignment.assignmentId, 'CONFIRMED', currentUser.name, `${today}T09:00`);
-    pushToast('success', 'รับงานเรียบร้อยแล้ว');
-    setActionSaving(false);
-    setRev((r) => r + 1);
-  };
-
-  const declineJob = () => {
-    if (!assignment) return;
-    setActionSaving(true);
-    setAssignmentStatus(assignment.assignmentId, 'DECLINED', currentUser.name, `${today}T09:00`);
-    pushToast('info', 'ปฏิเสธงานนี้แล้ว — ผู้ประสานงานจะเห็นและจัดหาคนแทน');
-    setActionSaving(false);
-    setDeclineOpen(false);
-    setRev((r) => r + 1);
-  };
-
+  // เปิดดูรายละเอียดแล้ว = ไม่ใช่ "งานใหม่" ในกระดิ่งแจ้งเตือนอีก
+  const assignmentId = assignment?.assignmentId;
+  useEffect(() => {
+    if (assignmentId) markJobSeen(assignmentId);
+  }, [assignmentId]);
   if (!period || !assignment) {
     return (
       <div>
@@ -115,6 +100,15 @@ export default function GuideJobDetailPage() {
     .map((a) => allSendOffStaff.find((s) => s.id === a.staffId))
     .filter((s): s is NonNullable<typeof s> => Boolean(s));
   const departureAirport = airportByIata(period.departureAirportCode ?? undefined);
+  /*
+    เวลานัดหมาย = เวลาที่ต้องถึงสนามบิน — คำนวณชุดเดียวกับที่ผู้จัดเห็นในตารางเจ้าหน้าที่ส่งกรุ๊ป
+    (เวลาเครื่องออกจริงจากเที่ยวบิน ชนะเวลาที่ผู้จัดกรอกเอง · ลบด้วยชั่วโมงล่วงหน้าตามเงื่อนไขที่ตั้งไว้)
+    เที่ยวบินดึกมากต้องไปตั้งแต่คืนก่อน → วันนัดเป็นวันก่อนวันเดินทาง
+  */
+  const sendOffRules = loadSendOffRules();
+  const flightTime = periodTurnaround(period).departureTime ?? loadManualFlightTimes()[period.internalId] ?? null;
+  const meeting = jobArrival(flightTime, sendOffRules);
+  const meetingDate = meeting.dayOffset === -1 ? addDays(period.startDate, -1) : period.startDate;
 
   return (
     <div className="space-y-4">
@@ -124,27 +118,18 @@ export default function GuideJobDetailPage() {
           งานของฉัน
         </Link>
         <div className="flex items-start justify-between gap-2">
-          <h1 className="text-lg font-bold zego-text">{period.groupCode} · {period.displayName}</h1>
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold zego-text">{period.groupCode}</h1>
+            <p className="mt-0.5 text-sm zego-text-secondary">{period.displayName}</p>
+          </div>
           <StatusBadge meta={boardStatusMeta(assignment.assignmentStatus)} size="sm" />
         </div>
       </div>
 
-      {/* งานรอคอนเฟิร์ม — หัวหน้าทัวร์กดรับ/ปฏิเสธเองจากตรงนี้ */}
-      {assignment.assignmentStatus === 'PENDING_CONFIRMATION' && (
-        <Card className="border border-amber-200 bg-amber-50">
-          <p className="text-sm font-semibold zego-text-warning">งานนี้รอการยืนยันจากคุณ</p>
-          <p className="mt-0.5 text-xs zego-text-warning">กดรับงานเพื่อยืนยันว่าจะไปตามกำหนดนี้ หรือปฏิเสธถ้าไปไม่ได้ — ผู้ประสานงานจะเห็นทันที</p>
-          <div className="mt-3 flex gap-2">
-            <Button variant="primary" icon="check" className="flex-1" loading={actionSaving} onClick={acceptJob}>รับงาน</Button>
-            <Button variant="secondary" className="flex-1" disabled={actionSaving} onClick={() => setDeclineOpen(true)}>ปฏิเสธงาน</Button>
-          </div>
-        </Card>
-      )}
-
-      {/* คอนเฟิร์ม/ปฏิเสธแล้ว — เปลี่ยนใจภายหลังต้องแจ้งเจ้าหน้าที่จัดสเก็ตเท่านั้น ไม่มีปุ่มให้แก้เองในนี้ */}
+      {/* ผู้จัดมอบหมายงาน = คอนเฟิร์มทันที (ไม่มีขั้นรับ/ปฏิเสธงานฝั่งหัวหน้าทัวร์) — เปลี่ยนแปลงต้องแจ้งเจ้าหน้าที่จัดสเก็ตเท่านั้น */}
       {assignment.assignmentStatus === 'CONFIRMED' && (
         <p className="rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-tertiary">
-          คุณรับงานนี้แล้ว — หากต้องการเปลี่ยนแปลง (เลื่อนวัน เปลี่ยนคน ยกเลิก) กรุณาแจ้งเจ้าหน้าที่จัดสเก็ตเท่านั้น
+          หากต้องการเปลี่ยนแปลง (เลื่อนวัน เปลี่ยนคน ยกเลิก) กรุณาแจ้งเจ้าหน้าที่จัดสเก็ตเท่านั้น
         </p>
       )}
       {assignment.assignmentStatus === 'DECLINED' && (
@@ -155,12 +140,13 @@ export default function GuideJobDetailPage() {
 
       <Card>
         <Row label="ประเทศ" value={period.countryName} />
+        <Row label="รหัสโปรแกรม" value={period.programCode} />
         <Row label="รหัสกรุ๊ป (บัส)" value={period.bus ? `${period.groupCode} (${period.bus})` : period.groupCode} />
 
         {/* วันเดินทาง — เด่นกว่าแถวอื่นตั้งใจ กันไปผิดวัน */}
-        <div className="zego-divider-bottom py-2.5">
-          <p className="text-xs zego-text-tertiary">วันเดินทาง</p>
-          <p className="mt-0.5 text-base font-bold zego-text-success">{formatDateRange(period.startDate, period.endDate)}</p>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 zego-divider-bottom py-2.5">
+          <p className="shrink-0 text-xs zego-text-tertiary">วันเดินทาง</p>
+          <p className="text-right text-base font-bold zego-text-success">{formatDateRange(period.startDate, period.endDate)}</p>
         </div>
 
         <Row label="จำนวนผู้เดินทาง" value={period.seatBooked !== null ? `${period.seatBooked} คน` : undefined} />
@@ -183,8 +169,19 @@ export default function GuideJobDetailPage() {
           value={period.departureAirportCode ? `${period.departureAirportCode}${departureAirport?.nameTh ? ` (${departureAirport.nameTh})` : ''}` : undefined}
         />
         <Row
+          label="เวลานัดหมาย"
+          value={meeting.arrivalTime ? (
+            <>
+              <span className="font-semibold">{formatDate(meetingDate)} · {meeting.arrivalTime} น.</span>
+              <span className="block text-xs zego-text-tertiary">
+                {meeting.dayOffset === -1 ? 'คืนก่อนวันเดินทาง · ' : ''}ก่อนเครื่องออก {sendOffRules.leadHours} ชม.
+              </span>
+            </>
+          ) : undefined}
+        />
+        <Row
           label="เจ้าหน้าที่ส่งกรุ๊ป"
-          value={sendOffStaffList.length > 0 ? sendOffStaffList.map((s) => s.nickname).join(', ') : undefined}
+          value={sendOffStaffList.length > 0 ? sendOffStaffList.map(sendOffStaffName).join(', ') : undefined}
         />
         <Row
           label="เบอร์ติดต่อเจ้าหน้าที่ส่งกรุ๊ป"
@@ -236,16 +233,6 @@ export default function GuideJobDetailPage() {
         budgetItems={leaderBudgetItems(expenses, envelopes, noEnvelopeMarks, period.internalId)}
       />
 
-      <ConfirmDialog
-        open={declineOpen}
-        onClose={() => setDeclineOpen(false)}
-        onConfirm={declineJob}
-        loading={actionSaving}
-        tone="danger"
-        title="ปฏิเสธงานนี้?"
-        message={`ยืนยันว่าจะปฏิเสธงาน ${period.groupCode} · ${formatDateRange(period.startDate, period.endDate)} — ผู้ประสานงานจะเห็นทันทีและต้องหาคนแทน`}
-        confirmLabel="ปฏิเสธงาน"
-      />
     </div>
   );
 }

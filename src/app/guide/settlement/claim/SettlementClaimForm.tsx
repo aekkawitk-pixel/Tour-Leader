@@ -17,6 +17,7 @@ import { ownLeaderScope } from '@/lib/permissions';
 import { formatDateRange, formatDate } from '@/lib/format';
 import { findPerDiemRate, PER_DIEM_RATES } from '@/data/perDiemRates';
 import { loadSendOffStaff } from '@/services/sendOffStaffStore';
+import { sendOffStaffName } from '@/lib/logic/sendOffStaff';
 import { scanReceipt } from '@/services/receiptScan';
 import { Button, Card, cx } from '@/components/ui/Primitives';
 import { baseControl, TextInput } from '@/components/ui/FormField';
@@ -399,7 +400,7 @@ export function SettlementClaimForm({
                         {a.amount.toLocaleString('th-TH')} {a.currency}
                       </p>
                       <p className="text-xs zego-text-warning">
-                        จากเจ้าหน้าที่ส่งกรุ๊ป {staff?.nickname ?? a.staffId}
+                        จากเจ้าหน้าที่ส่งกรุ๊ป {staff ? sendOffStaffName(staff) : a.staffId}
                       </p>
                     </div>
                     <Button variant="primary" size="sm" onClick={() => setAckTarget({ batchId: a.batchId, allocationId: a.id })}>

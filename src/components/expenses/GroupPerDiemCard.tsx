@@ -22,6 +22,7 @@ import { ExpenseDrawer } from './ExpenseDrawer';
 import { StatusPill } from './CashEnvelopeDrawer';
 import type { EnvelopeTone } from '@/lib/logic/cashEnvelope';
 import type { ExpenseRequest } from '@/types';
+import { tripEnded } from '@/lib/logic/tripPhase';
 
 export type PerDiemStage = 'no_leader' | 'not_ended' | 'to_claim' | 'draft' | 'submitted' | 'revise' | 'to_pay' | 'paid';
 
@@ -60,7 +61,7 @@ export function perDiemStage(claim: ExpenseRequest | null, endDate: string | und
     วันกลับนับเป็นจบทริป — ตรงกับฝั่งหัวหน้าทัวร์ที่ส่งอนุมัติได้ตั้งแต่วันกลับ
     จบทริปแล้วแต่ยังไม่มีหัวหน้าทัวร์คอนเฟิร์ม = ไม่มีใครทำเบิกได้
   */
-  if (endDate && endDate > today) return 'not_ended';
+  if (endDate && !tripEnded({ startDate: endDate, endDate }, today)) return 'not_ended';
   if (!hasLeader) return 'no_leader';
   return 'to_claim';
 }

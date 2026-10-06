@@ -527,15 +527,6 @@ export function carriedByLeader(env: CashEnvelope, leaderId: string | null | und
   return !!leaderId && envelopeStage(env) === 'handed_over' && env.handover?.proxyLeaderId === leaderId && !env.leaderAck;
 }
 
-/**
- * เส้นทางซอง (ตรวจย้อนหลัง) — ใครถือซองช่วงไหน ไล่จากประวัติจริงของซอง เรียงเก่า → ใหม่
- * ทุกทอดที่เปลี่ยนมือ: ส่งมอบ / ผู้ถือรับ / ฝากต่อ / ส่งต่อ / ส่งคืน / การเงินรับคืน / หัวหน้าทัวร์รับ / ส่งต่อซอง
- */
-const CUSTODY_ACTIONS = /ส่งมอบซอง|ยืนยันรับซอง|ฝากต่อ|ส่งต่อ|ส่งซองคืน|รับซองคืน|แจ้งไม่ได้รับ|ยกเลิกการส่งมอบ/;
-export function custodyTrail(env: CashEnvelope): EnvelopeHistoryEntry[] {
-  return env.history.filter((h) => CUSTODY_ACTIONS.test(h.action));
-}
-
 /** ส่งมอบแล้วแต่ยังไม่มีใครกดตอบรับ (เจ้าหน้าที่/หัวหน้าทัวร์) — การเงินยังแก้ไขการส่งมอบได้ */
 export function canEditHandover(env: CashEnvelope): boolean {
   return !!env.handover && !env.staffAck && !env.leaderAck;

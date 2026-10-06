@@ -200,11 +200,19 @@ function JobsCalendar({ jobs, startMonth }: { jobs: Job[]; startMonth?: string |
   const cells: (string | null)[] = [...Array(lead).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => iso(y, m, i + 1))];
   while (cells.length % 7) cells.push(null);
   const weeks = Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
-  // รหัสกรุ๊ปแสดงครั้งเดียวต่องาน — ที่แถบช่วงแรกของงานในเดือนนี้ (งานข้ามสัปดาห์ แถบที่ต่อไปไม่มีชื่อซ้ำ)
-  const labelWeek = new Map(inMonth.map((j) => [
-    j.assignment.assignmentId,
-    weeks.findIndex((w) => w.some((d) => d && j.period.startDate <= d && j.period.endDate >= d)),
-  ]));
+  /*
+    รหัสกรุ๊ปแสดงครั้งเดียวต่องาน — ที่แถบที่ยาวที่สุดของงานในเดือนนี้ (ยาวเท่ากันเลือกสัปดาห์แรก)
+    งานที่เริ่มวันเสาร์มีแถบสัปดาห์แรกแค่ 1 ช่อง ถ้าวางชื่อตรงนั้นตัวอักษรจะถูกบีบจนอ่านไม่ออก
+  */
+  const labelWeek = new Map(inMonth.map((j) => {
+    let best = -1;
+    let bestDays = 0;
+    weeks.forEach((w, wi) => {
+      const days = w.filter((d) => d && j.period.startDate <= d && j.period.endDate >= d).length;
+      if (days > bestDays) { best = wi; bestDays = days; }
+    });
+    return [j.assignment.assignmentId, best] as const;
+  }));
 
   return (
     <div className="space-y-3">

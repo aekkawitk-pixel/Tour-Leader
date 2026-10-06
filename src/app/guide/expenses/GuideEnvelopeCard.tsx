@@ -26,6 +26,7 @@ import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import { ACK_BEFORE_HANDOFF_NOTE, carrierOf, carrierTitle, envelopeBalance, envelopeName, handoverReceiverText, envelopeStage, groupEnvelopeStatus, groupLines, sumAmounts, type CashEnvelope } from '@/lib/logic/cashEnvelope';
 import { EnvelopeRouteTag, EnvelopeStatusBadge, StatusPill, spentByReceipts } from '@/components/expenses/CashEnvelopeDrawer';
 import { PhotoConfirmModal, ProofThumb } from '@/components/expenses/EnvelopeProofPhoto';
+import { tripEnded, tripStarted } from '@/lib/logic/tripPhase';
 
 /**
  * mode
@@ -37,7 +38,7 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
   periodId: string;
   mode: 'receive' | 'use';
   /** แสดงรหัส/ชื่อกรุ๊ปที่หัวการ์ด — ใช้เมื่อการ์ดอยู่นอกหน้าของกรุ๊ปนั้น (เช่น หน้าการเงิน รวมหลายกรุ๊ป) */
-  groupLabel?: { code: string; detail?: string };
+  groupLabel?: { code: string; detail?: string; dates?: string };
 }) {
   const receiving = mode === 'receive';
   const { expenses, envelopes, saveEnvelope, currentUser, leaders, noEnvelopeMarks } = useDemo();
@@ -56,6 +57,13 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
   /** ซองที่กำลังแจ้งว่าไม่ได้รับ (แจ้งได้เมื่อเดินทางกลับแล้ว) */
   const [notRecvTarget, setNotRecvTarget] = useState<CashEnvelope | null>(null);
   const [notRecvNote, setNotRecvNote] = useState('');
+  /** ซองที่รับแล้วซึ่งกางดูรายละเอียดอยู่ (หน้ารับซอง ซองที่รับแล้วย่อไว้เป็นบรรทัดเดียว) */
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const toggleOpen = (id: string) => setOpenIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
   const docs =expenses.filter((e) => isGroupAdvanceDoc(e) && e.jobId === periodId);
   if (docs.length === 0) return null;
 
@@ -68,7 +76,12 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
   const leader = leaders.find((l) => l.id === currentUser.leaderId);
   const leaderName = leader ? `${leader.firstName} ${leader.lastName}`.trim() : currentUser.name;
   // เดินทางกลับแล้ว (เลยวันกลับ) — แจ้ง "ไม่ได้รับซอง" ได้
-  const tripEnded = (getTourPeriodById(periodId)?.endDate ?? '9') < toISODate(new Date());
+  const period = getTourPeriodById(periodId);
+  const todayISO = toISODate(new Date());
+  const ended = !!period && tripEnded(period, todayISO);
+  const started = !!period && tripStarted(period, todayISO);
+  /** ซองที่ยังต้องกดยืนยันรับ (ออกจากการเงินแล้ว ยังไม่ถูกส่งคืน) — ใช้บอก "ขั้นต่อไป" ที่หัวรายการ */
+  const toAck = envs.filter((e) => envelopeStage(e) === 'handed_over' && !e.staffReturn && !(carrierOf(e.handover) && !e.staffAck));
   const reportNotReceived = async (env: CashEnvelope, note: string) => {
     await saveEnvelope(
       { ...env, notReceived: { at: toISODateTime(new Date()), byName: leaderName, note } },
@@ -145,11 +158,16 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
             </p>
             {/* ชื่อโปรแกรม + วันเดินทาง แสดงเต็ม ไม่ตัด (ขึ้นบรรทัดใหม่ได้) */}
             {groupLabel?.detail && <p className="break-words text-xs zego-text-secondary">{groupLabel.detail}</p>}
+            {/* วันเดินทางขึ้นบรรทัดของตัวเองเสมอ — ไม่ถูกตัดกลางช่วงวันที่ */}
+            {groupLabel?.dates && <p className="whitespace-nowrap text-xs zego-text-secondary">{groupLabel.dates}</p>}
             {/* ฝั่งหัวหน้าทัวร์ไม่แสดงเลขเอกสารเบิก — ไม่จำเป็นต่อการรับ/ใช้ซอง */}
           </div>
         </div>
-        {/* หน้าการเงิน (มี groupLabel) ไม่แสดงสถานะรวมของกรุ๊ป — แต่ละซองมีสถานะของตัวเองอยู่แล้ว */}
-        {!groupLabel && <StatusPill label={status.label} tone={status.tone} />}
+        {/*
+          หน้าการเงิน (มี groupLabel) ไม่แสดงสถานะรวมของกรุ๊ป — แต่ละซองมีสถานะของตัวเองอยู่แล้ว
+          มีซองเดียว: สถานะรวม = สถานะของซองนั้นพอดี แสดงซ้ำสองที่ จึงเหลือไว้แค่ที่ตัวซอง
+        */}
+        {!groupLabel && envs.length !== 1 && <StatusPill label={status.label} tone={status.tone} />}
       </div>
 
       {envs.length === 0 ? (
@@ -157,17 +175,77 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
           {noEnv && status.stage === 'none' ? `กรุ๊ปนี้ไม่มีซองเงินให้รับ — ${noEnv.reason}${noEnv.note ? ` · ${noEnv.note}` : ''}` : 'การเงินกำลังจัดเงินใส่ซอง — รายละเอียดเอกสารเบิกจะแสดงเมื่อจัดซองเสร็จ'}
         </p>
       ) : (
+        <>
+        {/* ขั้นต่อไป — บอกชัด ๆ ว่าต้องทำอะไร หรือไม่ต้องทำอะไรแล้ว (เฉพาะหน้ารับซอง) */}
+        {receiving && (toAck.length > 0 ? (
+          <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">
+            <Icon name="warning" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>มี {toAck.length} ซองรอคุณยืนยันรับ — ตรวจยอดหน้าซองให้ตรงแล้วกด <span className="font-semibold">ยืนยันการรับ</span></span>
+          </p>
+        ) : received.length === envs.length && (
+          <p className="flex items-start gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-900 ring-1 ring-inset ring-emerald-200">
+            <Icon name="check" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              <span className="font-semibold">รับซองเรียบร้อยแล้ว</span>
+              {/* ก่อนเดินทาง: แค่หัวข้อพอ · ออกเดินทางแล้วบอกขั้นต่อไป */}
+              {started && (
+                <span className="block">
+                  {ended
+                    ? 'ทริปจบแล้ว — บันทึกใบเสร็จที่เหลือและเคลียร์เงินที่แท็บ "หลังเดินทาง"'
+                    : 'ใช้เงินในซองระหว่างทริป แล้วบันทึกใบเสร็จที่แท็บ "ระหว่างทาง"'}
+                </span>
+              )}
+            </span>
+          </p>
+        ))}
         <ul className="space-y-2">
           {envs.map((env) => {
             const stage = envelopeStage(env);
+            // หน้ารับซอง: ซองที่รับแล้วและไม่มีเรื่องค้าง ย่อเหลือบรรทัดเดียว แตะเพื่อดูรายละเอียด
+            const compact = receiving && !!env.leaderAck && !env.mismatch && !openIds.has(env.id);
+            if (compact) {
+              return (
+                <li key={env.id}>
+                  <button
+                    type="button"
+                    onClick={() => toggleOpen(env.id)}
+                    aria-expanded={false}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg zego-surface-soft-bg px-3 py-2 text-left text-xs zego-hover-surface"
+                  >
+                    <span className="min-w-0">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-semibold zego-text">{envelopeName(env)}</span>
+                        <EnvelopeRouteTag env={env} groupCode={period?.groupCode} />
+                      </span>
+                      <span className="mt-0.5 block zego-text-secondary">
+                        <span className="font-semibold tabular-nums zego-text">{fmt(env.sealed!.faceTotals)}</span>
+                        {' · '}
+                        {env.leaderForward ? `ส่งต่อให้ ${env.leaderForward.toName} แล้ว` : `รับแล้ว ${formatDateTime(env.leaderAck!.at)}`}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-0.5 text-[11px] font-medium zego-text-info">
+                      รายละเอียด
+                      <Icon name="chevronDown" className="h-3 w-3" />
+                    </span>
+                  </button>
+                </li>
+              );
+            }
             return (
               <li key={env.id} className="space-y-1.5 rounded-lg zego-surface-soft-bg px-3 py-2 text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                     <span className="font-semibold zego-text">{envelopeName(env)}</span>
-                    <EnvelopeRouteTag env={env} groupCode={getTourPeriodById(periodId)?.groupCode} />
+                    <EnvelopeRouteTag env={env} groupCode={period?.groupCode} />
                   </span>
-                  <EnvelopeStatusBadge env={env} short />
+                  {receiving && env.leaderAck && !env.mismatch ? (
+                    <button type="button" onClick={() => toggleOpen(env.id)} aria-expanded className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium zego-text-info">
+                      ย่อ
+                      <Icon name="chevronDown" className="h-3 w-3 rotate-180" />
+                    </button>
+                  ) : (
+                    <EnvelopeStatusBadge env={env} short />
+                  )}
                 </div>
                 <p className="zego-text-secondary">
                   ยอดหน้าซอง <span className="font-semibold tabular-nums zego-text">{fmt(env.sealed!.faceTotals)}</span>
@@ -219,10 +297,14 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
                     <ProofThumb src={env.leaderForward.photo} label={`ส่งต่อ${envelopeName(env)} ให้ ${env.leaderForward.toName}`} />
                   </div>
                 )}
+                {/* ส่งต่อซอง = กรณีพิเศษ (ไม่ได้ไปทริปเอง / ต้องฝากคนอื่น) — เป็นลิงก์เล็ก ไม่ใช่ปุ่มหลัก จะได้ไม่ดูเป็นขั้นตอนที่ต้องทำ */}
                 {receiving && env.leaderAck && !env.leaderForward && (
-                  <Button variant="secondary" size="sm" className="w-full" icon="camera" onClick={() => openForward(env)}>
-                    ส่งต่อซอง
-                  </Button>
+                  <p className="zego-divider-top pt-1.5 text-[11px] zego-text-tertiary">
+                    ต้องฝากซองนี้ให้คนอื่นถือแทน?{' '}
+                    <button type="button" onClick={() => openForward(env)} className="font-medium zego-text-info hover:underline">
+                      ส่งต่อซอง
+                    </button>
+                  </p>
                 )}
                 {env.mismatch &&<p className="rounded bg-rose-50 px-2 py-1" style={{ color: '#9f1239' }}>แจ้งยอดไม่ตรงแล้ว · {env.mismatch.note}</p>}
                 {env.notReceived && !env.leaderAck && (
@@ -239,7 +321,7 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
                       ยืนยันการรับ
                     </Button>
                     {/* เดินทางกลับแล้วยังไม่ได้รับเงิน → แจ้งการเงิน */}
-                    {tripEnded && !env.notReceived && (
+                    {ended && !env.notReceived && (
                       <Button variant="secondary" size="sm" className="w-full" icon="warning" onClick={() => { setNotRecvNote(''); setNotRecvTarget(env); }}>
                         แจ้งไม่ได้รับซอง
                       </Button>
@@ -255,6 +337,7 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
             );
           })}
         </ul>
+        </>
       )}
 
       {notRecvTarget && (

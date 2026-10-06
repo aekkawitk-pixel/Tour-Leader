@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  allocatedTotals, allocationOf, canSeal, pendingDepositLabel, carriedByLeader, carrierOf, custodyTrail, handoverReceiverText, docChangedSinceSeal, envelopeShortLabel, envelopeStage, envelopeStatusLabel, envelopeTotals, groupEnvelopeStatus,
+  allocatedTotals, allocationOf, canSeal, pendingDepositLabel, carriedByLeader, carrierOf, handoverReceiverText, docChangedSinceSeal, envelopeShortLabel, envelopeStage, envelopeStatusLabel, envelopeTotals, groupEnvelopeStatus,
   groupLines, leaderCanAck, leaderEnvelopeState, lineKey, newEnvelope, normalizeEnvelope, packingFromAllocation, unassignedLines, type CashEnvelope,
 } from '../src/lib/logic/cashEnvelope';
 
@@ -332,8 +332,6 @@ test('ฝากหัวหน้าทัวร์คนอื่นนำส�
   assert.equal(envelopeShortLabel(holding).label, 'หัวหน้าทัวร์ฝากส่งถือซอง');
   // ปลายทางรับแล้ว — คนฝากส่งไม่ต้องทำอะไรต่อ
   assert.equal(carriedByLeader({ ...holding, leaderAck: { at: 't3', leaderId: 'L1', leaderName: 'ชัยมงคล' } }, 'L2'), false);
-  // เส้นทางซอง: เฉพาะทอดที่ซองเปลี่ยนมือ (ไม่รวม "ปิดซอง")
-  assert.deepEqual(custodyTrail(env).map((h) => h.action), ['ส่งมอบซองให้หัวหน้าทัวร์ (ฝากส่ง)']);
 });
 
 test('เส้นทางเลือกแยก: เจ้าหน้าที่ส่งกรุ๊ป → หัวหน้าทัวร์ฝากส่ง → หัวหน้าทัวร์หลัก', () => {

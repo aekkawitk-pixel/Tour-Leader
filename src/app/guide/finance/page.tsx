@@ -5,7 +5,8 @@
  *
  * - ก่อนเดินทาง: ซองเงินของกรุ๊ปที่ส่งมอบถึงคุณ — ยืนยันรับได้ในหน้านี้เลย (การ์ดเดียวกับรายละเอียดงาน)
  * - ระหว่างทาง: รายชื่อกรุ๊ปที่กำลังเดินทาง แตะแล้วบันทึกใบเสร็จของกรุ๊ปนั้นทันที (สรุปค่าใช้จ่ายดูที่รายละเอียดงาน)
- * - หลังเดินทาง: บันทึกใบเสร็จย้อนหลัง · เบิกเบี้ยเลี้ยง · ตรวจสอบก่อนนัดเคลียร์เงิน (แล้วนัดหมายเคลียร์เงิน)
+ * - หลังเดินทาง: การ์ดรายกรุ๊ปที่ยังเคลียร์ไม่จบ (ใบเสร็จ · เบี้ยเลี้ยง · นัดเคลียร์ + ปุ่มขั้นต่อไป — afterTripProgress)
+ *   แล้วตามด้วยทางลัด: บันทึกใบเสร็จย้อนหลัง · เบิกเบี้ยเลี้ยง · ตรวจสอบก่อนนัดเคลียร์เงิน · นัดหมายเคลียร์เงิน
  * หน้าย่อยยังอยู่ที่ path เดิม (/guide/expenses/*, /guide/settlement/*) — ลิงก์เดิมใช้ต่อได้
  * แท็บที่เปิด: ?tab= (จากปุ่มย้อนกลับของหน้าย่อย) → มีซองรอยืนยันรับ = ก่อนเดินทาง → ไม่งั้น ระหว่างทาง
  */
@@ -18,11 +19,16 @@ import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { envelopeStage, leaderEnvelopeState } from '@/lib/logic/cashEnvelope';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
-import { formatDateRange, toISODate } from '@/lib/format';
+import { formatDate, formatDateRange, toISODate } from '@/lib/format';
 import { GuideEnvelopeCard } from '../expenses/GuideEnvelopeCard';
 import { CarrierLeaderSection } from '../CarrierLeaderSection';
 import { Card, cx } from '@/components/ui/Primitives';
 import { Icon, type IconName } from '@/components/ui/Icon';
+import { tripEnded, tripOngoing } from '@/lib/logic/tripPhase';
+import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
+import { afterTripProgress, type StepState } from '@/lib/logic/afterTripProgress';
+import { loadGroupClears } from '@/services/groupClearStore';
+import type { Appointment } from '@/types';
 
 type FinanceTab = 'before' | 'during' | 'after';
 
@@ -32,10 +38,18 @@ const TABS: { key: FinanceTab; label: string }[] = [
   { key: 'after', label: 'หลังเดินทาง' },
 ];
 
+/** จุดสถานะของแต่ละขั้นในแท็บหลังเดินทาง */
+const STEP_DOT: Record<StepState, string> = {
+  done: 'bg-emerald-600 text-white',
+  action: 'bg-amber-400',
+  waiting: 'bg-sky-200',
+  todo: 'border border-slate-300',
+};
+
 type Topic = { href: string; label: string; description: string; icon: IconName; badge?: number };
 
 export default function GuideFinancePage() {
-  const { currentUser, envelopes } = useDemo();
+  const { currentUser, envelopes, expenses, appointments } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
 
   // ซองที่ส่งมอบถึงหัวหน้าทัวร์คนนี้แล้ว แต่ยังไม่กดยืนยันรับ (ไม่นับซองที่เจ้าหน้าที่ส่งคืนการเงินไปแล้ว)
@@ -51,7 +65,7 @@ export default function GuideFinancePage() {
   // กรุ๊ปที่กำลังเดินทางวันนี้ (คอนเฟิร์มแล้ว) — แตะเพื่อบันทึกใบเสร็จของกรุ๊ปนั้นทันที
   const ongoing = (leaderId ? loadActiveGuideAssignments().filter((a) => a.tourLeaderId === leaderId && a.assignmentStatus === 'CONFIRMED') : [])
     .map((a) => getTourPeriods().find((p) => p.internalId === a.periodId))
-    .filter((p): p is NonNullable<typeof p> => Boolean(p) && p!.startDate <= today && p!.endDate >= today)
+    .filter((p): p is NonNullable<typeof p> => Boolean(p) && tripOngoing(p!, today))
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
   const envelopeGroups = [...new Set(envelopes.filter((e) => e.handover?.receiverId === leaderId).map((e) => e.periodId))]
     .map((periodId) => {
@@ -66,7 +80,15 @@ export default function GuideFinancePage() {
   // อ่าน ?tab= ฝั่ง client หลัง mount (หน้านี้ถูก prerender) — ไม่มี → เลือกตามสิ่งที่ต้องทำ
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get('tab');
-    const next: FinanceTab = q === 'before' || q === 'during' || q === 'after' ? q : envelopesToAck > 0 ? 'before' : 'during';
+    /*
+      ไม่ระบุแท็บ → เปิดแท็บตามช่วงของทริปที่ต้องสนใจตอนนี้
+      มีซองรอยืนยันรับ → ก่อนเดินทาง · มีกรุ๊ปกำลังเดินทาง → ระหว่างทาง
+      มีซองของกรุ๊ปที่ยังไม่ออกเดินทาง → ก่อนเดินทาง · นอกนั้น → ระหว่างทาง
+    */
+    const upcomingEnvelope = envelopeGroups.some((g) => (g.period?.startDate ?? '') > today);
+    const next: FinanceTab = q === 'before' || q === 'during' || q === 'after'
+      ? q
+      : envelopesToAck > 0 ? 'before' : ongoing.length > 0 ? 'during' : upcomingEnvelope ? 'before' : 'during';
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จาก URL ครั้งเดียวตอน mount
     setTab(next);
     // ตั้งค่าเริ่มต้นครั้งเดียว — ไม่สลับแท็บเองตามข้อมูลที่โหลดตามมาทีหลัง
@@ -78,6 +100,33 @@ export default function GuideFinancePage() {
     window.history.replaceState(null, '', `/guide/finance?tab=${t}`);
   };
 
+  /* ---------------- หลังเดินทาง: ความคืบหน้ารายกรุ๊ป ---------------- */
+  const myApts = appointments.filter((a) => a.leaderId === leaderId && a.status !== 'cancelled');
+  const pendingClearApts = myApts.filter((a) => a.kind === 'clear' && a.status === 'pending').length;
+  const clears = loadGroupClears();
+  const whenOf = (a: Appointment) => `${formatDate(a.date)} ${a.time} น.`;
+  // กรุ๊ปที่จบทริปแล้วและการเงินยังไม่ปิดเคลียร์ — ล่าสุดก่อน
+  const afterGroups = (leaderId ? loadActiveGuideAssignments().filter((a) => a.tourLeaderId === leaderId && a.assignmentStatus === 'CONFIRMED') : [])
+    .map((a) => getTourPeriodById(a.periodId))
+    .filter((p): p is NonNullable<typeof p> => Boolean(p) && tripEnded(p!, today) && !clears[p!.internalId]?.closedAt)
+    .sort((a, b) => b.endDate.localeCompare(a.endDate))
+    .map((period) => {
+      const receipts = expenses.filter((e) => e.jobId === period.internalId && e.category === 'actual' && e.requesterId === leaderId && e.status !== 'cancelled');
+      const clearApt = myApts
+        .filter((a) => a.kind === 'clear' && a.jobId === period.internalId)
+        .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`))[0] ?? null;
+      return {
+        period,
+        progress: afterTripProgress({
+          periodId: period.internalId,
+          receipts,
+          perDiem: leaderId ? activeLeaderClaim(expenses, period.internalId, leaderId, 'per_diem') : null,
+          clearAppointment: clearApt,
+          formatWhen: whenOf,
+        }),
+      };
+    });
+
   const topics: Record<FinanceTab, Topic[]> = {
     // ก่อนเดินทาง — แสดงการ์ดซองตรง ๆ ด้านล่าง (ไม่ใช่ลิงก์)
     before: [],
@@ -88,6 +137,8 @@ export default function GuideFinancePage() {
       // ลำดับตามขั้นตอนหลังจบทริป: บันทึกใบเสร็จ → เบิกเบี้ยเลี้ยง → ตรวจสอบรายการก่อนนัดเคลียร์เงิน → นัดหมาย (เมนู "นัดหมาย" ที่แถบล่าง)
       { href: '/guide/settlement/allowance', label: 'เบิกเบี้ยเลี้ยง', description: 'ทำเอกสารค่าใช้จ่ายหัวหน้าทัวร์ (เบี้ยเลี้ยง) แยกต่อกรุ๊ป เมื่อจบทริปแล้ว', icon: 'receipt' },
       { href: '/guide/settlement/claim', label: 'ตรวจสอบก่อนนัดเคลียร์เงิน', description: 'ดูรายการและสถานะของแต่ละกรุ๊ป ครบแล้วนัดหมายเข้ามาเคลียร์เงิน', icon: 'money' },
+      // ขั้นสุดท้าย — การเงินนัดหลังตรวจเอกสารครบ หัวหน้าทัวร์ยืนยัน/ขอเลื่อนที่นี่ (หน้าเดียวกับเมนู "นัดหมาย" แถบล่าง)
+      { href: '/guide/settlement/appointments', label: 'นัดหมายเคลียร์เงิน', description: 'ดูและยืนยันนัดที่การเงินนัดไว้', icon: 'calendar', badge: pendingClearApts },
     ],
   };
 
@@ -137,7 +188,8 @@ export default function GuideFinancePage() {
                 mode="receive"
                 groupLabel={{
                   code: g.period?.groupCode ?? g.periodId,
-                  detail: g.period ? `${g.period.displayName} · ${formatDateRange(g.period.startDate, g.period.endDate)}` : undefined,
+                  detail: g.period?.displayName,
+                  dates: g.period ? formatDateRange(g.period.startDate, g.period.endDate) : undefined,
                 }}
               />
             ))
@@ -169,6 +221,48 @@ export default function GuideFinancePage() {
             </ul>
           )}
         </Card>
+      )}
+
+      {/* หลังเดินทาง — กรุ๊ปที่ยังเคลียร์ไม่จบ แต่ละกรุ๊ปบอกว่าค้างขั้นไหน และขั้นต่อไปคืออะไร */}
+      {tab === 'after' && (
+        afterGroups.length === 0 ? (
+          <Card>
+            <p className="py-4 text-center text-sm zego-text-tertiary">ไม่มีกรุ๊ปที่รอเคลียร์</p>
+          </Card>
+        ) : (
+          <div className="space-y-2" role="tabpanel">
+            {afterGroups.map(({ period, progress }) => (
+              <Card key={period.internalId} className="space-y-2.5">
+                <div>
+                  <p className="text-sm font-semibold zego-text">{period.groupCode}</p>
+                  <p className="text-xs zego-text-tertiary">กลับ {formatDate(period.endDate)}</p>
+                </div>
+                <ol className="space-y-1">
+                  {progress.steps.map((st) => (
+                    <li key={st.label} className="flex items-center gap-2 text-xs">
+                      <span className={cx('flex h-4 w-4 shrink-0 items-center justify-center rounded-full', STEP_DOT[st.state])}>
+                        {st.state === 'done' && <Icon name="check" className="h-2.5 w-2.5" />}
+                      </span>
+                      <span className="w-16 shrink-0 zego-text-secondary">{st.label}</span>
+                      <span className={cx('min-w-0', st.state === 'action' ? 'font-semibold text-amber-800' : 'zego-text')}>{st.value}</span>
+                    </li>
+                  ))}
+                </ol>
+                <div className="flex items-center justify-between gap-2 zego-divider-top pt-2">
+                  <Link href={progress.recordHref} className="text-xs font-medium zego-text-info hover:underline">บันทึกใบเสร็จ</Link>
+                  {progress.next.href ? (
+                    <Link href={progress.next.href} className="inline-flex items-center gap-0.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">
+                      {progress.next.label}
+                      <Icon name="chevronRight" className="h-3.5 w-3.5" />
+                    </Link>
+                  ) : (
+                    <span className="text-xs zego-text-tertiary">{progress.next.label}</span>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )
       )}
 
       {topics[tab].length > 0 && (
