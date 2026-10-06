@@ -67,7 +67,8 @@ export default function StaffSchedulePage() {
       </div>
 
       <div className="grid grid-cols-2 gap-1 rounded-xl zego-surface-soft-bg p-1 text-sm" role="tablist">
-        {([['upcoming', `กำลังจะถึง (${upcoming.length})`], ['past', `ที่ผ่านมา (${past.length})`]] as const).map(([k, text]) => (
+        {/* ไม่ใส่จำนวนที่แท็บ — จำนวนต่อเดือนอยู่ที่ตัวกรองช่วงเวลาแล้ว */}
+        {([['upcoming', 'กำลังจะถึง'], ['past', 'ที่ผ่านมา']] as const).map(([k, text]) => (
           <button
             key={k}
             type="button"
@@ -91,7 +92,7 @@ export default function StaffSchedulePage() {
         <div className="space-y-5">
           {monthGroups.shown.map((m) => (
             <section key={m.key} aria-label={m.label} className="space-y-2">
-              <MonthHeader label={m.label} count={m.items.length} unit="งาน" />
+              <MonthHeader label={m.label} />
               <ul className="space-y-3">
                 {m.items.map((d) => {
                   const dt = d.dutyDate ? parseDate(d.dutyDate) : null;

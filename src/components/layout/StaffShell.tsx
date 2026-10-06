@@ -93,7 +93,8 @@ export function StaffShell({ children }: { children: React.ReactNode }) {
                   )}
                 >
                   <span className="relative">
-                    <Icon name={item.icon} className="h-5 w-5" filled={active} />
+                    {/* นาฬิกาเติมสีแล้วเข็มกลืนเป็นวงกลมทึบ — ไม่เติมสี ใช้สีเมนูที่เลือกพอ */}
+                    <Icon name={item.icon} className="h-5 w-5" filled={active && item.icon !== 'clock'} />
                     {badge > 0 && (
                       <span className="zego-count-badge absolute -right-2 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-0.5 text-[9px] font-bold">
                         {badge}

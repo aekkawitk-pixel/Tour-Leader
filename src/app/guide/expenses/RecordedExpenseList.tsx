@@ -7,11 +7,11 @@
 
 import { StatusBadge, cx } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
-import { EXPENSE_STATUS } from '@/lib/labels';
 import { formatDate } from '@/lib/format';
 import { CurrencyStack } from './CurrencyStack';
 import { expenseApprovedTotals, sumByCurrency } from './expenseAmounts';
 import type { ExpenseRequest } from '@/types';
+import { expenseStatusMeta } from '@/lib/logic/usageReport';
 
 export function RecordedSection({
   title,
@@ -44,18 +44,18 @@ export function RecordedSection({
                 <button type="button" onClick={() => onOpen(e)} className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-emerald-50/50">
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium zego-text">
-                      {first?.purpose ?? e.id}
+                      {first?.purpose ?? first?.expenseType ?? 'ใบเสร็จ'}
                       {e.lines.length > 1 && <span className="font-normal zego-text-tertiary"> +{e.lines.length - 1}</span>}
                     </span>
                     <span className="block truncate text-[11px] zego-text-tertiary">
-                      {first?.expenseType} · {formatDate(first?.receiptDate ?? e.submittedAt ?? e.requestedAt)} · {e.id}
+                      {first?.expenseType} · {formatDate(first?.receiptDate ?? e.submittedAt ?? e.requestedAt)}
                     </span>
                     <span className="block truncate text-[11px] zego-text-tertiary">หลักฐาน: {first?.evidenceFileName || '—'}</span>
                   </span>
                   <span className="shrink-0 space-y-0.5 text-right">
                     <CurrencyStack totals={expenseApprovedTotals(e)} className="text-right text-sm" lineClassName="font-semibold zego-text" />
                     {e.lines.some((l) => l.rejected) && <span className="block text-[11px] text-rose-600">อนุมัติบางรายการ</span>}
-                    <StatusBadge meta={EXPENSE_STATUS[e.status]} size="sm" />
+                    <StatusBadge meta={expenseStatusMeta(e)} size="sm" />
                   </span>
                   <Icon name="chevronRight" className="mt-1 h-4 w-4 shrink-0 zego-text-disabled" />
                 </button>

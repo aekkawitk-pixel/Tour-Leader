@@ -8,7 +8,6 @@ import { useParams, useRouter } from 'next/navigation';
 import { useDemo } from '@/store/DemoStore';
 import { can } from '@/lib/permissions';
 import {
-  EXPENSE_STATUS,
   JOB_FLOW,
   JOB_STATUS,
   SETTLEMENT_STATUS,
@@ -39,6 +38,7 @@ import { JobFormModal } from '@/components/jobs/JobFormModal';
 import { JobStatusModal } from '@/components/jobs/JobStatusModal';
 import { JobLeaderPicker } from '@/components/jobs/JobLeaderPicker';
 import type { JobStatus } from '@/types';
+import { expenseStatusMeta } from '@/lib/logic/usageReport';
 
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
@@ -277,7 +277,7 @@ export default function JobDetailPage() {
                         {formatTHB(expense.totalTHB)}
                       </p>
                     </div>
-                    <StatusBadge meta={EXPENSE_STATUS[expense.status]} size="sm" />
+                    <StatusBadge meta={expenseStatusMeta(expense)} size="sm" />
                   </li>
                 ))}
               </ul>

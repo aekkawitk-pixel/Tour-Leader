@@ -20,6 +20,7 @@ import { diffDays, formatDateRange, formatThaiMonthYear, toISODate } from '@/lib
 import { Button, Card } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import { ExpenseQuickForm } from '../ExpenseQuickForm';
+import { DraftReceiptsCard } from '../DraftReceiptsCard';
 import { receiptsBlockedReason } from '@/lib/logic/clearReadiness';
 import Link from 'next/link';
 import { ExpensesBackHeader } from '../ExpensesBackHeader';
@@ -217,6 +218,8 @@ export default function GuideExpensesRecordPage() {
             </div>
           </div>
           <SpendSummaryCard recorded={jobExpenses} budgetItems={leaderBudgetItems(expenses, envelopes, noEnvelopeMarks, selectedPeriod.internalId)} />
+          {/* ร่างที่ "บันทึกไว้ก่อน" — ส่งอนุมัติทีละใบ หรือพร้อมกันทั้งหมด */}
+          <DraftReceiptsCard drafts={jobExpenses.filter((e) => e.status === 'draft' && e.category === 'actual')} />
           {(() => {
             // ซองของกรุ๊ปนี้ยังไม่ถึงมือ → ยังบันทึกใบเสร็จไม่ได้ (กติกาเดียวกับหน้าตรวจสอบก่อนเคลียร์)
             const blocked = receiptsBlockedReason(envelopes.filter((e) => e.periodId === selectedPeriod.internalId && e.sealed));
@@ -268,8 +271,8 @@ function SavedPrompt({
         <Icon name="check" className="h-6 w-6 zego-text-success" />
       </div>
       <div className="space-y-1">
-        <p className="text-base font-semibold zego-text">บันทึกแล้ว</p>
-        <p className="text-xs zego-text-tertiary">{expense.id}</p>
+        <p className="text-base font-semibold zego-text">{expense.status === 'draft' ? 'บันทึกเป็นร่างแล้ว' : 'บันทึกและส่งอนุมัติแล้ว'}</p>
+        {expense.status === 'draft' && <p className="text-xs zego-text-tertiary">ยังไม่ส่งบัญชี — ส่งได้ที่ &quot;ร่างที่ยังไม่ส่ง&quot; ด้านบน</p>}
       </div>
       <div className="rounded-lg zego-surface-soft-bg px-3 py-2 text-left text-sm">
         <p className="truncate font-medium zego-text">

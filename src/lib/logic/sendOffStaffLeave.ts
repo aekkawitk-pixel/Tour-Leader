@@ -65,3 +65,44 @@ export function leaveDayCount(r: Pick<SendOffLeaveRecord, 'startDate' | 'endDate
 export function leaveRecordsForStaff(all: SendOffLeaveRecord[], staffId: string): SendOffLeaveRecord[] {
   return all.filter((r) => r.staffId === staffId).sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
 }
+
+/** คำขอลาที่ยังมีผลในวันนี้ (รอคอนเฟิร์ม / คอนเฟิร์มแล้ว) — ปฏิทินการลาใช้ระบายสี · ไม่มี = null */
+export function activeLeaveOn(records: SendOffLeaveRecord[], date: string): SendOffLeaveRecord | null {
+  return records.find((r) => (r.status === 'pending' || r.status === 'approved') && r.startDate <= date && date <= r.endDate) ?? null;
+}
+
+const nextDay = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** วันที่เลือก → ช่วงวันที่ติดกัน (1 ช่วง = คำขอลา 1 รายการ) */
+export function leaveRangesOf(dates: string[]): { startDate: string; endDate: string }[] {
+  const out: { startDate: string; endDate: string }[] = [];
+  for (const d of [...new Set(dates)].sort()) {
+    const last = out[out.length - 1];
+    if (last && nextDay(last.endDate) === d) last.endDate = d;
+    else out.push({ startDate: d, endDate: d });
+  }
+  return out;
+}
+
+const TH_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+const dayOf = (iso: string) => Number(iso.slice(8, 10));
+const monOf = (iso: string) => TH_MONTHS_SHORT[Number(iso.slice(5, 7)) - 1];
+
+/** ข้อความสั้นของวันที่เลือก เช่น "6, 9–10, 15 ต.ค." · ข้ามเดือน "30 ต.ค.–2 พ.ย." */
+export function leaveDatesLabel(dates: string[]): string {
+  const parts: string[] = [];
+  let month = '';
+  for (const r of leaveRangesOf(dates)) {
+    const m = r.startDate.slice(0, 7);
+    if (month && m !== month) parts[parts.length - 1] += ` ${monOf(`${month}-01`)}`;
+    month = m;
+    if (r.startDate === r.endDate) parts.push(`${dayOf(r.startDate)}`);
+    else if (r.endDate.slice(0, 7) === m) parts.push(`${dayOf(r.startDate)}–${dayOf(r.endDate)}`);
+    else { parts.push(`${dayOf(r.startDate)} ${monOf(r.startDate)}–${dayOf(r.endDate)}`); month = r.endDate.slice(0, 7); }
+  }
+  return parts.length ? `${parts.join(', ')} ${monOf(`${month}-01`)}` : '';
+}

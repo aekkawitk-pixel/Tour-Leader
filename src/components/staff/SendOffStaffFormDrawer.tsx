@@ -48,10 +48,12 @@ const ID_CARD_SCHEMA: Record<string, DocFieldDef> = Object.fromEntries(
 /** ช่องที่บันทึกไม่ผ่านถ้าเว้นว่าง — ติดดอกจันให้เห็นก่อนกดบันทึก */
 const REQUIRED_CARD_KEYS = ['idNumber', 'firstName', 'lastName'];
 
-export function SendOffStaffFormDrawer({ initial, onClose, onSave }: {
+export function SendOffStaffFormDrawer({ initial, onClose, onSave, selfService = false }: {
   initial: SendOffStaff;
   onClose: () => void;
   onSave: (s: SendOffStaff) => void;
+  /** เจ้าหน้าที่แก้ของตัวเองในพอร์ทัล — ซ่อนช่องของผู้ดูแล (ประเภท · สถานะ · หมายเหตุ) */
+  selfService?: boolean;
 }) {
   const { pushToast } = useDemo();
   const [form, setForm] = useState<SendOffStaff>(initial);
@@ -192,7 +194,7 @@ export function SendOffStaffFormDrawer({ initial, onClose, onSave }: {
     <Drawer
       open
       onClose={onClose}
-      title={`${initial.idCard.firstName ? 'แก้ไข' : 'เพิ่ม'}เจ้าหน้าที่ส่งกรุ๊ป`}
+      title={selfService ? 'แก้ไขข้อมูลตามบัตรประชาชน' : `${initial.idCard.firstName ? 'แก้ไข' : 'เพิ่ม'}เจ้าหน้าที่ส่งกรุ๊ป`}
       description={`รหัส ${form.id} · ข้อมูลตามบัตรประชาชน`}
       size="xl"
       footer={
@@ -205,6 +207,7 @@ export function SendOffStaffFormDrawer({ initial, onClose, onSave }: {
       }
     >
       <div className="space-y-4">
+        {!selfService && (
         <div className="grid gap-3 sm:grid-cols-2">
           <SelectInput
             label="ประเภทเจ้าหน้าที่"
@@ -221,7 +224,9 @@ export function SendOffStaffFormDrawer({ initial, onClose, onSave }: {
             options={SEND_OFF_STAFF_STATUS_ORDER.map((st) => ({ value: st, label: SEND_OFF_STAFF_STATUS[st].label }))}
             hint={SEND_OFF_STAFF_STATUS[form.status].note}
           />
+          <TextInput label="วันที่เริ่มร่วมงาน" optional type="date" value={form.startDate ?? ''} onChange={(e) => set('startDate', e.target.value || undefined)} />
         </div>
+        )}
 
         {/*
           ผังหน้าบัตรชุดเดียวกับหัวหน้าทัวร์ — ผู้กรอกถือบัตรจริงแล้วไล่กรอกตามที่ตาเห็นได้เลย
@@ -251,7 +256,7 @@ export function SendOffStaffFormDrawer({ initial, onClose, onSave }: {
           }
         />
 
-        <TextInput label="หมายเหตุ" optional value={form.note} onChange={(e) => set('note', e.target.value)} />
+        {!selfService && <TextInput label="หมายเหตุ" optional value={form.note} onChange={(e) => set('note', e.target.value)} />}
       </div>
     </Drawer>
   );

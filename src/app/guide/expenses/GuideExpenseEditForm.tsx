@@ -7,6 +7,8 @@
  * แก้ได้: หลักฐาน (ถ่าย/เลือกรูปใหม่ · ไม่มีใบเสร็จ · รอแนบ) · ประเภท · วันที่ใบเสร็จ · รายการ/ยอด/สกุลเงิน · หมายเหตุ
  * การผูกกับรายการเบิก (budgetLineId) คงเดิม — จะเปลี่ยนรายการเบิกให้ยกเลิกแล้วบันทึกใหม่ผ่าน "ตามรายการเบิก"
  * บันทึกแล้วต่อ Timeline ว่าแก้อะไร · ใบที่อยู่สถานะ "ให้แก้ไข" จะกลับไป "ส่งอนุมัติ" ให้บัญชีตรวจอีกรอบ
+ * ใบเบิกที่มีหลายใบเสร็จ: แก้ทีละใบเสร็จ (receiptId) บรรทัดของใบเสร็จอื่นคงเดิม · สถานะไม่เปลี่ยน
+ * (แก้ครบทุกใบที่บัญชีชี้แล้วค่อยกด "ส่งให้บัญชีตรวจอีกครั้ง" ที่แผงรายละเอียด)
  */
 
 import { useRef, useState } from 'react';
@@ -19,6 +21,7 @@ import { makeStatusEvent } from '@/lib/logic/workflow';
 import { compressImageToDataUrl } from '@/lib/image/compressImage';
 import { toISODateTime } from '@/lib/format';
 import { ImageLightbox } from './EvidencePreview';
+import { hasManyReceipts } from '@/lib/logic/expenseReceipts';
 import type { ExpenseLine, ExpenseRequest } from '@/types';
 
 const NO_RECEIPT = 'ไม่มีหลักฐาน';
@@ -33,22 +36,27 @@ interface DraftLine {
 
 export function GuideExpenseEditForm({
   expense,
+  receiptId,
   onCancel,
   onSaved,
 }: {
   expense: ExpenseRequest;
+  /** แก้เฉพาะใบเสร็จนี้ (ใบเบิกที่มีหลายใบเสร็จ) · ไม่ส่ง = ทั้งใบ */
+  receiptId?: string;
   onCancel: () => void;
   onSaved: () => void;
 }) {
   const { master, saveExpense, currentUser } = useDemo();
-  const first = expense.lines[0];
+  const scope = receiptId === undefined ? expense.lines : expense.lines.filter((l) => (l.receiptId ?? '') === receiptId);
+  const first = scope[0];
+  const multi = hasManyReceipts(expense);
 
   const [expenseType, setExpenseType] = useState(
     () => master.expenseTypes.find((t) => t.name === first?.expenseType || t.code === first?.expenseType)?.code ?? '',
   );
   const [receiptDate, setReceiptDate] = useState(first?.receiptDate ?? '');
   const [lines, setLines] = useState<DraftLine[]>(() =>
-    expense.lines.map((l) => ({ id: l.id, description: l.purpose, amount: String(l.amount), currency: l.currency })),
+    scope.map((l) => ({ id: l.id, description: l.purpose, amount: String(l.amount), currency: l.currency })),
   );
   const [note, setNote] = useState(expense.note);
   const [evidenceFileName, setEvidenceFileName] = useState(first?.evidenceFileName ?? '');
@@ -95,7 +103,7 @@ export function GuideExpenseEditForm({
     if ((receiptDate || undefined) !== first?.receiptDate) out.push('วันที่ใบเสร็จ');
     if (evidenceFileName !== first?.evidenceFileName || evidenceImage !== first?.evidenceImage) out.push(`หลักฐาน → ${evidenceFileName}`);
     const sig = (ls: { purpose: string; amount: number; currency: string }[]) => ls.map((l) => `${l.purpose}|${l.amount}|${l.currency}`).join(';');
-    if (sig(next) !== sig(expense.lines)) out.push('รายการ/ยอดเงิน');
+    if (sig(next) !== sig(scope)) out.push('รายการ/ยอดเงิน');
     if (note.trim() !== expense.note) out.push('หมายเหตุ');
     return out;
   };
@@ -107,7 +115,7 @@ export function GuideExpenseEditForm({
       const typeName = master.expenseTypes.find((t) => t.code === expenseType)?.name ?? expenseType;
       const budgetLineId = first?.budgetLineId;
       const nextLines: ExpenseLine[] = valid.map((l, i) => {
-        const orig = expense.lines.find((x) => x.id === l.id);
+        const orig = scope.find((x) => x.id === l.id);
         const fxRate = orig && orig.currency === l.currency ? orig.fxRate : fxRateFor(l.currency);
         return {
           id: orig?.id ?? `L-${Date.now()}-${i}`,
@@ -122,19 +130,25 @@ export function GuideExpenseEditForm({
           ...(evidenceImage ? { evidenceImage } : {}),
           receiptDate: receiptDate || undefined,
           ...(budgetLineId ? { budgetLineId } : {}),
+          ...(first?.receiptId ? { receiptId: first.receiptId } : {}),
+          // แก้แล้ว → ไม่ติดป้าย "ต้องแก้" อีก
         };
       });
+      // ใส่บรรทัดใหม่แทนที่ตำแหน่งเดิมของใบเสร็จนี้ — ใบเสร็จอื่นคงเดิม
+      const at0 = expense.lines.findIndex((l) => scope.includes(l));
+      const rest = expense.lines.filter((l) => !scope.includes(l));
+      const allLines = [...rest.slice(0, Math.max(at0, 0)), ...nextLines, ...rest.slice(Math.max(at0, 0))];
       const changes = describeChanges(nextLines);
       if (changes.length === 0) {
         onCancel();
         return;
       }
       const at = toISODateTime(new Date());
-      const nextStatus = expense.status === 'revise' ? 'submitted' : expense.status;
+      const nextStatus = expense.status === 'revise' && !multi ? 'submitted' : expense.status;
       await saveExpense({
         ...expense,
-        lines: nextLines,
-        totalTHB: nextLines.reduce((s, l) => s + l.amountTHB, 0),
+        lines: allLines,
+        totalTHB: allLines.reduce((s, l) => s + l.amountTHB, 0),
         note: note.trim(),
         status: nextStatus,
         history: [
@@ -260,7 +274,7 @@ export function GuideExpenseEditForm({
       {missing.length > 0 && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs zego-text-warning">ยังบันทึกไม่ได้ — ยังขาด: {missing.join(' · ')}</p>
       )}
-      {expense.status === 'revise' && (
+      {expense.status === 'revise' && !multi && (
         <p className="text-xs zego-text-tertiary">บันทึกแล้วรายการนี้จะถูกส่งให้บัญชีตรวจอีกครั้ง</p>
       )}
 

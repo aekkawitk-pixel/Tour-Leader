@@ -3,7 +3,8 @@
  *
  * แยกเก็บสองที่ตามขนาดข้อมูล:
  *   • ตัวรายการ (ไม่รวมรูป) → localStorage (key: savedExpenses) — upsert ตาม id
- *   • รูปหลักฐาน (evidenceImage, data URL หลักร้อย KB) → IndexedDB (expenseEvidenceStore)
+ *   • รูปหลักฐาน (evidenceImage, data URL หลักร้อย KB) → IndexedDB (expenseEvidenceStore) — ใบเสร็จละ 1 รูป
+ *     key = <เลขใบเบิก>#<receiptId> (ใบเสร็จเดียว = <เลขใบเบิก>#) · key เก่าแบบ <เลขใบเบิก> ยังอ่านได้
  *     localStorage มีที่ราว 5 MB ถ้าเก็บรูปรวมไปด้วยจะเต็มหลังบันทึกไม่กี่สิบใบ
  * DemoStore ทาบรายการที่เก็บไว้ลงบนข้อมูลตั้งต้นตอนโหลด (id ซ้ำ = ใช้ของที่เก็บไว้) แล้วค่อยเติมรูปตามมา
  *
@@ -38,9 +39,24 @@ export function loadSavedExpenses(): ExpenseRequest[] {
 export async function persistExpense(expense: ExpenseRequest): Promise<void> {
   const rest = loadSavedExpenses().filter((e) => e.id !== expense.id);
   writeJson(EXPENSE_STORAGE_KEY, [stripImages(expense), ...rest]);
-  const image = expense.lines.find((l) => l.evidenceImage)?.evidenceImage;
-  if (image) await putEvidence({ expenseId: expense.id, dataUrl: image });
-  else await deleteEvidence(expense.id);
+  await deleteEvidenceOf(expense.id);
+  const images = new Map<string, string>();
+  for (const l of expense.lines) {
+    const key = evidenceKey(expense.id, l.receiptId);
+    if (l.evidenceImage && !images.has(key)) images.set(key, l.evidenceImage);
+  }
+  for (const [key, dataUrl] of images) await putEvidence({ expenseId: key, dataUrl });
+}
+
+/** key รูปหลักฐานของใบเสร็จ */
+export function evidenceKey(expenseId: string, receiptId?: string): string {
+  return `${expenseId}#${receiptId ?? ''}`;
+}
+
+/** ลบใบที่เก็บไว้ตามเลข (พร้อมรูป) — ใช้ตอนรวมร่างหลายใบเป็นใบเบิกเดียว */
+export async function discardSavedExpenses(ids: string[]): Promise<void> {
+  writeJson(EXPENSE_STORAGE_KEY, loadSavedExpenses().filter((e) => !ids.includes(e.id)));
+  for (const id of ids) await deleteEvidenceOf(id);
 }
 
 /** ลบใบที่เก็บไว้ทุกใบที่ keep ไม่เก็บ (พร้อมรูปหลักฐาน) — ใช้รีเซ็ตเพื่อทดสอบใหม่ · คืน id ที่ลบ */
@@ -48,7 +64,7 @@ export async function clearSavedExpenses(keep: (e: ExpenseRequest) => boolean): 
   const all = loadSavedExpenses();
   const removed = all.filter((e) => !keep(e)).map((e) => e.id);
   writeJson(EXPENSE_STORAGE_KEY, all.filter(keep));
-  for (const id of removed) await deleteEvidence(id);
+  for (const id of removed) await deleteEvidenceOf(id);
   return removed;
 }
 
@@ -85,9 +101,15 @@ async function putEvidence(rec: StoredEvidence): Promise<void> {
   await tx('readwrite', (s) => s.put(rec) as IDBRequest<IDBValidKey>);
 }
 
-async function deleteEvidence(expenseId: string): Promise<void> {
+/** ลบรูปทุกใบเสร็จของใบเบิกนี้ (รวม key แบบเก่า) */
+async function deleteEvidenceOf(expenseId: string): Promise<void> {
   if (!canUseIdb()) return;
-  await tx('readwrite', (s) => s.delete(expenseId) as IDBRequest<undefined>);
+  const keys = await tx<IDBValidKey[]>('readonly', (s) => s.getAllKeys() as IDBRequest<IDBValidKey[]>);
+  for (const k of keys) {
+    if (k === expenseId || (typeof k === 'string' && k.startsWith(`${expenseId}#`))) {
+      await tx('readwrite', (s) => s.delete(k) as IDBRequest<undefined>);
+    }
+  }
 }
 
 /** รูปหลักฐานทั้งหมด — expenseId → data URL (อ่านไม่ได้ = คืนว่าง รายการยังแสดงชื่อไฟล์ได้ตามปกติ) */

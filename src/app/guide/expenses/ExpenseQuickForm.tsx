@@ -281,7 +281,11 @@ export function ExpenseQuickForm({
     }
   };
 
-  const submit = async () => {
+  /**
+   * บันทึก — asDraft = เก็บเป็นร่างไว้ก่อน (ทำทีละรายการ แล้วส่งอนุมัติพร้อมกันทีหลังที่รายการร่างของกรุ๊ป)
+   * ไม่ใช่ร่าง = ส่งอนุมัติทันที (แบบเดิม)
+   */
+  const submit = async (asDraft = false) => {
     if (!leaderId || !expenseType || validLines.length === 0 || !evidenceFileName) return;
     setSaving(true);
     try {
@@ -318,15 +322,15 @@ export function ExpenseQuickForm({
         requesterId: leaderId,
         requesterName: leader ? `${leader.firstName} ${leader.lastName}`.trim() : currentUser.name,
         requestedAt: toISODate(new Date()), // วันที่จริง ไม่ใช่วันที่จำลองของ Demo
-        submittedAt,
+        ...(asDraft ? {} : { submittedAt }),
         lines: expenseLines,
         totalTHB: expenseLines.reduce((sum, l) => sum + l.amountTHB, 0),
         bankAccount: bank
           ? { bank: bank.bank, accountNoMasked: bank.accountNoMasked, accountName: bank.accountName, branch: bank.branch ?? '' }
           : { bank: '', accountNoMasked: '', accountName: '', branch: '' },
         note: note.trim(),
-        status: 'submitted',
-        history: [makeStatusEvent(null, 'submitted', currentUser.name, submittedAt, 'บันทึกจากพอร์ทัลหัวหน้าทัวร์')],
+        status: asDraft ? 'draft' : 'submitted',
+        history: [makeStatusEvent(null, asDraft ? 'draft' : 'submitted', currentUser.name, submittedAt, asDraft ? 'บันทึกเป็นร่างจากพอร์ทัลหัวหน้าทัวร์' : 'บันทึกจากพอร์ทัลหัวหน้าทัวร์')],
       };
       await saveExpense(expense);
       onSaved(expense, Boolean(budgetLineId));
@@ -731,20 +735,27 @@ export function ExpenseQuickForm({
         </p>
       )}
 
-      <div className="flex gap-2 pt-1">
-        <Button variant="secondary" className="flex-1" onClick={onCancel}>
-          ยกเลิก
+      {/* บันทึกไว้ก่อน = ร่าง (ส่งพร้อมกันทีหลังได้) · บันทึกและส่งอนุมัติ = ส่งทันที */}
+      <div className="grid grid-cols-2 gap-2 pt-1">
+        <Button
+          variant="secondary"
+          disabled={missing.length > 0 || saving || scanning}
+          onClick={() => void submit(true)}
+        >
+          บันทึกไว้ก่อน
         </Button>
         <Button
           variant="primary"
-          className="flex-1"
           disabled={missing.length > 0 || saving || scanning}
           loading={saving}
-          onClick={submit}
+          onClick={() => void submit(false)}
         >
-          บันทึก
+          บันทึกและส่งอนุมัติ
         </Button>
       </div>
+      <button type="button" onClick={onCancel} className="w-full text-center text-xs font-medium zego-text-tertiary hover:underline">
+        ยกเลิก
+      </button>
     </Card>
   );
 }

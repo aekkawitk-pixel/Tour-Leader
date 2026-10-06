@@ -108,7 +108,7 @@ export default function GuideJobsPage() {
           <div className="space-y-5">
             {monthGroups.shown.map((m) => (
               <section key={m.key} aria-label={m.label} className="space-y-2">
-                <MonthHeader label={m.label} count={m.items.length} unit="งาน" />
+                <MonthHeader label={m.label} />
                 <Card padded={false}>
                   <ul className="divide-y divide-[var(--zego-border-soft)]">
                     {m.items.map(({ assignment, period }) => (

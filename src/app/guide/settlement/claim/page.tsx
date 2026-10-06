@@ -35,6 +35,7 @@ import { clearReadiness, receiptsBlockedReason, type ReadinessTone } from '@/lib
 import { appointmentStatusMeta } from '@/lib/labels';
 import { RequestClearModal } from './RequestClearModal';
 import type { Appointment } from '@/types';
+import { expenseStatusMeta } from '@/lib/logic/usageReport';
 
 const fmtTotals = (list: { amount: number; currency: string }[]) => list.map((t) => formatCurrency(t.amount, t.currency)).join(' · ') || '—';
 
@@ -235,11 +236,12 @@ export default function GuideSettlementClaimPage() {
                       <Row
                         key={r.id}
                         onClick={() => setDetail(r)}
-                        title={r.lines[0]?.purpose || r.lines[0]?.expenseType || r.id}
-                        sub={`${r.id} · ${formatDate(requestedAtOf(r))}${r.lines.length > 1 ? ` · ${r.lines.length} รายการ` : ''}`}
+                        title={r.lines[0]?.purpose || r.lines[0]?.expenseType || 'ใบเสร็จ'}
+                        // ใบเสร็จไม่ใช่ใบเบิก — ไม่แสดงเลข EXP (เลขภายในระบบ) · บอกวันที่ใบเสร็จแทน
+                        sub={`ใบเสร็จ ${formatDate(r.lines[0]?.receiptDate ?? requestedAtOf(r))}${r.lines.length > 1 ? ` · ${r.lines.length} รายการ` : ''}`}
                         amount={fmtTotals(expenseOriginalTotals(r))}
                       >
-                        <StatusBadge meta={EXPENSE_STATUS[r.status]} size="sm" />
+                        <StatusBadge meta={expenseStatusMeta(r)} size="sm" />
                       </Row>
                     ))}
                   </Section>

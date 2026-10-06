@@ -85,3 +85,49 @@ export function budgetLineAmount(quantity: number | undefined, unitPrice: number
   if (quantity === undefined || unitPrice === undefined || !Number.isFinite(quantity) || !Number.isFinite(unitPrice)) return null;
   return Math.round((quantity * unitPrice - (discount || 0)) * 100) / 100;
 }
+
+/* ------------------------------------------------------------------ */
+/* ใบเสร็จเทียบรายการเบิก — ใช้ครบ / ใช้ไม่ครบ / เกิน                       */
+/* ------------------------------------------------------------------ */
+
+export type BudgetUseKind = 'full' | 'under' | 'over' | 'outside';
+
+export interface BudgetUse {
+  kind: BudgetUseKind;
+  /** ชื่อรายการเบิกที่ใบเสร็จนี้ผูก (outside = ไม่มี) */
+  budgetName?: string;
+  currency?: string;
+  /** ยอดที่เบิกไว้ของรายการนั้น */
+  budget?: number;
+  /** ยอดใช้รวมของรายการนั้น — ทุกใบเสร็จที่ผูกรายการเดียวกัน (ไม่นับที่ยกเลิก/ไม่อนุมัติ) */
+  used?: number;
+  /** used − budget (บวก = เกิน · ลบ = เหลือ) */
+  diff?: number;
+}
+
+/**
+ * ใบเสร็จใบนี้ ใช้เงินตามรายการเบิกที่ผูกไว้ ครบ / ไม่ครบ / เกิน — เทียบยอดใช้รวมของรายการนั้นกับยอดที่เบิก
+ * (รายการเดียวอาจมีหลายใบเสร็จ เช่น ค่าน้ำ 3 วัน จึงเทียบที่ยอดรวม ไม่ใช่ใบต่อใบ)
+ * ไม่ได้ผูกรายการเบิก = นอกรายการเบิก
+ * lines = บรรทัดของใบเสร็จใบเดียว (ใบเบิกที่รวมหลายใบเสร็จ ส่งเฉพาะบรรทัดของใบเสร็จนั้น) · ไม่ส่ง = ทั้งใบ
+ */
+export function budgetUseOf(expenses: ExpenseRequest[], receipt: ExpenseRequest, lines: ExpenseLine[] = receipt.lines): BudgetUse {
+  const line = lines.find((l) => l.budgetLineId);
+  if (!line?.budgetLineId) return { kind: 'outside' };
+  return budgetUseOfItem(expenses, receipt.jobId, line.budgetLineId);
+}
+
+/** รายการเบิก 1 รายการของกรุ๊ป ใช้ไปครบ / ไม่ครบ / เกิน (รวมทุกใบเสร็จที่ผูก) · หาไม่เจอ = นอกรายการเบิก */
+export function budgetUseOfItem(expenses: ExpenseRequest[], groupId: string, budgetLineId: string): BudgetUse {
+  const item = budgetItemsForGroup(expenses, groupId).find((b) => b.line.id === budgetLineId);
+  if (!item) return { kind: 'outside' };
+  const currency = item.line.currency;
+  const budget = item.line.amount;
+  const used = recordedByBudgetLine(expenses, groupId).get(budgetLineId)?.get(currency) ?? 0;
+  const diff = Math.round((used - budget) * 100) / 100;
+  return {
+    kind: Math.abs(diff) < 0.005 ? 'full' : diff > 0 ? 'over' : 'under',
+    budgetName: item.line.purpose || item.line.expenseType,
+    currency, budget, used, diff,
+  };
+}

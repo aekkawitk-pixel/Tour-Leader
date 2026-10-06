@@ -7,6 +7,7 @@
  *   3. เอกสารการเงิน    บัญชีธนาคาร (หลายบัญชี) — ใช้ตัวแก้ไขชุดเดียวกับหัวหน้าทัวร์ (BankAccountEditor)
  *   4. ตารางงาน        กรุ๊ปที่คนนี้ได้รับมอบหมาย รายเดือน — อ่านอย่างเดียว (จัด/เปลี่ยนคนทำที่เมนู "การจัดสเก็ต")
  *   5. สถานะ/การลา      สถานะการใช้งาน + คำขอลา/อนุมัติ
+ *   6. บัญชีผู้ใช้        User name สำหรับเข้าพอร์ทัลเจ้าหน้าที่ส่งกรุ๊ป — ชุดเดียวกับหัวหน้าทัวร์ (LoginAccountPanel)
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -24,6 +25,7 @@ import { DateField } from '@/components/ui/DateInput';
 import { MonthPicker, nextMonthStart, nextMonthStartFromNow } from '@/components/ui/MonthPicker';
 import { RowMenu } from '@/components/leaders/reorderControls';
 import { BankAccountEditor } from '@/components/leaders/BankAccountEditor';
+import { LoginAccountPanel } from '@/components/accounts/LoginAccountPanel';
 import { IdCardTemplate } from '@/components/leaders/documents/IdCardTemplate';
 import { openDocumentImageUrl, releaseImageUrl } from '@/services/documentImageStore';
 import { SendOffStaffFormDrawer } from '@/components/staff/SendOffStaffFormDrawer';
@@ -59,7 +61,7 @@ import { airportLabel } from '@/lib/logic/airportLabel';
 import type { AnyLeaderDocumentRecord } from '@/data/leaders/documentRecordTypes';
 import { TONE_ZEGO_BADGE } from '@/lib/tone-tokens';
 
-type TabKey = 'personal' | 'idDocs' | 'finance' | 'schedule' | 'leave';
+type TabKey = 'personal' | 'idDocs' | 'finance' | 'schedule' | 'leave' | 'account';
 
 /** แปลงบัตรของเจ้าหน้าที่ → รูปแบบเอกสารที่ template หน้าบัตรใช้ (ชื่อช่องตรงกับ schema id_card อยู่แล้ว) */
 function toIdCardDoc(staff: SendOffStaff): AnyLeaderDocumentRecord {
@@ -86,7 +88,7 @@ function findAssignedJobsInRange(staffId: string, startDate: string, endDate: st
 export function SendOffStaffDetailView() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { currentUser, pushToast } = useDemo();
+  const { currentUser, pushToast, users } = useDemo();
   const canManage = can(currentUser.role, 'leader.edit');
 
   const [staffList, setStaffList] = useState<SendOffStaff[]>([]);
@@ -154,6 +156,7 @@ export function SendOffStaffDetailView() {
     { key: 'finance', label: 'เอกสารการเงิน' },
     { key: 'schedule', label: 'ตารางงาน' },
     { key: 'leave', label: 'สถานะ/การลา', badge: pendingLeaveCount || undefined },
+    { key: 'account', label: 'บัญชีผู้ใช้' },
   ];
 
   return (
@@ -184,6 +187,12 @@ export function SendOffStaffDetailView() {
               <span className="font-mono">{staff.id}</span>
               <span className="zego-text-disabled">·</span>
               <span>{SEND_OFF_STAFF_TYPE[staff.staffType].note}</span>
+              {staff.startDate && (
+                <>
+                  <span className="zego-text-disabled">·</span>
+                  <span>เริ่มร่วมงาน {formatDate(staff.startDate)}</span>
+                </>
+              )}
             </p>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
               {staff.phone ? (
@@ -245,6 +254,21 @@ export function SendOffStaffDetailView() {
 
       <TabPanel active={tab === 'finance'}>
         <FinanceTab key={staff.id} staff={staff} canManage={canManage} onSave={save} />
+      </TabPanel>
+
+      <TabPanel active={tab === 'account'}>
+        <LoginAccountPanel
+          owner={{
+            id: staff.id,
+            who: 'เจ้าหน้าที่ส่งกรุ๊ป',
+            portal: 'พอร์ทัลเจ้าหน้าที่ส่งกรุ๊ป',
+            email: staff.email,
+            phone: staff.phone,
+            firstNameEn: staff.idCard.firstNameEn,
+            lastNameEn: staff.idCard.lastNameEn,
+            demoUser: (() => { const u = users.find((x) => x.sendOffStaffId === staff.id); return u ? { id: u.id, name: u.name } : undefined; })(),
+          }}
+        />
       </TabPanel>
 
       <TabPanel active={tab === 'schedule'}>
@@ -323,19 +347,26 @@ function PersonalTab({ staff, canManage, onSave }: {
   canManage: boolean;
   onSave: (s: SendOffStaff) => void;
 }) {
+  // ชื่อจริง-นามสกุล = ชุดเดียวกับบัตรประชาชน (idCard) — แก้ที่นี่หรือแท็บเอกสารประจำตัวก็ได้ ข้อมูลตรงกันเสมอ
+  const [firstName, setFirstName] = useState(staff.idCard.firstName);
+  const [lastName, setLastName] = useState(staff.idCard.lastName);
   const [nickname, setNickname] = useState(staff.nickname);
   const [phone, setPhone] = useState(staff.phone);
   const [email, setEmail] = useState(staff.email ?? '');
   const [contact, setContact] = useState<EmergencyContact>(staff.emergencyContact ?? EMPTY_EMERGENCY_CONTACT);
   const [note, setNote] = useState(staff.note);
 
-  const dirty = nickname !== staff.nickname
+  const dirty = firstName !== staff.idCard.firstName
+    || lastName !== staff.idCard.lastName
+    || nickname !== staff.nickname
     || phone !== staff.phone
     || email !== (staff.email ?? '')
     || note !== staff.note
     || JSON.stringify(contact) !== JSON.stringify(staff.emergencyContact ?? EMPTY_EMERGENCY_CONTACT);
 
   const reset = () => {
+    setFirstName(staff.idCard.firstName);
+    setLastName(staff.idCard.lastName);
     setNickname(staff.nickname);
     setPhone(staff.phone);
     setEmail(staff.email ?? '');
@@ -355,9 +386,17 @@ function PersonalTab({ staff, canManage, onSave }: {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader title="ข้อมูลติดต่อ" description="ใช้สำหรับติดต่อเรื่องงานประจำวัน" />
+        <CardHeader title="ข้อมูลทั่วไป" description="ชื่อจริง-นามสกุลตรงกับบัตรประชาชน (แก้ที่นี่แล้วข้อมูลบัตรเปลี่ยนตาม)" />
         <div className="grid gap-3 sm:grid-cols-3">
+          <TextInput label="ชื่อจริง" required value={firstName} disabled={!canManage} onChange={(e) => setFirstName(e.target.value)} error={canManage && !firstName.trim() ? 'กรุณาระบุชื่อจริง' : undefined} />
+          <TextInput label="นามสกุล" required value={lastName} disabled={!canManage} onChange={(e) => setLastName(e.target.value)} error={canManage && !lastName.trim() ? 'กรุณาระบุนามสกุล' : undefined} />
           <TextInput label="ชื่อเล่น" optional value={nickname} disabled={!canManage} onChange={(e) => setNickname(e.target.value)} />
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader title="ข้อมูลติดต่อ" description="ใช้สำหรับติดต่อเรื่องงานประจำวัน" />
+        <div className="grid gap-3 sm:grid-cols-2">
           <TextInput label="เบอร์โทร" optional value={phone} disabled={!canManage} onChange={(e) => setPhone(e.target.value)} />
           <TextInput label="อีเมล" optional type="email" value={email} disabled={!canManage} onChange={(e) => setEmail(e.target.value)} />
         </div>
@@ -373,12 +412,8 @@ function PersonalTab({ staff, canManage, onSave }: {
       </Card>
 
       <Card>
-        <CardHeader title="ชื่อ-ที่อยู่ตามบัตรประชาชน" description="แก้ไขได้ที่แท็บ “เอกสารประจำตัว”" />
-        <dl className="grid gap-3 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="zego-text-tertiary text-xs">ชื่อ-นามสกุล</dt>
-            <dd className="zego-text font-medium">{sendOffStaffName(staff)}</dd>
-          </div>
+        <CardHeader title="ที่อยู่ตามบัตรประชาชน" description="แก้ไขได้ที่แท็บ “เอกสารประจำตัว”" />
+        <dl className="grid gap-3 text-sm">
           <div>
             <dt className="zego-text-tertiary text-xs">ที่อยู่</dt>
             <dd className="zego-text font-medium">{fullAddress || '—'}</dd>
@@ -396,8 +431,16 @@ function PersonalTab({ staff, canManage, onSave }: {
           <Button variant="secondary" disabled={!dirty} onClick={reset}>ยกเลิก</Button>
           <Button
             variant="primary"
-            disabled={!dirty}
-            onClick={() => onSave({ ...staff, nickname, phone, email, emergencyContact: contact, note })}
+            disabled={!dirty || !firstName.trim() || !lastName.trim()}
+            onClick={() => onSave({
+              ...staff,
+              idCard: { ...staff.idCard, firstName: firstName.trim(), lastName: lastName.trim() },
+              nickname: nickname.trim(),
+              phone,
+              email,
+              emergencyContact: contact,
+              note,
+            })}
           >
             บันทึก
           </Button>

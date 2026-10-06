@@ -19,7 +19,6 @@ import { useDemo } from '@/store/DemoStore';
 import { Button, StatusBadge, cx } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
-import { EXPENSE_STATUS } from '@/lib/labels';
 import { formatCurrency, formatDate, formatDateRange, formatNumber } from '@/lib/format';
 import { GuideExpenseDetailDrawer } from './GuideExpenseDetailDrawer';
 import { CurrencyStack } from './CurrencyStack';
@@ -28,6 +27,7 @@ import { EnvelopeStatusBadge } from '@/components/expenses/CashEnvelopeDrawer';
 import { envelopeName, lineKey, type CashEnvelope } from '@/lib/logic/cashEnvelope';
 import type { ExpenseLine, ExpenseRequest } from '@/types';
 import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
+import { expenseStatusMeta } from '@/lib/logic/usageReport';
 
 /** หมวดในไฟล์ต้นทางบางชุดขึ้นต้นด้วย "#หมวด" (เช่น #หมวดเข้าชมสถานที่) — ตัดออกให้อ่านง่าย */
 const categoryLabel = (raw: string) => raw.replace(/^#\s*(หมวด)?\s*/, '').trim() || 'อื่น ๆ';
@@ -494,13 +494,13 @@ function BudgetLineDetail({
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium zego-text">{rec.purpose}</span>
                       <span className="block text-[11px] zego-text-tertiary">
-                        {expense.id} · {formatDate(rec.receiptDate ?? expense.submittedAt ?? expense.requestedAt)}
+                        ใบเสร็จ {formatDate(rec.receiptDate ?? expense.submittedAt ?? expense.requestedAt)}
                       </span>
                       <span className="block truncate text-[11px] zego-text-tertiary">หลักฐาน: {rec.evidenceFileName || '—'}</span>
                     </span>
                     <span className="shrink-0 space-y-0.5 text-right">
                       <span className="block text-sm font-semibold tabular-nums zego-text">{formatCurrency(rec.amount, rec.currency)}</span>
-                      <StatusBadge meta={EXPENSE_STATUS[expense.status]} size="sm" />
+                      <StatusBadge meta={expenseStatusMeta(expense)} size="sm" />
                     </span>
                     <Icon name="chevronRight" className="mt-1 h-4 w-4 shrink-0 zego-text-disabled" />
                   </button>

@@ -93,3 +93,13 @@ test('บันทึกใบเสร็จได้หรือยัง — 
   assert.equal(receiptsBlockedReason([env(true)]), null);
   assert.equal(receiptsBlockedReason([{ ...env(false), staffReturn: { at: 't', staffName: 'S', reason: 'x' } } as CashEnvelope]), null);
 });
+
+test('พร้อมเคลียร์ — ยังไม่จบทริป: ใบเสร็จที่บันทึกแล้วเป็นเทา (ยังเพิ่มได้อีก) · ต้องแก้ไขยังเป็นเรื่องต้องทำ', () => {
+  const before = run({ started: false, ended: false, receipts: [doc('submitted'), doc('submitted'), doc('draft')] });
+  const c = before.checks.find((x) => x.label === 'ใบเสร็จ')!;
+  assert.equal(c.ok, true);
+  assert.equal(c.na, true);
+  assert.equal(c.text, 'บันทึกแล้ว 2 รายการ · ร่าง 1 · ยังไม่จบทริป');
+  const fix = run({ started: true, ended: false, receipts: [doc('revise')] }).checks.find((x) => x.label === 'ใบเสร็จ')!;
+  assert.equal(fix.ok, false);
+});

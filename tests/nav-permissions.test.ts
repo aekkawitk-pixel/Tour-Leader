@@ -78,7 +78,7 @@ describe('บทบาทฝ่ายบัญชี', () => {
 
   test('ยังเห็นเมนูงานการเงินครบ', () => {
     const keys = navForRole('accounting').map((i) => i.key);
-    for (const k of ['groupExpenses', 'expenses', 'settlements', 'calendar'] as NavKey[]) {
+    for (const k of ['groupExpenses', 'expenses', 'payments', 'settlements', 'calendar'] as NavKey[]) {
       assert.ok(keys.includes(k), `ฝ่ายบัญชีต้องยังเห็นเมนู ${k}`);
     }
   });

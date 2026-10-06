@@ -8,6 +8,7 @@ export type NavKey =
   | 'jobs'
   | 'calendar'
   | 'expenses'
+  | 'payments'
   | 'groupExpenses'
   | 'settlements'
   | 'appointments'
@@ -77,6 +78,15 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/expenses',
     icon: 'receipt',
     roles: ['admin', 'coordinator', 'accounting', 'leader'],
+  },
+  {
+    key: 'payments',
+    // โอนเงินใบเบิกที่ตรวจอนุมัติแล้ว (เบี้ยเลี้ยง / ค่าส่งกรุ๊ป / อื่น ๆ) — แยกจากคิวตรวจ "ตรวจสอบรายการจ่าย"
+    // ใบเสร็จค่าใช้จ่ายจริงไม่มาที่นี่ (เงินจ่ายไปแล้วผ่านซอง · ส่วนต่างไปเคลียร์เงินกรุ๊ป)
+    label: 'จ่ายเงิน',
+    href: '/payments',
+    icon: 'money',
+    roles: ['admin', 'accounting'],
   },
   {
     key: 'settlements',
@@ -165,7 +175,7 @@ export const NAV_ITEMS: NavItem[] = [
  *
  * เปิดเมนูเพิ่ม → ใส่ NavKey ลงชุดนี้ · เปิดครบทุกเมนู → ตั้งเป็น null
  */
-const TRIAL_NAV_KEYS: ReadonlySet<NavKey> | null = new Set<NavKey>(['dashboard', 'leaders', 'jobs', 'calendar', 'expenses', 'groupExpenses', 'settlements', 'holidays', 'zego', 'sendOffStaff', 'perDiemRates', 'appointments', 'settings']);
+const TRIAL_NAV_KEYS: ReadonlySet<NavKey> | null = new Set<NavKey>(['dashboard', 'leaders', 'jobs', 'calendar', 'expenses', 'payments', 'groupExpenses', 'settlements', 'holidays', 'zego', 'sendOffStaff', 'perDiemRates', 'appointments', 'settings']);
 
 /** ป้ายกำกับเมนูที่ยังไม่เปิดให้ใช้ในรอบทดลอง */
 export const IN_DEVELOPMENT_LABEL = 'กำลังพัฒนา';

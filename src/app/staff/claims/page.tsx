@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { Button, Card, EmptyState, StatusBadge, cx } from '@/components/ui/Primitives';
 import { Modal } from '@/components/ui/Modal';
+import { Icon } from '@/components/ui/Icon';
 import { SelectInput, TextArea, TextInput } from '@/components/ui/FormField';
 import { EXPENSE_STATUS } from '@/lib/labels';
 import { formatCurrency, formatDate, formatDateTime, formatThaiMonthYear, toISODateTime } from '@/lib/format';
@@ -31,6 +32,7 @@ import { holidayOf } from '@/services/holidayService';
 import type { ExpenseLine, ExpenseRequest } from '@/types';
 import { sendOffStaffName } from '@/lib/logic/sendOffStaff';
 import { useStaffPortal } from '../useStaffPortal';
+import { MonthYearSelect, useMonthGroups } from '@/components/ui/MonthFilter';
 import { printSendOffClaim } from './printClaim';
 
 /** ค่าส่งกรุ๊ปของงานนี้ — จากวันที่ไปส่ง (วันหยุดราชการ = อัตราวันหยุด) */
@@ -53,11 +55,21 @@ export default function StaffClaimsPage() {
     setRates(loadSendOffFeeRates());
   }, []);
   /** ใบเบิกที่กำลังทำ — expense = แก้ใบเดิม · ไม่มี = ทำใบใหม่ของเดือนนั้น */
+  /** เดือนที่กางดูรายชื่อกรุ๊ป (มีเดือนเดียว = กางเสมอ) */
+  const [openMonth, setOpenMonth] = useState<string | null>(null);
   const [claimFor, setClaimFor] = useState<{ month: string; options: StaffDuty[]; selected: string[]; expense?: ExpenseRequest } | null>(null);
 
   const claimable = claimableDuties(duties, expenses, staffId, today);
   const months = dutiesByMonth(claimable);
   const mine = staffClaims(expenses, staffId);
+  /*
+    ใบเบิกของฉัน สะสมเดือนละใบ — ตัวกรองช่วงเวลา (ปี + ตาราง 12 เดือน) ชุดเดียวกับตารางงาน/ซองเงิน
+    จัดเดือนตามเดือนของใบเบิก (claimMonth) · ใบแบบเดิมที่ไม่มีเดือน = เดือนที่ส่ง · เดือนล่าสุดก่อน
+  */
+  const claimMonthOf = (e: ExpenseRequest) => (e.claimMonth ? `${e.claimMonth}-01` : (e.submittedAt ?? e.requestedAt).slice(0, 10));
+  const mineByMonth = [...mine].sort((a, b) => claimMonthOf(b).localeCompare(claimMonthOf(a)));
+  const mineGroups = useMonthGroups(mineByMonth, claimMonthOf, today);
+  const mineShown = mineGroups.shown.flatMap((m) => m.items);
   const bank = staff?.bankAccounts.find((b) => b.isPrimary && b.active) ?? staff?.bankAccounts.find((b) => b.active);
   const groupCodeOf = (periodId: string) => duties.find((d) => d.periodId === periodId)?.period?.groupCode ?? periodId;
 
@@ -125,61 +137,85 @@ export default function StaffClaimsPage() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold zego-text">ค่าส่งกรุ๊ป — รอเบิก ({claimable.length})</h2>
+        {/* จำนวนกรุ๊ปบอกที่แถวของแต่ละเดือนแล้ว — หัวข้อไม่ต้องซ้ำ */}
+        <h2 className="text-sm font-semibold zego-text">ค่าส่งกรุ๊ป — รอเบิก</h2>
         {months.length === 0 ? (
           <Card><EmptyState icon="receipt" title="ยังไม่มีงานที่รอเบิก" description="งานที่คอนเฟิร์มแล้วและถึงวันไปส่งแล้วจะขึ้นที่นี่" /></Card>
         ) : (
-          months.map(({ month, duties: list }) => {
-            const total = list.reduce((s, d) => s + feeOf(d, rates).amount, 0);
-            return (
-              <Card key={month} className="space-y-2.5">
-                <div className="flex items-baseline justify-between gap-2">
-                  <p className="text-sm font-semibold zego-text">{monthLabel(month)}</p>
-                  <p className="text-xs zego-text-tertiary">{list.length} กรุ๊ป</p>
+          /*
+            แถวสรุปเดือนละแถว (เดือนเก่าสุดก่อน) — เดือน · จำนวนกรุ๊ป · ยอดรวม · ปุ่มทำใบเบิก
+            รายชื่อกรุ๊ปพับไว้ แตะแถวเพื่อดู · มีเดือนเดียว = กางให้เลย · ค้างหลายเดือน/หลายสิบกรุ๊ปก็ไม่ยาวจนหาปุ่มไม่เจอ
+          */
+          <Card className="divide-y divide-[var(--zego-border-soft)] p-0">
+            {months.map(({ month, duties: list }) => {
+              const total = list.reduce((s, d) => s + feeOf(d, rates).amount, 0);
+              const open = months.length === 1 || openMonth === month;
+              return (
+                <div key={month}>
+                  <div className="flex items-center gap-2 px-3 py-3">
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default"
+                      onClick={() => setOpenMonth(open ? null : month)}
+                      disabled={months.length === 1}
+                      aria-expanded={open}
+                    >
+                      {months.length > 1 && (
+                        <Icon name="chevronDown" className={cx('h-4 w-4 shrink-0 zego-text-tertiary transition-transform', open ? 'rotate-0' : '-rotate-90')} />
+                      )}
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold zego-text">{monthLabel(month)}</span>
+                        <span className="block text-xs zego-text-tertiary">{list.length} กรุ๊ป · <span className="tabular-nums">{formatCurrency(total, 'THB')}</span></span>
+                      </span>
+                    </button>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon="receipt"
+                      onClick={() => setClaimFor({ month, options: list, selected: list.map((d) => d.periodId) })}
+                    >
+                      ทำใบเบิก
+                    </Button>
+                  </div>
+                  {open && (
+                    <ul className="mx-3 mb-3 divide-y divide-[var(--zego-border-soft)] rounded-lg border zego-border-color">
+                      {list.map((d) => {
+                        const fee = feeOf(d, rates);
+                        return (
+                          <li key={d.assignmentId}>
+                            <div className="flex items-start gap-3 px-3 py-2.5">
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-sm font-semibold zego-text">{d.period?.groupCode ?? d.periodId}</span>
+                                <span className="line-clamp-1 block text-xs zego-text-secondary">{d.period?.displayName}</span>
+                                <span className="block text-xs zego-text-tertiary">ไปส่ง {formatDate(d.dutyDate)}{d.airport ? ` · ${d.airport}` : ''}</span>
+                              </span>
+                              <span className="shrink-0 text-right">
+                                <span className="block text-sm font-semibold tabular-nums zego-text">{formatCurrency(fee.amount, 'THB')}</span>
+                                <span className={cx('block text-[11px]', fee.holiday ? 'font-medium zego-text-warning' : 'zego-text-tertiary')}>
+                                  {fee.holiday ? `วันหยุด · ${fee.holiday}` : 'อัตราปกติ'}
+                                </span>
+                              </span>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </div>
-                <ul className="divide-y divide-[var(--zego-border-soft)] rounded-lg border zego-border-color">
-                  {list.map((d) => {
-                    const fee = feeOf(d, rates);
-                    return (
-                      <li key={d.assignmentId}>
-                        <div className="flex items-start gap-3 px-3 py-2.5">
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-sm font-semibold zego-text">{d.period?.groupCode ?? d.periodId}</span>
-                            <span className="line-clamp-1 block text-xs zego-text-secondary">{d.period?.displayName}</span>
-                            <span className="block text-xs zego-text-tertiary">ไปส่ง {formatDate(d.dutyDate)}{d.airport ? ` · ${d.airport}` : ''}</span>
-                          </span>
-                          <span className="shrink-0 text-right">
-                            <span className="block text-sm font-semibold tabular-nums zego-text">{formatCurrency(fee.amount, 'THB')}</span>
-                            <span className={cx('block text-[11px]', fee.holiday ? 'font-medium zego-text-warning' : 'zego-text-tertiary')}>
-                              {fee.holiday ? `วันหยุด · ${fee.holiday}` : 'อัตราปกติ'}
-                            </span>
-                          </span>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-                <Button
-                  variant="primary"
-                  className="w-full"
-                  icon="receipt"
-                  onClick={() => setClaimFor({ month, options: list, selected: list.map((d) => d.periodId) })}
-                >
-                  ทำใบเบิกเดือน{monthLabel(month)} · {list.length} กรุ๊ป · {formatCurrency(total, 'THB')}
-                </Button>
-              </Card>
-            );
-          })
+              );
+            })}
+          </Card>
         )}
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold zego-text">ใบเบิกของฉัน ({mine.length})</h2>
+        <h2 className="text-sm font-semibold zego-text">ใบเบิกของฉัน</h2>
+        <MonthYearSelect groups={mineGroups} />
         {mine.length === 0 ? (
           <p className="rounded-lg zego-surface-soft-bg px-3 py-3 text-center text-xs zego-text-tertiary">ยังไม่มีใบเบิก</p>
         ) : (
           <ul className="space-y-2">
-            {mine.map((e) => (
+            {mineShown.map((e) => (
               <li key={e.id}>
                 <Card className="space-y-1.5">
                   <div className="flex items-start justify-between gap-2">

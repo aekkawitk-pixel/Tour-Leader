@@ -116,6 +116,8 @@ export interface SendOffStaff {
   phone: string;
   /** สถานะการใช้งาน — เปลี่ยนสถานะแทนการลบเสมอ */
   status: SendOffStaffStatus;
+  /** วันที่เริ่มร่วมงาน (ISO) — ผู้ดูแลกำหนด · ไม่มี = ยังไม่ระบุ */
+  startDate?: string;
   idCard: ThaiIdCard;
   /**
    * ไฟล์สำเนาบัตรที่แนบไว้ — เก็บเป็นข้อมูลอ้างอิงของไฟล์ ไม่ใช่ตัวไฟล์
@@ -344,4 +346,39 @@ export function sendOffStaffName(s: Pick<SendOffStaff, 'idCard' | 'nickname'>): 
   const full = `${s.idCard.firstName} ${s.idCard.lastName}`.trim();
   if (!full) return s.nickname || '(ยังไม่ระบุชื่อ)';
   return s.nickname ? `${full} (${s.nickname})` : full;
+}
+
+/**
+ * เจ้าหน้าที่ส่งกรุ๊ปแก้ข้อมูลติดต่อของตัวเองในพอร์ทัล (เบอร์โทร · อีเมล · ผู้ติดต่อฉุกเฉิน) — มีผลทันที
+ * ข้อมูลบัตรประชาชน / บัญชีรับเงิน ยังแก้ได้เฉพาะผู้ดูแล (กระทบเอกสารและการโอนเงิน)
+ * คืนข้อความผิดต่อช่อง · ว่าง = ผ่าน
+ */
+export function validateStaffContact(v: { phone: string; email: string; ecName: string; ecPhone: string }): Partial<Record<'phone' | 'email' | 'ecPhone', string>> {
+  const digits = (s: string) => s.replace(/\D/g, '');
+  const badPhone = (s: string) => !/^0\d{8,9}$/.test(digits(s));
+  const out: Partial<Record<'phone' | 'email' | 'ecPhone', string>> = {};
+  if (!v.phone.trim()) out.phone = 'กรุณาระบุเบอร์โทร';
+  else if (badPhone(v.phone)) out.phone = 'เบอร์โทรไม่ถูกต้อง (9–10 หลัก ขึ้นต้นด้วย 0)';
+  if (v.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email.trim())) out.email = 'อีเมลไม่ถูกต้อง';
+  if (v.ecPhone.trim() && badPhone(v.ecPhone)) out.ecPhone = 'เบอร์โทรไม่ถูกต้อง';
+  else if (v.ecName.trim() && !v.ecPhone.trim()) out.ecPhone = 'ระบุเบอร์โทรของผู้ติดต่อฉุกเฉิน';
+  return out;
+}
+
+/** ปี/เดือนเต็มจาก from ถึง to (ISO) — ใช้คิดอายุงาน / อายุ · from หลัง to = null */
+export function fullYearsMonths(from: string, to: string): { years: number; months: number } | null {
+  if (!from || !to || from > to) return null;
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  let months = (ty - fy) * 12 + (tm - fm) - (td < fd ? 1 : 0);
+  if (months < 0) months = 0;
+  return { years: Math.floor(months / 12), months: months % 12 };
+}
+
+/** อายุงาน เช่น "2 ปี 3 เดือน" · ไม่ถึงเดือน = "ไม่ถึง 1 เดือน" */
+export function tenureLabel(startDate: string | undefined, today: string): string | null {
+  const t = startDate ? fullYearsMonths(startDate, today) : null;
+  if (!t) return null;
+  if (t.years === 0 && t.months === 0) return 'ไม่ถึง 1 เดือน';
+  return [t.years ? `${t.years} ปี` : '', t.months ? `${t.months} เดือน` : ''].filter(Boolean).join(' ');
 }

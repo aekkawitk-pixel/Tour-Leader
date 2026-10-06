@@ -42,7 +42,8 @@ import {
   upsertAssignments,
 } from '@/services/assignment-storage';
 import { loadImportedAdvanceDocs, sampleAdvanceDocs, upsertImportedAdvanceDocs } from '@/services/advanceImportStore';
-import { clearSavedExpenses, loadEvidenceImages, loadSavedExpenses, persistExpense } from '@/services/expenseStore';
+import { clearSavedExpenses, discardSavedExpenses, evidenceKey, loadEvidenceImages, loadSavedExpenses, persistExpense } from '@/services/expenseStore';
+import { isUsageReport } from '@/lib/logic/usageReport';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import { loadAppointments, nextAppointmentId, persistAppointment } from '@/services/appointmentStore';
 import { attachMedia, clearEnvelopes, loadEnvelopeMedia, loadEnvelopes, loadNoEnvelopeMarks, persistEnvelope, persistNoEnvelopeMark, removeEnvelope } from '@/services/cashEnvelopeStore';
@@ -206,13 +207,18 @@ interface DemoState {
    * อนุมัติใบเบิก — ทั้งใบ หรือบางรายการ: rejected = บรรทัดที่ไม่อนุมัติ (line id → เหตุผล)
    * ว่าง = อนุมัติเต็มจำนวน · ยอดบาท (totalTHB) คิดใหม่จากบรรทัดที่อนุมัติเท่านั้น
    */
-  approveExpenseLines: (expenseId: string, rejected: Record<string, string>) => Promise<void>;
+  /** silent = ไม่ขึ้น toast (ตรวจผ่านหลายใบพร้อมกัน — ผู้เรียกแจ้งสรุปเอง) */
+  approveExpenseLines: (expenseId: string, rejected: Record<string, string>, opts?: { silent?: boolean }) => Promise<void>;
   changeExpenseStatus: (
     expenseId: string,
     status: ExpenseStatus,
     note?: string,
     paidRef?: string,
+    /** ส่งกลับแก้ไข — บรรทัดที่ต้องแก้ */
+    fixLineIds?: string[],
   ) => Promise<void>;
+  /** ลบใบเบิกออกจากระบบ (ร่างที่ถูกรวมเข้าใบเบิกอื่นแล้ว) */
+  discardExpenses: (ids: string[]) => Promise<void>;
 
   // ---- เคลียร์เงินกรุ๊ป ----
   reviewSettlementItem: (settlementId: string, item: SettlementItem) => Promise<void>;
@@ -390,9 +396,14 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         });
         void loadEvidenceImages().then((images) => {
           if (cancelled || images.size === 0) return;
+          // รูปของแต่ละใบเสร็จ (key ใหม่) · key เก่า = รูปเดียวทั้งใบ
           setExpenses((prev) => prev.map((e) => {
-            const img = images.get(e.id);
-            return img && !e.lines.some((l) => l.evidenceImage) ? { ...e, lines: e.lines.map((l) => ({ ...l, evidenceImage: img })) } : e;
+            if (e.lines.some((l) => l.evidenceImage)) return e;
+            const lines = e.lines.map((l) => {
+              const img = images.get(evidenceKey(e.id, l.receiptId)) ?? images.get(e.id);
+              return img ? { ...l, evidenceImage: img } : l;
+            });
+            return lines.some((l) => l.evidenceImage) ? { ...e, lines } : e;
           }));
         });
         setSettlements(snapshot.settlements);
@@ -1046,7 +1057,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         return exists ? prev.map((e) => (e.id === expense.id ? expense : e)) : [expense, ...prev];
       });
       setSaving(false);
-      pushToast('success', 'บันทึกใบเบิกแล้ว', `${expense.id}`);
+      // ใบเสร็จค่าใช้จ่ายจริง = รายงานการใช้เงิน (ไม่ใช่ใบเบิก) — ไม่แสดงเลข EXP
+      if (isUsageReport(expense)) pushToast('success', 'บันทึกใบเสร็จแล้ว');
+      else pushToast('success', 'บันทึกใบเบิกแล้ว', `${expense.id}`);
     },
     [pushToast],
   );
@@ -1096,6 +1109,16 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     },
     [pushToast],
   );
+
+  const discardExpenses = useCallback(async (ids: string[]) => {
+    try {
+      await discardSavedExpenses(ids);
+    } catch (err) {
+      pushToast('error', 'ลบใบเบิกไม่สำเร็จ', saveErrorMessage(err));
+      throw err;
+    }
+    setExpenses((prev) => prev.filter((e) => !ids.includes(e.id)));
+  }, [pushToast]);
 
   const resetSubmittedExpenses = useCallback(async () => {
     let removed: string[];
@@ -1155,7 +1178,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   );
 
   const changeExpenseStatus = useCallback(
-    async (expenseId: string, status: ExpenseStatus, note?: string, paidRef?: string) => {
+    async (expenseId: string, status: ExpenseStatus, note?: string, paidRef?: string, fixLineIds?: string[]) => {
       setSaving(true);
       const target = expenses.find((e) => e.id === expenseId);
       if (!target) {
@@ -1165,6 +1188,10 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       const updated: ExpenseRequest = {
         ...target,
         status,
+        // ส่งกลับแก้ไข — ชี้บรรทัด (ใบเสร็จ) ที่ต้องแก้ · ไม่ระบุ = คงเดิม
+        ...(fixLineIds ? {
+          lines: target.lines.map(({ needsFix: _f, ...l }) => (void _f, fixLineIds.includes(l.id) ? { ...l, needsFix: true } : l)),
+        } : {}),
         // เวลาจริง ไม่ใช่วันที่จำลองของ Demo — ให้ตรงกับ "บันทึกเมื่อ" ที่หัวหน้าทัวร์เห็น
         paidAt: status === 'paid' ? toISODate(new Date()) : target.paidAt,
         paidRef: status === 'paid' ? (paidRef ?? `PAY-DEMO-${Math.floor(Math.random() * 900000 + 100000)}`) : target.paidRef,
@@ -1193,20 +1220,20 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         paid: 'บันทึกการจ่ายเงินแล้ว (จำลอง)',
         cancelled: 'ยกเลิกรายการนี้แล้ว',
       };
-      pushToast('success', messages[status] ?? 'อัปเดตใบเบิกแล้ว', expenseId);
+      pushToast('success', messages[status] ?? 'อัปเดตใบเบิกแล้ว', isUsageReport(updated) ? undefined : expenseId);
     },
     [expenses, currentUser.name, pushToast],
   );
 
   const approveExpenseLines = useCallback(
-    async (expenseId: string, rejected: Record<string, string>) => {
+    async (expenseId: string, rejected: Record<string, string>, opts?: { silent?: boolean }) => {
       const target = expenses.find((e) => e.id === expenseId);
       if (!target) return;
       const lines: ExpenseLine[] = target.lines.map((l) => {
         const note = rejected[l.id];
         // ล้างผลตรวจรอบก่อน (ถ้าเคยส่งกลับแก้ไขแล้วส่งมาใหม่) แล้วใส่ผลรอบนี้
-        const { rejected: _r, rejectNote: _n, ...rest } = l;
-        void _r; void _n;
+        const { rejected: _r, rejectNote: _n, needsFix: _f, ...rest } = l;
+        void _r; void _n; void _f;
         return note !== undefined ? { ...rest, rejected: true, rejectNote: note } : rest;
       });
       const kept = lines.filter((l) => !l.rejected);
@@ -1232,7 +1259,10 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       await service.saveExpense(updated);
       setExpenses((prev) => prev.map((e) => (e.id === expenseId ? updated : e)));
       setSaving(false);
-      pushToast('success', off.length === 0 ? 'อนุมัติใบเบิกแล้ว' : `อนุมัติบางรายการแล้ว (${kept.length}/${lines.length})`, expenseId);
+      if (!opts?.silent) {
+        const usage = isUsageReport(updated);
+        pushToast('success', off.length === 0 ? (usage ? 'ตรวจผ่านแล้ว' : 'อนุมัติใบเบิกแล้ว') : `${usage ? 'ผ่าน' : 'อนุมัติ'}บางรายการแล้ว (${kept.length}/${lines.length})`, usage ? undefined : expenseId);
+      }
     },
     [expenses, currentUser.name, pushToast],
   );
@@ -1702,6 +1732,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     deleteEnvelope,
     resetEnvelopes,
     resetSubmittedExpenses,
+    discardExpenses,
     noEnvelopeMarks,
     setNoEnvelope,
     approveExpenseLines,

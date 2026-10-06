@@ -4,12 +4,11 @@
  * แบ่งรายการเป็นรายเดือน + เลือกดูตามปี/เดือน — ใช้ร่วมกันทุกพอร์ทัลมือถือ
  * (เจ้าหน้าที่ส่งกรุ๊ป: ตารางงาน / ซองเงิน · หัวหน้าทัวร์: งานของฉัน) ให้หน้าตาและพฤติกรรมเหมือนกัน ไม่ต้องจำหลายแบบ
  *
- * ใช้ dropdown ปี + เดือน แทนปุ่มเรียงแถว — งานสะสมหลายเดือน/ข้ามปีแล้วปุ่มยาวจนต้องเลื่อนหา
- * ตัวเลือกมีเฉพาะปี/เดือนที่มีรายการจริง (ไม่มีให้เลือกแล้วเจอหน้าว่าง)
+ * เลือกปี (dropdown) + ตาราง 12 เดือน — เห็นทั้งปีในหน้าเดียว ไม่ต้องเลื่อนหา · เดือนที่ไม่มีรายการกดไม่ได้ (ไม่เจอหน้าว่าง)
  */
 
 import { useState } from 'react';
-import { SelectInput } from '@/components/ui/FormField';
+import { cx } from '@/components/ui/Primitives';
 import { formatThaiMonthYear } from '@/lib/format';
 
 export interface MonthGroup<T> {
@@ -57,36 +56,75 @@ export function useMonthGroups<T>(items: T[], dateOf: (item: T) => string, today
   };
 }
 
-/** ปี + เดือน แบบ dropdown คู่กัน · มีเดือนเดียวไม่ต้องแสดง (ไม่มีอะไรให้เลือก) */
+const TH_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+/**
+ * ช่วงเวลา: เลือกปี (dropdown) + ตาราง 12 เดือนของปีนั้น — หน้าตาเดียวกับตัวกรองในพอร์ทัลหัวหน้าทัวร์ (guide/MonthYearFilter)
+ * เดือนที่ไม่มีรายการกดไม่ได้ · ตัวเลขมุมบอกจำนวน · แตะเดือนเดิมซ้ำ = กลับเป็นทั้งปี · "ทุกปี" = ไม่แสดงตารางเดือน
+ * แสดงทุกครั้งที่มีรายการ (แม้มีเดือนเดียว) — หน้าตาเหมือนกันทุกแท็บ เห็นว่างานอยู่เดือนไหนของปี
+ */
 export function MonthYearSelect<T>({ groups }: { groups: ReturnType<typeof useMonthGroups<T>> }) {
-  if (groups.all.length <= 1) return null;
-  const count = (list: MonthGroup<T>[]) => list.reduce((n, m) => n + m.items.length, 0);
-  const yearOptions = [
-    { value: 'all', label: `ทุกปี (${groups.total})` },
-    ...groups.years.map((y) => ({ value: y, label: `${Number(y) + 543} (${count(groups.all.filter((m) => m.key.startsWith(y)))})` })),
-  ];
-  const monthOptions = [
-    { value: 'all', label: `ทุกเดือน (${count(groups.inYear)})` },
-    // ทุกปี → ชื่อเดือนต้องมีปีกำกับ ไม่งั้น "ตุลาคม" สองปีแยกไม่ออก · เลือกปีแล้ว → ชื่อเดือนอย่างเดียวพอ
-    ...groups.inYear.map((m) => ({
-      value: m.key,
-      label: `${groups.year === 'all' ? m.label : m.label.split(' ')[0]} (${m.items.length})`,
-    })),
-  ];
+  if (groups.all.length === 0) return null;
+  // จำนวนบอกที่แท็บและมุมช่องเดือนแล้ว — ช่องเลือกปีไม่ต้องซ้ำ
+  const counts = new Map(groups.all.map((m) => [m.key, m.items.length]));
+  const year = groups.year;
   return (
-    <div className="grid grid-cols-2 gap-2" role="group" aria-label="เลือกปีและเดือน">
-      <SelectInput label="ปี" value={groups.year} onChange={(e) => groups.setYear(e.target.value)} options={yearOptions} />
-      <SelectInput label="เดือน" value={groups.month} onChange={(e) => groups.setMonth(e.target.value)} options={monthOptions} />
+    <div className="space-y-2 rounded-xl border zego-border-color zego-surface-bg p-2.5" role="group" aria-label="เลือกช่วงเวลา">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium zego-text-secondary">ช่วงเวลา</span>
+        <select
+          aria-label="เลือกปี"
+          value={year}
+          onChange={(e) => groups.setYear(e.target.value)}
+          className="flex-1 rounded-lg border zego-border-color zego-surface-bg px-2 py-1.5 text-sm zego-text"
+        >
+          <option value="all">ทุกปี</option>
+          {groups.years.map((y) => <option key={y} value={y}>ปี {Number(y) + 543}</option>)}
+        </select>
+      </div>
+
+      {year !== 'all' && (
+        <div className="grid grid-cols-6 gap-1" role="group" aria-label={`เลือกเดือนในปี ${Number(year) + 543}`}>
+          {TH_MONTHS_SHORT.map((label, i) => {
+            const key = `${year}-${String(i + 1).padStart(2, '0')}`;
+            const n = counts.get(key) ?? 0;
+            const on = groups.month === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                disabled={n === 0}
+                aria-pressed={on}
+                onClick={() => groups.setMonth(on ? 'all' : key)}
+                className={cx(
+                  'relative rounded-lg py-1.5 text-xs font-medium',
+                  on ? 'bg-emerald-600 text-white'
+                    : n > 0 ? 'zego-surface-soft-bg zego-text zego-hover-surface'
+                    : 'cursor-not-allowed zego-text-disabled',
+                )}
+              >
+                {label}
+                {n > 0 && (
+                  <span className={cx('absolute right-0.5 top-0 text-[9px] font-bold tabular-nums', on ? 'text-white' : 'zego-text-success')}>{n}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
-/** หัวเดือนเหนือรายการของเดือนนั้น */
-export function MonthHeader({ label, count, unit }: { label: string; count: number; unit: string }) {
+/**
+ * หัวเดือนเหนือรายการของเดือนนั้น
+ * count — ใส่เฉพาะเมื่อเป็นข้อมูลอื่นที่ไม่ซ้ำกับจำนวนรายการ (เช่น ซองที่ยังต้องส่ง) · จำนวนรายการของเดือนบอกที่ช่องเดือนแล้ว
+ */
+export function MonthHeader({ label, count, unit }: { label: string; count?: number; unit?: string }) {
   return (
     <div className="flex items-baseline justify-between px-1">
       <h2 className="text-sm font-bold zego-text">{label}</h2>
-      <span className="text-xs zego-text-tertiary">{count} {unit}</span>
+      {count !== undefined && <span className="text-xs zego-text-tertiary">{count} {unit}</span>}
     </div>
   );
 }

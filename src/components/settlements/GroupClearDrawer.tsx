@@ -29,6 +29,7 @@ import { clearAppointmentOf } from '@/services/appointmentStore';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { EnvelopeStatusBadge, StatusPill } from '@/components/expenses/CashEnvelopeDrawer';
 import { expenseOriginalTotals } from '@/app/guide/expenses/expenseAmounts';
+import { expenseStatusMeta } from '@/lib/logic/usageReport';
 
 const money = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtTotals = (list: { amount: number; currency: string }[]) => list.map((t) => formatCurrency(t.amount, t.currency)).join(' · ') || '—';
@@ -228,7 +229,7 @@ export function GroupClearDrawer({
                     <th className="px-2 py-1.5 text-left text-xs font-medium zego-text-tertiary">สกุล</th>
                     <th className={th}>ในซอง (รับแล้ว)</th>
                     <th className={th}>ส่งแลนด์</th>
-                    <th className={th}>ใช้ตามใบเสร็จ (อนุมัติ)</th>
+                    <th className={th}>ใช้ตามใบเสร็จ (ตรวจแล้ว)</th>
                     <th className={th}>รอตรวจ</th>
                     <th className={th}>คงเหลือ</th>
                   </tr>
@@ -286,7 +287,7 @@ export function GroupClearDrawer({
                   <span className="block text-[11px] zego-text-tertiary">{r.id}{r.lines.length > 1 ? ` · ${r.lines.length} รายการ` : ''}</span>
                 </span>
                 <span className="shrink-0 text-xs font-semibold tabular-nums zego-text">{fmtTotals(expenseOriginalTotals(r))}</span>
-                <StatusBadge meta={EXPENSE_STATUS[r.status]} size="sm" />
+                <StatusBadge meta={expenseStatusMeta(r)} size="sm" />
               </li>
             ))}
           </ul>
