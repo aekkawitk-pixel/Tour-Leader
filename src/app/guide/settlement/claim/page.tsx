@@ -67,10 +67,11 @@ export default function GuideSettlementClaimPage() {
       })
       // ออกเดินทางแล้ว หรือมีรายการแล้ว — กรุ๊ปที่ยังไม่ออกและยังไม่มีอะไรไม่ต้องตรวจ
       .filter((g) => tripStarted(g.period, today) || g.receipts.length > 0 || g.perDiem || g.envs.length > 0)
-      .sort((a, b) => b.period.startDate.localeCompare(a.period.startDate));
+      // เรียงตามวันออกเดินทาง เร็วสุดก่อน — กรุ๊ปที่กลับแล้ว/กำลังเดินทางจึงขึ้นก่อน แล้วตามด้วยกรุ๊ปที่ใกล้ออกที่สุด
+      .sort((a, b) => a.period.startDate.localeCompare(b.period.startDate));
   }, [leaderId, expenses, envelopes, today]);
 
-  // เปิดค้างไว้ทีละกรุ๊ป — ค่าเริ่มต้น = กรุ๊ปล่าสุด
+  // เปิดค้างไว้ทีละกรุ๊ป — ค่าเริ่มต้น = กรุ๊ปแรกของรายการ (ออกเดินทางเร็วสุด)
   const [openId, setOpenId] = useState<string | null>(() => groups[0]?.period.internalId ?? null);
   const [detail, setDetail] = useState<ExpenseRequest | null>(null);
   /** กรุ๊ปที่กำลังขอนัดเคลียร์เงิน */
