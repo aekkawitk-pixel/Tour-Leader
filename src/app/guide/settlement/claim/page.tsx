@@ -78,6 +78,18 @@ export default function GuideSettlementClaimPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จากภายนอก (localStorage) ตอน mount
     setClears(loadGroupClears());
   }, []);
+  /*
+    ?period=<id> (จากปุ่ม "แก้ไขใบเสร็จ" ในแท็บหลังเดินทาง) → เปิดกรุ๊ปนั้นแล้วเลื่อนไปให้เห็นทันที ไม่ต้องหาเอง
+    อ่าน URL ฝั่ง client หลัง mount (หน้านี้ถูก prerender)
+  */
+  useEffect(() => {
+    const pid = new URLSearchParams(window.location.search).get('period');
+    if (!pid || !groups.some((g) => g.period.internalId === pid)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จาก URL ครั้งเดียวตอน mount
+    setOpenId(pid);
+    requestAnimationFrame(() => document.getElementById(`claim-${pid}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const followUps = groups.flatMap(({ period }) => (clears[period.internalId]?.followUps ?? []).filter(followUpOpen).map((f) => ({ f, period })));
 
   return (
@@ -122,7 +134,8 @@ export default function GuideSettlementClaimPage() {
           // วันกลับนับเป็นจบทริป (ตรงกับการส่งอนุมัติเบี้ยเลี้ยง)
           const ended = tripEnded(period, today);
           return (
-            <Card key={period.internalId} padded={false}>
+            <div key={period.internalId} id={`claim-${period.internalId}`} className="scroll-mt-4">
+            <Card padded={false}>
               <button
                 type="button"
                 aria-expanded={open}
@@ -191,6 +204,7 @@ export default function GuideSettlementClaimPage() {
                 </div>
               )}
             </Card>
+            </div>
           );
         })
       )}

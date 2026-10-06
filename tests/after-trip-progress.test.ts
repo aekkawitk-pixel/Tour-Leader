@@ -20,6 +20,7 @@ test('หลังเดินทาง — ยังไม่ทำอะไร
 test('หลังเดินทาง — ใบเสร็จต้องแก้มาก่อนทุกอย่าง', () => {
   const r = run({ receipts: [doc('approved'), doc('revise')], perDiem: null });
   assert.equal(r.next.label, 'แก้ไขใบเสร็จ');
+  assert.equal(r.next.href, '/guide/settlement/claim?period=P1', 'ต้องพาไปเปิดกรุ๊ปนั้นโดยตรง');
   assert.equal(r.steps[0].state, 'action');
 });
 

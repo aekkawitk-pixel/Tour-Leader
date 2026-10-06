@@ -46,6 +46,8 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
   const [mismatchOpen, setMismatchOpen] = useState(false);
   /** ซองที่กำลังยืนยันรับ — ยืนยันอย่างเดียว ไม่บังคับแนบรูป */
   const [ackTarget, setAckTarget] = useState<CashEnvelope | null>(null);
+  /** ยืนยันรับทุกซองที่รออยู่ในครั้งเดียว (กรุ๊ปที่มีหลายซอง) */
+  const [ackAllOpen, setAckAllOpen] = useState(false);
   /** รายการส่งแลนด์ที่กำลังแนบหลักฐานภายหลัง */
   const [proofTarget, setProofTarget] = useState<{ env: CashEnvelope; paymentId: string } | null>(null);
   /** ซองที่รับแล้ว กำลังแนบรูปหลักฐานการรับภายหลัง */
@@ -178,10 +180,18 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
         <>
         {/* ขั้นต่อไป — บอกชัด ๆ ว่าต้องทำอะไร หรือไม่ต้องทำอะไรแล้ว (เฉพาะหน้ารับซอง) */}
         {receiving && (toAck.length > 0 ? (
-          <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">
-            <Icon name="warning" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>มี {toAck.length} ซองรอคุณยืนยันรับ — ตรวจยอดหน้าซองให้ตรงแล้วกด <span className="font-semibold">ยืนยันการรับ</span></span>
-          </p>
+          <div className="space-y-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">
+            <p className="flex items-start gap-1.5">
+              <Icon name="warning" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>มี {toAck.length} ซองรอคุณยืนยันรับ — ตรวจยอดหน้าซองให้ตรงแล้วกด <span className="font-semibold">ยืนยันการรับ</span></span>
+            </p>
+            {/* หลายซอง — ยืนยันทีเดียวได้ (ยังกดทีละซองด้านล่างได้เหมือนเดิม) */}
+            {toAck.length > 1 && (
+              <Button variant="primary" size="sm" className="w-full" icon="check" onClick={() => setAckAllOpen(true)}>
+                ยืนยันรับทั้ง {toAck.length} ซอง
+              </Button>
+            )}
+          </div>
         ) : received.length === envs.length && (
           <p className="flex items-start gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-900 ring-1 ring-inset ring-emerald-200">
             <Icon name="check" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -370,6 +380,18 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
           />
         </Modal>
       )}
+      {ackAllOpen && (
+        <AckModal
+          title={`ยืนยันรับทั้ง ${toAck.length} ซอง`}
+          face={toAck.map((e) => `${envelopeName(e)} ${fmt(e.sealed?.faceTotals ?? [])}`).join(' · ')}
+          body="ยืนยันว่าได้รับครบทุกซองแล้ว — ถ้ามีซองไหนยังไม่ได้รับ ให้ยกเลิกแล้วกดยืนยันทีละซองแทน"
+          onClose={() => setAckAllOpen(false)}
+          onConfirm={async () => {
+            for (const env of toAck) await acknowledge(env);
+            setAckAllOpen(false);
+          }}
+        />
+      )}
       {ackTarget && (
         <AckModal
           title={`ยืนยันรับ${envelopeName(ackTarget)}`}
@@ -515,12 +537,15 @@ function AckModal({
   title,
   face,
   fromStaff,
+  body,
   onClose,
   onConfirm,
 }: {
   title: string;
   face: string;
   fromStaff?: string;
+  /** ข้อความแทนค่าเริ่มต้น (ใช้กับการยืนยันหลายซอง) */
+  body?: string;
   onClose: () => void;
   onConfirm: () => Promise<void>;
 }) {
@@ -554,7 +579,7 @@ function AckModal({
       }
     >
       <p className="text-sm zego-text-secondary">
-        ยืนยันว่าได้รับซองนี้แล้ว{fromStaff ? ` (รับต่อจาก ${fromStaff})` : ''} — หลังยืนยันจึงจะบันทึกรายการจากซองนี้ได้
+        {body ?? `ยืนยันว่าได้รับซองนี้แล้ว${fromStaff ? ` (รับต่อจาก ${fromStaff})` : ''} — หลังยืนยันจึงจะบันทึกรายการจากซองนี้ได้`}
       </p>
     </Modal>
   );

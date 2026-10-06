@@ -62,7 +62,7 @@ export function afterTripProgress(input: {
 
   // ขั้นต่อไป — ไล่ตามลำดับ เจอเรื่องที่หัวหน้าทัวร์ต้องทำก่อนชนะ
   let next: AfterTripProgress['next'];
-  if (revise > 0) next = { label: 'แก้ไขใบเสร็จ', href: '/guide/settlement/claim' };
+  if (revise > 0) next = { label: 'แก้ไขใบเสร็จ', href: `/guide/settlement/claim?period=${encodeURIComponent(periodId)}` };
   // นัดรอยืนยันมีวันเวลากำกับ — ต้องตอบก่อนเรื่องอื่นที่ไม่มีกำหนด
   else if (apt?.status === 'pending') next = { label: 'ยืนยันนัดเคลียร์เงิน', href: '/guide/settlement/appointments' };
   else if (!perDiem || perDiem.status === 'draft' || perDiem.status === 'revise') next = { label: perDiem ? 'ส่งใบเบิกเบี้ยเลี้ยง' : 'เบิกเบี้ยเลี้ยง', href: '/guide/settlement/allowance' };

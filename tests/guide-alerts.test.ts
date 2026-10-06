@@ -21,7 +21,6 @@ const base = {
   leaderId: 'L1',
   today: TODAY,
   periodById: (id: string) => periods.get(id) ?? null,
-  seenJobIds: new Set<string>(),
   envelopes: [] as CashEnvelope[],
   appointments: [] as Appointment[],
 };
@@ -35,9 +34,8 @@ test('งานใหม่ — จัดให้ไม่นาน ยัง�
 test('งานใหม่ — ไม่นับงานที่เปิดดูแล้ว งานเก่าเกิน 14 วัน งานที่จบทริปแล้ว และงานของคนอื่น', () => {
   const alerts = listGuideAlerts({
     ...base,
-    seenJobIds: new Set(['GA-lead-P1']),
     assignments: [
-      assign('P1', '2026-10-01T00:00'),
+      { ...assign('P1', '2026-10-01T00:00'), leaderSeenAt: '2026-10-02T09:00' },
       { ...assign('P1', '2026-09-01T00:00'), assignmentId: 'old' },
       assign('P2', '2026-08-25T00:00'),
       { ...assign('P1', '2026-10-01T00:00', 'L2'), assignmentId: 'other' },

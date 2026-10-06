@@ -45,7 +45,7 @@ export default function GuideExpensesRecordPage() {
     return (leaderId ? loadActiveGuideAssignments().filter((a) => a.tourLeaderId === leaderId) : [])
       .map((assignment) => ({ assignment, period: periodById.get(assignment.periodId) }))
       .filter((x): x is { assignment: typeof x.assignment; period: NonNullable<typeof x.period> } => Boolean(x.period))
-      // เฉพาะงานที่คอนเฟิร์มแล้วเท่านั้น — ยังไม่รับงาน (รอคอนเฟิร์ม/ปฏิเสธ/ต้องเปลี่ยนคน) ไม่ควรบันทึกค่าใช้จ่ายได้
+      // เฉพาะงานที่คอนเฟิร์มแล้วเท่านั้น — สถานะอื่น (เช่น ต้องเปลี่ยนคน) ไม่ควรบันทึกค่าใช้จ่ายได้
       .filter((x) => x.assignment.assignmentStatus === 'CONFIRMED')
       .sort((a, b) => a.period.startDate.localeCompare(b.period.startDate));
   }, [leaderId]);

@@ -33,6 +33,12 @@ export interface GuidePeriodAssignment {
   reassignReason?: string;
   /** §7 Snapshot สำหรับ Audit/ตรวจ Master เปลี่ยน (§9) — ห้ามใช้เป็นข้อมูลปัจจุบัน */
   snapshot?: PeriodSnapshot;
+  /**
+   * หัวหน้าทัวร์เปิดดูรายละเอียดงานนี้แล้วเมื่อไร — ว่าง = ยังไม่เคยเปิด (ขึ้นเป็น "ได้รับงานใหม่" ในกระดิ่ง)
+   * เก็บไว้กับตัวงาน ไม่ใช่กับเครื่อง — เมื่อย้ายข้อมูลไปฐานข้อมูลกลางจะจำข้ามเครื่องได้ทันที
+   * เปลี่ยนหัวหน้าทัวร์ = ล้างค่า (คนใหม่ยังไม่เคยเห็น)
+   */
+  leaderSeenAt?: string;
 
   /* ---- การถอดหัวหน้าทัวร์ (§5/§6) — ถอดแล้วยัง "เก็บ Record ไว้" ไม่ลบทิ้ง ---- */
   /** เวลาที่ถูกถอด — มีค่า = ถอดแล้ว (ไม่นับเป็นงานที่ครองเวลาของหัวหน้าทัวร์อีกต่อไป) */
@@ -167,7 +173,7 @@ export function reassignPeriod(assignmentId: string, newLeaderId: string, by: st
   if (rejected) return { ok: false, error: rejected, rows: activeRows(all) };
 
   // เปลี่ยนหัวหน้าทัวร์แล้วถือว่าคอนเฟิร์มทันทีเช่นกัน — สอดคล้องกับ assignPeriod
-  const next = all.map((a) => (a.assignmentId === assignmentId ? { ...a, tourLeaderId: newLeaderId, assignmentStatus: 'CONFIRMED' as const, confirmedAt: at, assignedBy: by, assignedAt: at, reassignReason: undefined } : a));
+  const next = all.map((a) => (a.assignmentId === assignmentId ? { ...a, tourLeaderId: newLeaderId, assignmentStatus: 'CONFIRMED' as const, confirmedAt: at, assignedBy: by, assignedAt: at, reassignReason: undefined, leaderSeenAt: undefined } : a));
   writeJSON(ASSIGN_KEY, next);
   appendAudit({ assignmentId, periodId: cur.periodId, action: 'reassign', tourLeaderId: newLeaderId, from: cur.tourLeaderId, to: newLeaderId, by, at, reason });
   return { ok: true, rows: activeRows(next) };
@@ -185,6 +191,18 @@ export function setAssignmentStatus(assignmentId: string, status: AssignmentBoar
   writeJSON(ASSIGN_KEY, next);
   appendAudit({ assignmentId, periodId: cur.periodId, action: 'status', tourLeaderId: cur.tourLeaderId, from: cur.assignmentStatus, to: status, by, at, ...(reason ? { reason } : {}) });
   return activeRows(next);
+}
+
+/** แจ้งให้กระดิ่งของพอร์ทัลหัวหน้าทัวร์นับใหม่ทันทีหลังเปิดดูงาน */
+export const ASSIGNMENT_SEEN_EVENT = 'guide-assignment-seen';
+
+/** หัวหน้าทัวร์เปิดดูรายละเอียดงานแล้ว — ไม่ใช่ "งานใหม่" อีก · ไม่ลง Audit (ไม่ใช่การเปลี่ยนแปลงการจัดงาน) */
+export function markAssignmentSeen(assignmentId: string, at: string): void {
+  const all = loadGuideAssignments();
+  const cur = all.find((a) => a.assignmentId === assignmentId && isActive(a));
+  if (!cur || cur.leaderSeenAt) return;
+  writeJSON(ASSIGN_KEY, all.map((a) => (a.assignmentId === assignmentId ? { ...a, leaderSeenAt: at } : a)));
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') window.dispatchEvent(new Event(ASSIGNMENT_SEEN_EVENT));
 }
 
 /** รับทราบการเปลี่ยนแปลงจากต้นทาง (§9) — อัปเดต snapshot ให้ตรง Master ปัจจุบัน + บันทึก Audit */

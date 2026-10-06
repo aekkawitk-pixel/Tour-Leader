@@ -20,9 +20,8 @@ import { ROLE } from '@/lib/labels';
 import { useLeaderDocumentsView } from '@/lib/useLeaderDocuments';
 import { listDocumentExpiryAlerts } from '@/lib/logic/documentExpiryAlerts';
 import { listGuideAlerts, type GuideAlertKind } from '@/lib/logic/guideAlerts';
-import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
+import { ASSIGNMENT_SEEN_EVENT, loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
-import { loadSeenJobIds, SEEN_JOBS_EVENT } from '@/services/guideSeenJobsStore';
 import { toISODate } from '@/lib/format';
 import type { Role } from '@/types';
 
@@ -69,7 +68,6 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
     today: toISODate(new Date()),
     assignments: loadActiveGuideAssignments(),
     periodById: getTourPeriodById,
-    seenJobIds: loadSeenJobIds(),
     envelopes,
     appointments,
   });
@@ -78,8 +76,8 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
   const [, setSeenTick] = useState(0);
   useEffect(() => {
     const bump = () => setSeenTick((n) => n + 1);
-    window.addEventListener(SEEN_JOBS_EVENT, bump);
-    return () => window.removeEventListener(SEEN_JOBS_EVENT, bump);
+    window.addEventListener(ASSIGNMENT_SEEN_EVENT, bump);
+    return () => window.removeEventListener(ASSIGNMENT_SEEN_EVENT, bump);
   }, []);
 
   /** แท็บที่ active — ใช้ href ยาวสุดที่ตรงกับ path ปัจจุบัน กัน "/guide" จับคู่ผิดกับ "/guide/xxx" */

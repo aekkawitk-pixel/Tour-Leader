@@ -11,8 +11,7 @@ import { useParams } from 'next/navigation';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
-import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
-import { markJobSeen } from '@/services/guideSeenJobsStore';
+import { loadActiveGuideAssignments, markAssignmentSeen } from '@/services/guideAssignmentStore';
 import { getPeriodAttachments, getPeriodDocCategories } from '@/services/periodAttachmentStore';
 import { loadSendOffAssignments } from '@/services/sendOffAssignmentStore';
 import { loadSendOffStaff } from '@/services/sendOffStaffStore';
@@ -22,7 +21,7 @@ import { loadManualFlightTimes } from '@/services/sendOffFlightTimeStore';
 import { loadSendOffRules } from '@/services/sendOffRulesStore';
 import { boardStatusMeta, periodTurnaround, splitFlightLegs } from '@/lib/logic/guideBoard';
 import { airportByIata } from '@/data/airports';
-import { addDays, formatDate, formatDateRange } from '@/lib/format';
+import { addDays, formatDate, formatDateRange, toISODateTime } from '@/lib/format';
 import { Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import type { TourSector } from '@/data/schedule/masterTypes';
@@ -76,7 +75,7 @@ export default function GuideJobDetailPage() {
   // เปิดดูรายละเอียดแล้ว = ไม่ใช่ "งานใหม่" ในกระดิ่งแจ้งเตือนอีก
   const assignmentId = assignment?.assignmentId;
   useEffect(() => {
-    if (assignmentId) markJobSeen(assignmentId);
+    if (assignmentId) markAssignmentSeen(assignmentId, toISODateTime(new Date()));
   }, [assignmentId]);
   if (!period || !assignment) {
     return (
@@ -126,15 +125,10 @@ export default function GuideJobDetailPage() {
         </div>
       </div>
 
-      {/* ผู้จัดมอบหมายงาน = คอนเฟิร์มทันที (ไม่มีขั้นรับ/ปฏิเสธงานฝั่งหัวหน้าทัวร์) — เปลี่ยนแปลงต้องแจ้งเจ้าหน้าที่จัดสเก็ตเท่านั้น */}
+      {/* ผู้จัดมอบหมายงาน = คอนเฟิร์มทันที — เปลี่ยนแปลงต้องแจ้งเจ้าหน้าที่จัดสเก็ตเท่านั้น */}
       {assignment.assignmentStatus === 'CONFIRMED' && (
         <p className="rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-tertiary">
           หากต้องการเปลี่ยนแปลง (เลื่อนวัน เปลี่ยนคน ยกเลิก) กรุณาแจ้งเจ้าหน้าที่จัดสเก็ตเท่านั้น
-        </p>
-      )}
-      {assignment.assignmentStatus === 'DECLINED' && (
-        <p className="rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-tertiary">
-          คุณปฏิเสธงานนี้แล้ว — หากเปลี่ยนใจต้องการรับงานนี้ กรุณาแจ้งเจ้าหน้าที่จัดสเก็ตเท่านั้น
         </p>
       )}
 

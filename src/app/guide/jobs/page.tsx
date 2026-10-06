@@ -35,7 +35,8 @@ export default function GuideJobsPage() {
   const leaderId = ownLeaderScope(currentUser);
 
   const periodById = new Map(getTourPeriods().map((p) => [p.internalId, p]));
-  const myJobs = (leaderId ? loadActiveGuideAssignments().filter((a) => a.tourLeaderId === leaderId) : [])
+  // ไม่แสดงงานสถานะปฏิเสธ (ข้อมูลเก่า — ปัจจุบันมอบหมาย = คอนเฟิร์มทันที) · เกณฑ์เดียวกับหน้าหลัก
+  const myJobs = (leaderId ? loadActiveGuideAssignments().filter((a) => a.tourLeaderId === leaderId && a.assignmentStatus !== 'DECLINED') : [])
     .map((assignment) => ({ assignment, period: periodById.get(assignment.periodId) }))
     .filter((x): x is { assignment: typeof x.assignment; period: NonNullable<typeof x.period> } => Boolean(x.period))
     .sort((a, b) => b.period.startDate.localeCompare(a.period.startDate));
@@ -146,7 +147,7 @@ type Job = {
 
 /**
  * สีแถบในปฏิทินตามสถานะการจัด (โทนเดียวกับป้ายสถานะ) — ตัวอักษรสีขาวทุกสี
- * คอนเฟิร์มแล้ว = เขียว · รอคอนเฟิร์ม = ส้ม · ปฏิเสธ = แดง · อื่น ๆ = เทา
+ * คอนเฟิร์มแล้ว = เขียว · สถานะอื่น (ต้องเปลี่ยนคน ฯลฯ) ตามโทนของป้ายสถานะ
  */
 const STATUS_BAR: Record<string, string> = {
   green: 'bg-emerald-600',

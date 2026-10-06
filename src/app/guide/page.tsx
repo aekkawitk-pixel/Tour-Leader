@@ -53,7 +53,7 @@ export default function GuideHomePage() {
     .filter((x): x is { assignment: typeof x.assignment; period: NonNullable<typeof x.period> } => Boolean(x.period))
     .filter((x) => x.assignment.assignmentStatus !== 'DECLINED' && x.period.endDate >= realToday)
     .sort((a, b) => a.period.startDate.localeCompare(b.period.startDate));
-  // จำนวนงานรายเดือน — นับตามเดือนที่ออกเดินทาง (แบบเดียวกับหน้างานของฉัน) · รวมงานที่จบแล้ว เพื่อดูย้อนหลังได้ · ไม่นับงานที่ปฏิเสธ
+  // จำนวนงานรายเดือน — นับตามเดือนที่ออกเดินทาง (แบบเดียวกับหน้างานของฉัน) · รวมงานที่จบแล้ว เพื่อดูย้อนหลังได้ · ไม่นับสถานะปฏิเสธ (ข้อมูลเก่า)
   const allMyJobs = (leaderId ? loadActiveGuideAssignments().filter((a) => a.tourLeaderId === leaderId && a.assignmentStatus !== 'DECLINED') : [])
     .map((a) => periodById.get(a.periodId))
     .filter((p): p is NonNullable<typeof p> => Boolean(p));

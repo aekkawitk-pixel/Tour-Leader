@@ -2,7 +2,7 @@
  * กระดิ่งแจ้งเตือนของพอร์ทัลหัวหน้าทัวร์ — เฉพาะเรื่องที่ต้องทำจริง (แทนการนับ "งานรอคอนเฟิร์ม" เดิม
  * ซึ่งเป็น 0 เสมอ เพราะผู้จัดมอบหมายงาน = คอนเฟิร์มทันที)
  *
- *   ได้รับงานใหม่      — งานที่จัดให้ภายใน NEW_JOB_DAYS วัน ยังไม่จบทริป และยังไม่เคยเปิดดูรายละเอียด
+ *   ได้รับงานใหม่      — งานที่จัดให้ภายใน NEW_JOB_DAYS วัน ยังไม่จบทริป และยังไม่เคยเปิดดูรายละเอียด (leaderSeenAt ว่าง)
  *   มีซองรอรับ         — ซองที่ส่งถึงคุณแล้ว (หรือกำลังนำมาส่ง) ยังไม่กดยืนยันรับ · รวมเป็นรายการเดียวต่อกรุ๊ป
  *   นัดหมายรอยืนยัน    — นัดที่เจ้าหน้าที่นัดคุณไว้ สถานะรอยืนยัน และยังไม่เลยวันนัด
  */
@@ -32,7 +32,6 @@ export function listGuideAlerts(input: {
   today: string;
   assignments: GuidePeriodAssignment[];
   periodById: (id: string) => TourPeriodMaster | null;
-  seenJobIds: Set<string>;
   envelopes: CashEnvelope[];
   appointments: Appointment[];
 }): GuideAlert[] {
@@ -42,7 +41,7 @@ export function listGuideAlerts(input: {
 
   const recentFrom = addDays(today, -NEW_JOB_DAYS);
   for (const a of input.assignments) {
-    if (a.tourLeaderId !== leaderId || a.assignmentStatus !== 'CONFIRMED' || input.seenJobIds.has(a.assignmentId)) continue;
+    if (a.tourLeaderId !== leaderId || a.assignmentStatus !== 'CONFIRMED' || a.leaderSeenAt) continue;
     if (a.assignedAt.slice(0, 10) < recentFrom) continue;
     const p = periodById(a.periodId);
     if (!p || tripEnded(p, today)) continue;
