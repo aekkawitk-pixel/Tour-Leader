@@ -25,7 +25,7 @@ import {
   clearChecklist, effectiveClearValues, followUpOpen, followUpRemaining, GROUP_CLEAR_STAGE, summarizeGroupClear,
   type GroupClearStage, type GroupClearSummary,
 } from '@/lib/logic/groupClear';
-import { APPOINTMENT_STATUS, EXPENSE_STATUS } from '@/lib/labels';
+import { EXPENSE_STATUS, appointmentStatusMeta } from '@/lib/labels';
 import { StatusPill } from '@/components/expenses/CashEnvelopeDrawer';
 import { GroupClearDrawer } from '@/components/settlements/GroupClearDrawer';
 import { expenseOriginalTotals } from '@/app/guide/expenses/expenseAmounts';
@@ -235,7 +235,7 @@ export default function GroupClearPage() {
                           if (!ap || isClosed) return null;
                           return (
                             <p className={cx('mt-0.5 whitespace-nowrap text-[11px]', ap.status === 'rescheduled' ? 'font-semibold text-violet-700' : 'zego-text-secondary')}>
-                              นัด {formatDate(ap.date)} {ap.time} · {APPOINTMENT_STATUS[ap.status].label}
+                              นัด {formatDate(ap.date)} {ap.time} · {appointmentStatusMeta(ap).label}
                             </p>
                           );
                         })()}

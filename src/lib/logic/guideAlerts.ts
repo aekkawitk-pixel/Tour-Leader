@@ -4,7 +4,7 @@
  *
  *   ได้รับงานใหม่      — งานที่จัดให้ภายใน NEW_JOB_DAYS วัน ยังไม่จบทริป และยังไม่เคยเปิดดูรายละเอียด (leaderSeenAt ว่าง)
  *   มีซองรอรับ         — ซองที่ส่งถึงคุณแล้ว (หรือกำลังนำมาส่ง) ยังไม่กดยืนยันรับ · รวมเป็นรายการเดียวต่อกรุ๊ป
- *   นัดหมายรอยืนยัน    — นัดที่เจ้าหน้าที่นัดคุณไว้ สถานะรอยืนยัน และยังไม่เลยวันนัด
+ *   นัดหมายรอยืนยัน    — นัดที่เจ้าหน้าที่นัดคุณไว้ สถานะรอยืนยัน และยังไม่เลยวันนัด (นัดที่คุณขอเอง = รอการเงิน ไม่นับ)
  */
 
 import type { Appointment } from '@/types';
@@ -71,7 +71,7 @@ export function listGuideAlerts(input: {
   }
 
   for (const ap of input.appointments) {
-    if (ap.leaderId !== leaderId || ap.status !== 'pending' || ap.date < today) continue;
+    if (ap.leaderId !== leaderId || ap.status !== 'pending' || ap.requestedByLeader || ap.date < today) continue;
     const p = ap.jobId ? periodById(ap.jobId) : null;
     out.push({
       id: `apt-${ap.id}`,

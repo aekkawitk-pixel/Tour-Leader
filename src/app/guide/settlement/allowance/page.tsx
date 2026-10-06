@@ -13,7 +13,7 @@
  * ทำได้เมื่อจบทริปแล้ว (วันกลับ ≤ วันนี้) · แก้ได้เมื่อยังไม่อนุมัติ (ส่งอนุมัติ / ให้แก้ไข)
  */
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
@@ -26,7 +26,7 @@ import { groupAmountsByCurrency } from '../../expenses/expenseAmounts';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import { findPerDiemRate } from '@/data/perDiemRates';
 import { EXPENSE_STATUS } from '@/lib/labels';
-import { formatCurrency, formatDate, formatDateRange, toISODate, toISODateTime } from '@/lib/format';
+import { formatCurrency, formatDate, formatDateRange, formatThaiMonthYear, toISODate, toISODateTime } from '@/lib/format';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import {
   activeLeaderClaim, EMPTY_TIP_RATES, parsePaxText, LEADER_CLAIM_LABEL, perDiemRateFor, tipRateFor, tripDays, type LeaderClaimKind, EMPTY_PER_DIEM_RATES, type PerDiemRates, type TipRates,
@@ -38,6 +38,7 @@ import { Icon } from '@/components/ui/Icon';
 import type { ExpenseLine, ExpenseRequest } from '@/types';
 import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import { SettlementBackHeader } from '../SettlementBackHeader';
+import { MonthYearFilter, matchesPeriodFilter, validPeriodFilter } from '../../MonthYearFilter';
 import { tripEnded } from '@/lib/logic/tripPhase';
 
 const EDITABLE = new Set(['draft', 'submitted', 'revise']);
@@ -62,6 +63,17 @@ export default function GuideAllowancePage() {
     .map((a) => periodById.get(a.periodId))
     .filter((p): p is TourPeriodMaster => Boolean(p))
     .sort((a, b) => b.startDate.localeCompare(a.startDate));
+
+  /*
+    ตัวกรองช่วงเวลา (เดือนที่ออกเดินทาง) — เลือกปี แล้วเลือกเดือนจากตาราง 12 เดือน (MonthYearFilter)
+    เปิดมาที่ปีปัจจุบัน (ไม่มีกรุ๊ปปีนี้ = ปีล่าสุดที่มี) · ค่าที่เลือกไม่มีกรุ๊ปแล้ว → กลับไปปีเริ่มต้น
+  */
+  const [pickedPeriod, setPickedPeriod] = useState<string | null>(null);
+  const monthOf = (p: TourPeriodMaster) => p.startDate.slice(0, 7);
+  const monthCounts = new Map<string, number>();
+  for (const p of myGroups) monthCounts.set(monthOf(p), (monthCounts.get(monthOf(p)) ?? 0) + 1);
+  const periodFilter = validPeriodFilter(pickedPeriod, [...monthCounts.keys()], today);
+  const shownGroups = myGroups.filter((p) => matchesPeriodFilter(p.startDate, periodFilter));
 
   const save = async (kind: LeaderClaimKind, period: TourPeriodMaster, line: { purpose: string; amount: number; description: string; quantity: number; unitPrice: number }, note: string, existing: ExpenseRequest | null) => {
     const at = toISODateTime(new Date());
@@ -166,10 +178,22 @@ export default function GuideAllowancePage() {
       {myGroups.length === 0 ? (
         <Card><EmptyState icon="briefcase" title="ยังไม่มีงานที่คอนเฟิร์มแล้ว" /></Card>
       ) : (
-        myGroups.map((period) => {
+        <>
+        <MonthYearFilter counts={monthCounts} value={periodFilter} onChange={setPickedPeriod} />
+        {shownGroups.map((period, i) => {
           const finished = tripEnded(period, today);
+          // หัวข้อเดือน — ขึ้นที่กรุ๊ปแรกของแต่ละเดือน
+          const newMonth = i === 0 || monthOf(shownGroups[i - 1]) !== monthOf(period);
+          const monthCount = monthCounts.get(monthOf(period)) ?? 0;
           return (
-            <Card key={period.internalId} className="space-y-2.5">
+            <Fragment key={period.internalId}>
+            {newMonth && (
+              <p className="flex items-baseline justify-between px-1 pt-1 text-xs font-semibold zego-text-secondary">
+                <span>{formatThaiMonthYear(`${monthOf(period)}-01`)}</span>
+                <span className="font-normal zego-text-tertiary">{monthCount} กรุ๊ป</span>
+              </p>
+            )}
+            <Card className="space-y-2.5">
               <div>
                 <p className="text-sm font-semibold zego-text">{period.groupCode}</p>
                 <p className="line-clamp-1 text-xs zego-text-secondary">{period.displayName}</p>
@@ -221,8 +245,10 @@ export default function GuideAllowancePage() {
                 })}
               </ul>
             </Card>
+            </Fragment>
           );
-        })
+        })}
+        </>
       )}
 
       {open && open.kind === 'per_diem' && (

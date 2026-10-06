@@ -394,7 +394,6 @@ function EnvelopeContent({
 } & Omit<LineSectionsProps, 'rows'>) {
   const lines = group.rows.map((r) => r.line);
   const totals = groupAmountsByCurrency(lines.map((l) => ({ amount: l.amount, currency: l.currency })));
-  const refs = [...new Set(group.rows.map((r) => r.ref))];
   const face = group.env?.sealed?.faceTotals ?? [];
 
   return (
@@ -411,8 +410,6 @@ function EnvelopeContent({
               <dd className="font-medium tabular-nums zego-text">{face.map((f) => formatCurrency(f.amount, f.currency)).join(' · ')}</dd>
             </>
           )}
-          <dt className="zego-text-tertiary">ตามเอกสารเบิก</dt>
-          <dd className="zego-text-secondary">{refs.join(', ')}</dd>
         </dl>
       </div>
 
@@ -598,7 +595,7 @@ function LineSections({ rows, usedByBudget, selectedLineId, onPick, recordCount,
       <div key={`${section.category}-${section.rows[0].no}`}>
         <p className="zego-surface-soft-bg px-3 py-1 text-[11px] font-semibold zego-text-secondary">{section.category}</p>
         <ul className="divide-y divide-[var(--zego-border-soft)]">
-          {section.rows.map(({ no, line, ref }) => {
+          {section.rows.map(({ no, line }) => {
             const used = usedByBudget.get(line.id)?.get(line.currency) ?? 0;
             const remaining = line.amount - used;
             const selected = line.id === selectedLineId;
@@ -616,7 +613,6 @@ function LineSections({ rows, usedByBudget, selectedLineId, onPick, recordCount,
                   <span className="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums zego-text-tertiary">{no}.</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-medium zego-text">{line.purpose}</span>
-                    {ref && <span className="block text-[11px] zego-text-tertiary">Ref : {ref}</span>}
                     {line.description && <span className="block text-xs zego-text-secondary">{line.description}</span>}
                     {hasUnit && (
                       <span className="block text-[11px] tabular-nums zego-text-tertiary">

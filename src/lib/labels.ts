@@ -428,6 +428,11 @@ export const APPOINTMENT_STATUS: Record<AppointmentStatus, StatusMeta> = {
   cancelled: { label: 'ยกเลิก', tone: 'red' },
 };
 
+/** ป้ายสถานะของนัดหนึ่งรายการ — นัดที่หัวหน้าทัวร์ขอเอง สถานะรอยืนยัน = รอ "การเงิน" ยืนยัน (ไม่ใช่รอหัวหน้าทัวร์) */
+export function appointmentStatusMeta(a: { status: AppointmentStatus; requestedByLeader?: boolean }): StatusMeta {
+  return a.requestedByLeader && a.status === 'pending' ? { label: 'รอการเงินยืนยัน', tone: 'sky' } : APPOINTMENT_STATUS[a.status];
+}
+
 export const APPOINTMENT_KIND: Record<AppointmentKind, StatusMeta> = {
   clear: { label: 'เคลียร์เงินกรุ๊ป', tone: 'teal' },
   document: { label: 'ส่งเอกสาร', tone: 'blue' },

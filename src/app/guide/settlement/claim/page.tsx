@@ -23,7 +23,7 @@ import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
 import { envelopeName } from '@/lib/logic/cashEnvelope';
 import { followUpOpen, followUpRemaining } from '@/lib/logic/groupClear';
 import { FOLLOW_UP_REASON, loadGroupClears, type GroupClearRecord } from '@/services/groupClearStore';
-import { Card, cx, StatusBadge } from '@/components/ui/Primitives';
+import { Button, Card, cx, StatusBadge } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import { EnvelopeStatusBadge } from '@/components/expenses/CashEnvelopeDrawer';
 import { SettlementBackHeader } from '../SettlementBackHeader';
@@ -31,22 +31,23 @@ import { GuideExpenseDetailDrawer } from '../../expenses/GuideExpenseDetailDrawe
 import { expenseOriginalTotals, requestedAtOf } from '../../expenses/expenseAmounts';
 import type { ExpenseRequest } from '@/types';
 import { tripEnded, tripStarted } from '@/lib/logic/tripPhase';
+import { clearReadiness, type ReadinessTone } from '@/lib/logic/clearReadiness';
+import { appointmentStatusMeta } from '@/lib/labels';
+import { RequestClearModal } from './RequestClearModal';
+import type { Appointment } from '@/types';
 
 const fmtTotals = (list: { amount: number; currency: string }[]) => list.map((t) => formatCurrency(t.amount, t.currency)).join(' · ') || '—';
 
-/** สรุปสถานะรวมของกรุ๊ป — ดูจากใบเสร็จ + ใบเบิกเบี้ยเลี้ยง (ร้ายแรงสุดขึ้นก่อน) */
-function groupSummary(docs: ExpenseRequest[]): { label: string; cls: string } {
-  if (docs.length === 0) return { label: 'ยังไม่มีรายการ', cls: 'bg-slate-100 text-slate-600' };
-  if (docs.some((d) => d.status === 'revise')) return { label: 'มีรายการต้องแก้ไข', cls: 'bg-amber-100 text-amber-800' };
-  if (docs.some((d) => d.status === 'rejected')) return { label: 'มีรายการไม่อนุมัติ', cls: 'bg-rose-50 text-rose-700' };
-  if (docs.some((d) => d.status === 'draft')) return { label: 'มีร่างยังไม่ส่ง', cls: 'bg-slate-100 text-slate-700' };
-  if (docs.some((d) => d.status === 'submitted')) return { label: 'รอบัญชีตรวจ', cls: 'bg-violet-50 text-violet-700' };
-  if (docs.every((d) => d.status === 'paid')) return { label: 'จ่ายครบแล้ว', cls: 'bg-emerald-100 text-emerald-800' };
-  return { label: 'อนุมัติแล้ว', cls: 'bg-sky-50 text-sky-700' };
-}
+/** ป้ายผลสรุป "พร้อมเคลียร์หรือยัง" ของแต่ละกรุ๊ป (clearReadiness) */
+const READINESS_BADGE: Record<ReadinessTone, string> = {
+  slate: 'bg-slate-100 text-slate-600',
+  sky: 'bg-sky-50 text-sky-700',
+  amber: 'bg-amber-100 text-amber-800',
+  emerald: 'bg-emerald-100 text-emerald-800',
+};
 
 export default function GuideSettlementClaimPage() {
-  const { currentUser, expenses, envelopes } = useDemo();
+  const { currentUser, expenses, envelopes, appointments } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
   const today = toISODate(new Date());
 
@@ -72,6 +73,12 @@ export default function GuideSettlementClaimPage() {
   // เปิดค้างไว้ทีละกรุ๊ป — ค่าเริ่มต้น = กรุ๊ปล่าสุด
   const [openId, setOpenId] = useState<string | null>(() => groups[0]?.period.internalId ?? null);
   const [detail, setDetail] = useState<ExpenseRequest | null>(null);
+  /** กรุ๊ปที่กำลังขอนัดเคลียร์เงิน */
+  const [requestFor, setRequestFor] = useState<(typeof groups)[number]['period'] | null>(null);
+  /** นัดเคลียร์เงินของกรุ๊ปที่ยังมีผล (ไม่นับที่ยกเลิก) — ล่าสุดก่อน */
+  const clearAptOf = (periodId: string): Appointment | null => appointments
+    .filter((a) => a.leaderId === leaderId && a.kind === 'clear' && a.jobId === periodId && a.status !== 'cancelled')
+    .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`))[0] ?? null;
   // ยอดค้างติดตามหลังเคลียร์ (localStorage — อ่านหลัง mount)
   const [clears, setClears] = useState<Record<string, GroupClearRecord>>({});
   useEffect(() => {
@@ -129,10 +136,18 @@ export default function GuideSettlementClaimPage() {
       ) : (
         groups.map(({ period, receipts, perDiem, envs }) => {
           const open = openId === period.internalId;
-          const docs = [...receipts, ...(perDiem ? [perDiem] : [])];
-          const sum = groupSummary(docs);
           // วันกลับนับเป็นจบทริป (ตรงกับการส่งอนุมัติเบี้ยเลี้ยง)
           const ended = tripEnded(period, today);
+          // ผลสรุปเดียวของกรุ๊ป: ครบแล้ว / ยังไม่ครบ (ขาดอะไร) / ยังไม่ถึงขั้นเคลียร์
+          const ready = clearReadiness({
+            started: tripStarted(period, today),
+            ended,
+            startText: formatDate(period.startDate),
+            endText: formatDate(period.endDate || period.startDate),
+            envs,
+            receipts,
+            perDiem,
+          });
           return (
             <div key={period.internalId} id={`claim-${period.internalId}`} className="scroll-mt-4">
             <Card padded={false}>
@@ -145,17 +160,54 @@ export default function GuideSettlementClaimPage() {
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold zego-text">{period.groupCode}</span>
                   <span className="block truncate text-xs zego-text-secondary">{period.displayName}</span>
-                  <span className="block text-xs zego-text-tertiary">
-                    {formatDateRange(period.startDate, period.endDate)}{ended ? '' : ' · กำลังเดินทาง'}
-                    {' · '}ซอง {envs.length} · ใบเสร็จ {receipts.length} · เบี้ยเลี้ยง {perDiem ? 1 : 0}
+                  <span className="block text-xs zego-text-tertiary">{formatDateRange(period.startDate, period.endDate)}</span>
+                  <span className={cx('mt-0.5 block text-xs', ready.tone === 'amber' ? 'font-medium text-amber-800' : ready.tone === 'emerald' ? 'text-emerald-700' : 'zego-text-tertiary')}>
+                    {ready.detail}
                   </span>
                 </span>
-                <span className={cx('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', sum.cls)}>{sum.label}</span>
+                <span className={cx('inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-semibold', READINESS_BADGE[ready.tone])}>
+                  {ready.ready && <Icon name="check" className="h-3 w-3" />}
+                  {ready.label}
+                </span>
                 <Icon name="chevronDown" className={cx('mt-0.5 h-4 w-4 shrink-0 zego-text-disabled transition', open && 'rotate-180')} />
               </button>
 
               {open && (
                 <div className="space-y-3 zego-divider-top px-4 pb-4 pt-3">
+                  {/* สรุป ✓/✗ ทีละเรื่อง — ดูแวบเดียวรู้ว่าขาดอะไร */}
+                  <ul className="grid grid-cols-3 gap-1.5">
+                    {ready.checks.map((c) => (
+                      <li key={c.label} className={cx('rounded-lg px-2 py-1.5 text-center ring-1 ring-inset', c.ok ? 'bg-emerald-50 ring-emerald-200' : 'bg-amber-50 ring-amber-200')}>
+                        <span className={cx('flex items-center justify-center gap-1 text-xs font-semibold', c.ok ? 'text-emerald-800' : 'text-amber-800')}>
+                          <Icon name={c.ok ? 'check' : 'warning'} className="h-3.5 w-3.5" />
+                          {c.label}
+                        </span>
+                        <span className={cx('block text-[11px] leading-tight', c.ok ? 'text-emerald-700' : 'text-amber-800')}>{c.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {/* ครบแล้ว → ขอนัดเคลียร์เงินกับบัญชีได้เลย · นัดแล้ว → บอกสถานะนัด */}
+                  {(() => {
+                    const apt = clearAptOf(period.internalId);
+                    if (apt) {
+                      return (
+                        <Link href="/guide/settlement/appointments" className="flex items-center justify-between gap-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900 ring-1 ring-inset ring-sky-200">
+                          <span>
+                            <span className="font-semibold">นัดเคลียร์เงิน {formatDate(apt.date)} {apt.time} น.</span>
+                            {' · '}{appointmentStatusMeta(apt).label}
+                          </span>
+                          <Icon name="chevronRight" className="h-4 w-4 shrink-0" />
+                        </Link>
+                      );
+                    }
+                    return ready.ready ? (
+                      <Button variant="primary" icon="calendar" className="w-full justify-center" onClick={() => setRequestFor(period)}>
+                        นัดเคลียร์เงินกับบัญชี
+                      </Button>
+                    ) : null;
+                  })()}
+
                   {/* 1) ซองเงินที่ได้รับ */}
                   <Section title="ซองเงิน" count={envs.length}>
                     {envs.length === 0 ? <Empty text="ไม่มีซองเงินของกรุ๊ปนี้" /> : envs.map((e) => (
@@ -214,13 +266,14 @@ export default function GuideSettlementClaimPage() {
         <Link href="/guide/settlement/appointments" className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm zego-hover-surface">
           <span className="min-w-0">
             <span className="block font-semibold text-emerald-800">ขั้นถัดไป: นัดหมายเคลียร์เงิน</span>
-            <span className="block text-xs text-emerald-700">การเงินตรวจครบแล้วจะนัดเข้ามาเคลียร์เงิน — ดูนัดและยืนยันได้ที่นี่</span>
+            <span className="block text-xs text-emerald-700">กรุ๊ปที่ทำครบแล้วกด &quot;นัดเคลียร์เงินกับบัญชี&quot; ในการ์ดกรุ๊ป — ดูสถานะนัดทั้งหมดได้ที่นี่</span>
           </span>
           <Icon name="chevronRight" className="h-4 w-4 shrink-0 text-emerald-700" />
         </Link>
       )}
 
       <GuideExpenseDetailDrawer expense={detail} onClose={() => setDetail(null)} />
+      {requestFor && leaderId && <RequestClearModal period={requestFor} leaderId={leaderId} onClose={() => setRequestFor(null)} />}
     </div>
   );
 }

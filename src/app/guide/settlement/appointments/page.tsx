@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
-import { APPOINTMENT_KIND, APPOINTMENT_MODE, APPOINTMENT_STATUS } from '@/lib/labels';
+import { APPOINTMENT_KIND, APPOINTMENT_MODE, appointmentStatusMeta } from '@/lib/labels';
 import { formatCurrency, formatDate, formatDateRange, toISODate, toISODateTime } from '@/lib/format';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
@@ -73,6 +73,8 @@ export default function GuideSettlementAppointmentsPage() {
           ? summarizeGroupClear({ periodId: a.jobId, endDate: p.endDate, today, envelopes, expenses, closed: !!loadGroupClears()[a.jobId]?.closedAt }).balance.filter((b) => b.remaining > 0)
           : null;
         const open = a.status === 'pending' || a.status === 'confirmed';
+        // คุณขอนัดเอง และการเงินยังไม่ยืนยัน — ไม่มีปุ่มให้ยืนยันนัดของตัวเอง
+        const waitingFinance = !!a.requestedByLeader && a.status === 'pending';
         return (
           <Card key={a.id} className="space-y-3">
             <div className="flex items-start justify-between gap-2">
@@ -81,13 +83,13 @@ export default function GuideSettlementAppointmentsPage() {
                 <p className="mt-1 text-sm font-semibold zego-text">{p?.groupCode ?? (a.jobId || 'ไม่ผูกกรุ๊ป')}</p>
                 {p && <p className="truncate text-xs zego-text-secondary">{p.displayName} · {formatDateRange(p.startDate, p.endDate)}</p>}
               </div>
-              <StatusBadge meta={APPOINTMENT_STATUS[a.status]} size="sm" />
+              <StatusBadge meta={appointmentStatusMeta(a)} size="sm" />
             </div>
 
             <div className="rounded-lg zego-surface-soft-bg px-3 py-2.5 text-sm">
               <p className="font-semibold zego-text">{formatDate(a.date)} · {a.time} น. <span className="font-normal zego-text-tertiary">({a.durationMinutes} นาที)</span></p>
               <p className="zego-text-secondary">{APPOINTMENT_MODE[a.mode].label} · {a.location}</p>
-              <p className="text-xs zego-text-tertiary">ผู้นัด {a.staffName}{a.note ? ` · ${a.note}` : ''}</p>
+              <p className="text-xs zego-text-tertiary">{a.requestedByLeader ? 'คุณขอนัดกับ' : 'ผู้นัด'} {a.staffName}{a.note ? ` · ${a.note}` : ''}</p>
             </div>
 
             {toReturn && open && (
@@ -99,11 +101,15 @@ export default function GuideSettlementAppointmentsPage() {
               </div>
             )}
 
+            {waitingFinance && (
+              <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800">คุณส่งคำขอนัดนี้แล้ว — รอการเงินยืนยัน หรือเสนอเวลาใหม่</p>
+            )}
+
             {a.status === 'rescheduled' && (
               <p className="rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-800">ส่งคำขอเลื่อนแล้ว — รอเจ้าหน้าที่นัดใหม่{a.leaderNote ? ` · ${a.leaderNote}` : ''}</p>
             )}
 
-            {open && (
+            {open && !waitingFinance && (
               <div className="grid grid-cols-2 gap-2">
                 <Button variant="secondary" size="sm" className="justify-center" onClick={() => { setAsking(a); setAskNote(''); }}>ขอเลื่อนนัด</Button>
                 <Button

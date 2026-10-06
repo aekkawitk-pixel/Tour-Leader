@@ -14,7 +14,7 @@ import { useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { can } from '@/lib/permissions';
 import Link from 'next/link';
-import { APPOINTMENT_KIND, APPOINTMENT_KIND_OPTIONS, APPOINTMENT_MODE, APPOINTMENT_STATUS } from '@/lib/labels';
+import { APPOINTMENT_KIND, APPOINTMENT_KIND_OPTIONS, APPOINTMENT_MODE, APPOINTMENT_STATUS, appointmentStatusMeta } from '@/lib/labels';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { buildMonthGrid, monthTitle, shiftMonth } from '@/lib/logic/calendar';
 import { hasTimeOverlap } from '@/lib/logic/conflicts';
@@ -185,7 +185,10 @@ export default function AppointmentsPage() {
           label="รอยืนยัน"
           value={pending.length}
           tone={pending.length > 0 ? 'amber' : 'slate'}
-          hint="รอหัวหน้าทัวร์ตอบรับ"
+          // นัดที่หัวหน้าทัวร์ขอเอง = รอการเงินยืนยัน (แยกจากนัดที่รอหัวหน้าทัวร์ตอบรับ)
+          hint={pending.some((a) => a.requestedByLeader)
+            ? `หัวหน้าทัวร์ขอนัด ${pending.filter((a) => a.requestedByLeader).length} · รอหัวหน้าทัวร์ ${pending.filter((a) => !a.requestedByLeader).length}`
+            : 'รอหัวหน้าทัวร์ตอบรับ'}
         />
         <StatCard
           label="ขอเลื่อนนัด"
@@ -300,7 +303,8 @@ export default function AppointmentsPage() {
 
                     <StatusBadge meta={APPOINTMENT_KIND[appointment.kind ?? 'other']} size="sm" dot={false} />
                     <StatusBadge meta={APPOINTMENT_MODE[appointment.mode]} size="sm" dot={false} />
-                    <StatusBadge meta={APPOINTMENT_STATUS[appointment.status]} size="sm" />
+                    <StatusBadge meta={appointmentStatusMeta(appointment)} size="sm" />
+                    {appointment.requestedByLeader && <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700 ring-1 ring-sky-200">หัวหน้าทัวร์ขอนัด</span>}
                   </button>
                 </li>
               ))}
@@ -452,7 +456,8 @@ export default function AppointmentsPage() {
                         </div>
                         <span className="flex flex-wrap gap-1.5">
                           <StatusBadge meta={APPOINTMENT_KIND[a.kind ?? 'other']} size="sm" dot={false} />
-                          <StatusBadge meta={APPOINTMENT_STATUS[a.status]} size="sm" />
+                          <StatusBadge meta={appointmentStatusMeta(a)} size="sm" />
+                          {a.requestedByLeader && <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700 ring-1 ring-sky-200">หัวหน้าทัวร์ขอนัด</span>}
                         </span>
                       </div>
                       <dl className="mt-2 space-y-1 text-sm">
@@ -546,7 +551,7 @@ export default function AppointmentsPage() {
         {selected && (
           <div className="space-y-5">
             <div className="flex flex-wrap gap-2">
-              <StatusBadge meta={APPOINTMENT_STATUS[selected.status]} />
+              <StatusBadge meta={appointmentStatusMeta(selected)} />
               <StatusBadge meta={APPOINTMENT_KIND[selected.kind ?? 'other']} dot={false} />
               <StatusBadge meta={APPOINTMENT_MODE[selected.mode]} dot={false} />
               {overlapIds.has(selected.id) && (

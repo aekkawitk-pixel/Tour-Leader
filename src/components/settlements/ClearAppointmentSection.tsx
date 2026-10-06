@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { Button, Callout, StatusBadge } from '@/components/ui/Primitives';
-import { APPOINTMENT_MODE, APPOINTMENT_STATUS } from '@/lib/labels';
+import { APPOINTMENT_MODE, appointmentStatusMeta } from '@/lib/labels';
 import { formatDate, toISODate, toISODateTime } from '@/lib/format';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import { clearAppointmentOf } from '@/services/appointmentStore';
@@ -84,7 +84,7 @@ export function ClearAppointmentSection({
         <div className="space-y-2 rounded-lg border zego-border-color px-3 py-2.5 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-semibold zego-text">{appt.id} · {formatDate(appt.date)} {appt.time} น. ({appt.durationMinutes} นาที)</span>
-            <StatusBadge meta={APPOINTMENT_STATUS[appt.status]} size="sm" />
+            <StatusBadge meta={appointmentStatusMeta(appt)} size="sm" />
           </div>
           <p className="zego-text-secondary">{APPOINTMENT_MODE[appt.mode].label} · {appt.location}</p>
           <p className="text-xs zego-text-tertiary">ผู้นัด {appt.staffName}{appt.note ? ` · ${appt.note}` : ''}</p>

@@ -31,16 +31,20 @@ import { tripEnded, tripStarted } from '@/lib/logic/tripPhase';
 /**
  * mode
  * - 'receive' (รายละเอียดงาน /guide/jobs/[id]) — ขั้นตอนรับซอง: ยืนยันการรับ + แนบรูปซองที่ได้รับ (ไม่บังคับ)
- * - 'use' (หน้าบันทึกค่าใช้จ่าย) — ใช้เงินในซอง: ยอดคงเหลือ · ส่งเงินให้แลนด์ · แจ้งยอดไม่ตรง
+ * - 'use' — ใช้เงินในซองอย่างเดียว: ยอดคงเหลือ · ส่งเงินให้แลนด์ · แจ้งยอดไม่ตรง
+ * - 'manage' (หน้าการจัดการซองเงิน /guide/finance/envelopes) — ทั้งสองอย่างในการ์ดเดียว: เรื่องซองเงินทั้งหมดอยู่ที่หน้านั้นที่เดียว
+ *   (หน้าบันทึกใบเสร็จไม่แสดงการ์ดซองแล้ว — ใบเสร็จยังถูกหักจากยอดในซองอัตโนมัติเหมือนเดิม)
  *   ซองที่ยังไม่ยืนยันรับ มีลิงก์พาไปยืนยันที่รายละเอียดงาน
  */
 export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
   periodId: string;
-  mode: 'receive' | 'use';
+  mode: 'receive' | 'use' | 'manage';
   /** แสดงรหัส/ชื่อกรุ๊ปที่หัวการ์ด — ใช้เมื่อการ์ดอยู่นอกหน้าของกรุ๊ปนั้น (เช่น หน้าการเงิน รวมหลายกรุ๊ป) */
   groupLabel?: { code: string; detail?: string; dates?: string };
 }) {
-  const receiving = mode === 'receive';
+  const receiving = mode !== 'use';
+  /** ส่วนใช้เงินในซอง (ยอดคงเหลือ · ส่งเงินให้แลนด์ · แจ้งยอดไม่ตรง) */
+  const showUse = mode !== 'receive';
   const { expenses, envelopes, saveEnvelope, currentUser, leaders, noEnvelopeMarks } = useDemo();
   const [landOpen, setLandOpen] = useState(false);
   const [mismatchOpen, setMismatchOpen] = useState(false);
@@ -439,7 +443,7 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
         />
       )}
 
-      {!receiving && received.length > 0 && (
+      {showUse && received.length > 0 && (
         <>
           <table className="w-full text-xs tabular-nums">
             <thead className="zego-text-tertiary">

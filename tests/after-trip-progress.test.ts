@@ -37,9 +37,22 @@ test('หลังเดินทาง — นัดรอยืนยันม
   }
 });
 
+test('หลังเดินทาง — ส่งเบี้ยเลี้ยงแล้ว ยังไม่มีนัด → ไปนัดเคลียร์เงินที่หน้าตรวจสอบ', () => {
+  for (const s of ['submitted', 'approved'] as const) {
+    const r = run({ perDiem: doc(s) });
+    assert.equal(r.next.label, 'นัดเคลียร์เงิน');
+    assert.equal(r.next.href, '/guide/settlement/claim?period=P1');
+  }
+});
+
+test('หลังเดินทาง — ขอนัดเองแล้ว รอการเงินยืนยัน ไม่มีปุ่ม', () => {
+  const r = run({ perDiem: doc('approved'), clearAppointment: { ...apt('pending'), requestedByLeader: true } });
+  assert.equal(r.next.label, 'รอการเงินยืนยันนัด');
+  assert.equal(r.next.href, undefined);
+  assert.equal(r.steps[2].state, 'waiting');
+});
+
 test('หลังเดินทาง — รอฝั่งการเงิน/บัญชี ไม่มีปุ่ม', () => {
-  assert.equal(run({ perDiem: doc('submitted') }).next.href, undefined);
-  assert.equal(run({ perDiem: doc('approved') }).next.label, 'รอการเงินนัดเคลียร์เงิน');
   assert.equal(run({ perDiem: doc('approved'), clearAppointment: apt('confirmed') }).next.label, 'เข้าพบตามนัด 2026-10-20 10:00');
   assert.equal(run({ perDiem: doc('paid'), clearAppointment: apt('attended') }).next.label, 'รอการเงินปิดเคลียร์');
 });

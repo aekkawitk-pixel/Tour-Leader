@@ -16,9 +16,8 @@ import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
-import { formatDateRange, formatThaiMonthYear, toISODate } from '@/lib/format';
-import { Button, Card, cx } from '@/components/ui/Primitives';
-import { GuideEnvelopeCard } from '../GuideEnvelopeCard';
+import { diffDays, formatDateRange, formatThaiMonthYear, toISODate } from '@/lib/format';
+import { Button, Card } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import { ExpenseQuickForm } from '../ExpenseQuickForm';
 import { ExpensesBackHeader } from '../ExpensesBackHeader';
@@ -30,12 +29,11 @@ import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import type { ExpenseRequest } from '@/types';
 import { tripEnded, tripOngoing } from '@/lib/logic/tripPhase';
 
-// บันทึกใบเสร็จส่วนใหญ่ทำระหว่างเดินทาง — "ระหว่างทาง" เป็นค่าเริ่มต้น · หลังเดินทางทำบ้างเป็นบางครั้ง
-const TRAVEL_FILTERS: { value: 'during' | 'after'; label: string }[] = [
-  { value: 'during', label: 'ระหว่างทาง' },
-  { value: 'after', label: 'หลังเดินทาง' },
-];
-
+/*
+  หน้าเดียว 2 โหมด ตามทางที่เข้ามา (ไม่มีตัวสลับในหน้า):
+    ระหว่างทาง — หัวข้อ "บันทึกใบเสร็จ" (หัวเรื่องระหว่างทางของหน้าบัญชี-การเงิน)
+    หลังเดินทาง — หัวข้อ "บันทึกใบเสร็จย้อนหลัง" (?filter=after · หัวเรื่องหลังเดินทาง)
+*/
 export default function GuideExpensesRecordPage() {
   const { currentUser, expenses, envelopes, noEnvelopeMarks } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
@@ -53,9 +51,9 @@ export default function GuideExpensesRecordPage() {
   const myExpenses = useMemo(() => expenses.filter((e) => e.requesterId === leaderId), [expenses, leaderId]);
 
   const [selectedPeriod, setSelectedPeriod] = useState<TourPeriodMaster | null>(null);
-  const [travelFilter, setTravelFilter] = useState<'during' | 'after'>('during');
-  /** เข้าจาก "บันทึกใบเสร็จย้อนหลัง" (หน้าการเงิน หัวเรื่องหลังเดินทาง) — แสดงเฉพาะกรุ๊ปหลังเดินทาง ไม่มีตัวสลับ */
+  /** เข้าจาก "บันทึกใบเสร็จย้อนหลัง" (หน้าการเงิน หัวเรื่องหลังเดินทาง) — แสดงเฉพาะกรุ๊ปหลังเดินทาง */
   const [afterOnly, setAfterOnly] = useState(false);
+  const travelFilter: 'during' | 'after' = afterOnly ? 'after' : 'during';
   const router = useRouter();
   /** เพิ่งบันทึกสำเร็จ → ถามว่าจะไปหน้าหลัก หรือทำรายการต่อ (กรุ๊ปเดิม) */
   const [justSaved, setJustSaved] = useState<{ expense: ExpenseRequest; viaBudget: boolean } | null>(null);
@@ -78,7 +76,7 @@ export default function GuideExpensesRecordPage() {
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จาก URL ครั้งเดียวตอน mount
-    if (q.get('filter') === 'after') { setTravelFilter('after'); setAfterOnly(true); }
+    if (q.get('filter') === 'after') setAfterOnly(true);
     const pid = q.get('period');
     const job = pid ? myJobs.find((j) => j.period.internalId === pid) : undefined;
     if (job) setSelectedPeriod(job.period);
@@ -109,6 +107,17 @@ export default function GuideExpensesRecordPage() {
     ? sortedMonths.reverse().map(([m, list]) => [m, [...list].reverse()] as const)
     : sortedMonths;
 
+  /*
+    ไม่มีกรุ๊ปกำลังเดินทาง → เสนอกรุ๊ปที่กำลังจะออกเดินทางใกล้ที่สุดให้เลือกแทน
+    ใช้ทดลองการทำงาน หรือบันทึกค่าใช้จ่ายก่อนออกเดินทางได้ โดยไม่ต้องรอให้มีกรุ๊ปกำลังเดินทางจริง
+    กรุ๊ปที่กลับแล้วไม่อยู่ในรายการนี้ — บันทึกที่หัวข้อ "บันทึกใบเสร็จย้อนหลัง"
+  */
+  const NEAREST_LIMIT = 5;
+  const nearestJobs = travelFilter === 'during' && filteredJobs.length === 0
+    ? myJobs.filter((j) => j.period.startDate > realToday).slice(0, NEAREST_LIMIT)
+    : [];
+  const nearTag = (j: (typeof myJobs)[number]) => `อีก ${diffDays(realToday, j.period.startDate)} วันออกเดินทาง`;
+
   // ไม่รวมรายการที่ยกเลิกแล้วในพรีวิวนี้ (แค่เช็คบริบทก่อนบันทึกใหม่) — ดูภาพรวมของกรุ๊ปได้ที่หน้ารายละเอียดงาน
   const jobExpenses = selectedPeriod
     ? myExpenses.filter((e) => e.jobId === selectedPeriod.internalId && e.status !== 'cancelled')
@@ -131,26 +140,31 @@ export default function GuideExpensesRecordPage() {
         <Card className="space-y-3">
           <p className="text-sm font-semibold zego-text">เลือกกรุ๊ปที่ต้องการบันทึกค่าใช้จ่าย</p>
 
-          {!afterOnly && (
-          <div className="inline-flex overflow-hidden rounded-lg border zego-border-color">
-            {TRAVEL_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                aria-pressed={travelFilter === f.value}
-                onClick={() => setTravelFilter(f.value)}
-                className={cx(
-                  'px-3 py-1.5 text-xs font-medium',
-                  travelFilter === f.value ? 'bg-emerald-600 text-white' : 'zego-surface-bg zego-text-secondary zego-hover-surface',
-                )}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-          )}
-
-          {filteredJobs.length === 0 ? (
+          {filteredJobs.length === 0 && nearestJobs.length > 0 ? (
+            // ไม่มีกรุ๊ปกำลังเดินทาง — เสนอกรุ๊ปที่ใกล้วันนี้ที่สุด
+            <div className="space-y-2">
+              <p className="rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-secondary">
+                ไม่มีกรุ๊ปที่กำลังเดินทางอยู่ — เลือกกรุ๊ปที่กำลังจะออกเดินทางแทนได้
+              </p>
+              <ul className="space-y-2">
+                {nearestJobs.map((j) => (
+                  <li key={j.period.internalId}>
+                    <button
+                      type="button"
+                      onClick={() => selectPeriod(j.period)}
+                      className="flex w-full items-center justify-between gap-2 rounded-lg border zego-border-color px-3 py-2.5 text-left hover:border-emerald-300 hover:bg-emerald-50/40"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium zego-text">{j.period.groupCode} · {j.period.displayName}</span>
+                        <span className="block text-xs zego-text-tertiary">{formatDateRange(j.period.startDate, j.period.endDate)} · {nearTag(j)}</span>
+                      </span>
+                      <Icon name="chevronRight" className="h-4 w-4 shrink-0 zego-text-disabled" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : filteredJobs.length === 0 ? (
             <p className="rounded-lg border border-dashed zego-border-color px-4 py-6 text-center text-sm zego-text-tertiary">
               {travelFilter === 'during' ? 'ไม่มีกรุ๊ปที่กำลังเดินทางอยู่' : 'ไม่มีกรุ๊ปหลังเดินทาง'}
             </p>
@@ -201,7 +215,6 @@ export default function GuideExpensesRecordPage() {
             </div>
           </div>
           <SpendSummaryCard recorded={jobExpenses} budgetItems={leaderBudgetItems(expenses, envelopes, noEnvelopeMarks, selectedPeriod.internalId)} />
-          <GuideEnvelopeCard periodId={selectedPeriod.internalId} mode="use" />
           {justSaved ? (
             <SavedPrompt
               expense={justSaved.expense}

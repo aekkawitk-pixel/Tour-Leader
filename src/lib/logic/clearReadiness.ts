@@ -1,0 +1,90 @@
+/**
+ * พร้อมเคลียร์เงินหรือยัง — สรุปต่อกรุ๊ปสำหรับหน้า "ตรวจสอบก่อนนัดเคลียร์เงิน" ฝั่งหัวหน้าทัวร์
+ * ตอบคำถามเดียว: กรุ๊ปนี้ทำครบแล้วหรือยัง ถ้ายัง ขาดอะไร
+ *
+ * เช็ก 3 อย่าง (✓ = ไม่ต้องทำอะไรเพิ่ม):
+ *   ซองเงิน    — ซองที่การเงินมอบหมาย (ส่งมอบแล้ว · ไม่ถูกส่งคืนการเงิน) ต้องยืนยันรับครบ
+ *                ไม่มีซองมอบหมาย = ✓ (ซองที่การเงินยังจัด/ยังไม่ส่งมอบ ไม่นับ — หัวหน้าทัวร์ยังทำอะไรไม่ได้)
+ *   ใบเสร็จ    — กรุ๊ปที่มีเงินในมือ (ซองที่รับแล้ว ยังไม่ส่งต่อ ไม่ได้ส่งแลนด์ทั้งซอง) ต้องบันทึกอย่างน้อย 1 รายการ
+ *                กรุ๊ปที่ไม่มีเงินต้องใช้จ่าย = ผ่าน · มีรายการต้องแก้ / ร่างค้าง = ยังไม่ผ่าน
+ *   เบี้ยเลี้ยง — ส่งใบเบิกแล้ว (ส่งแล้ว/อนุมัติ/จ่ายแล้ว = ✓ · ยังไม่ทำ/ร่าง/ต้องแก้ = ✗)
+ * ยังไม่จบทริป = ยังไม่ถึงขั้นเคลียร์ (บอกวันที่เคลียร์ได้) — กติกาวันกลับดู tripPhase.ts
+ */
+
+import type { ExpenseRequest } from '@/types';
+import type { CashEnvelope } from './cashEnvelope';
+
+export type ReadinessTone = 'slate' | 'sky' | 'amber' | 'emerald';
+
+export interface ReadinessCheck {
+  label: string;
+  ok: boolean;
+  text: string;
+}
+
+export interface ClearReadiness {
+  tone: ReadinessTone;
+  /** ป้ายสั้นที่หัวการ์ด */
+  label: string;
+  /** บรรทัดอธิบายใต้ชื่อกรุ๊ป */
+  detail: string;
+  checks: ReadinessCheck[];
+  ready: boolean;
+}
+
+export function clearReadiness(input: {
+  started: boolean;
+  ended: boolean;
+  startText: string;
+  endText: string;
+  envs: CashEnvelope[];
+  receipts: ExpenseRequest[];
+  perDiem: ExpenseRequest | null;
+  /** มีเงินในมือที่ต้องบันทึกใบเสร็จ — ไม่ส่ง = คำนวณจากซอง (รับแล้ว · ไม่ส่งต่อ · ไม่ได้ส่งแลนด์) */
+  needsReceipts?: boolean;
+}): ClearReadiness {
+  const { envs, receipts, perDiem } = input;
+
+  // นับเฉพาะซองที่มอบหมายถึงหัวหน้าทัวร์แล้ว
+  const assigned = envs.filter((e) => e.handover && !(e.staffReturn && !e.leaderAck));
+  const notAcked = assigned.filter((e) => !e.leaderAck).length;
+  const revise = receipts.filter((r) => r.status === 'revise').length;
+  const draft = receipts.filter((r) => r.status === 'draft').length;
+  const needsReceipts = input.needsReceipts ?? assigned.some((e) => e.leaderAck && !e.leaderForward && !e.landPayments?.length);
+
+  const checks: ReadinessCheck[] = [
+    assigned.length === 0
+      ? { label: 'ซองเงิน', ok: true, text: 'ไม่มีซองมอบหมาย' }
+      : notAcked > 0
+        ? { label: 'ซองเงิน', ok: false, text: `ยังไม่ยืนยันรับ ${notAcked} ซอง` }
+        : { label: 'ซองเงิน', ok: true, text: `รับครบ ${assigned.length} ซอง` },
+    revise > 0
+      ? { label: 'ใบเสร็จ', ok: false, text: `ต้องแก้ไข ${revise} รายการ` }
+      : draft > 0
+        ? { label: 'ใบเสร็จ', ok: false, text: `ร่างยังไม่ส่ง ${draft} รายการ` }
+        : receipts.length > 0
+          ? { label: 'ใบเสร็จ', ok: true, text: `บันทึกแล้ว ${receipts.length} รายการ` }
+          : needsReceipts
+            ? { label: 'ใบเสร็จ', ok: false, text: 'ยังไม่ได้บันทึก' }
+            : { label: 'ใบเสร็จ', ok: true, text: 'ไม่มีค่าใช้จ่าย' },
+    !perDiem
+      ? { label: 'เบี้ยเลี้ยง', ok: false, text: 'ยังไม่ทำใบเบิก' }
+      : perDiem.status === 'draft'
+        ? { label: 'เบี้ยเลี้ยง', ok: false, text: 'ร่าง ยังไม่ส่ง' }
+        : perDiem.status === 'revise'
+          ? { label: 'เบี้ยเลี้ยง', ok: false, text: 'ต้องแก้ไข' }
+          : { label: 'เบี้ยเลี้ยง', ok: true, text: perDiem.status === 'submitted' ? 'ส่งแล้ว รอบัญชีตรวจ' : perDiem.status === 'paid' ? 'จ่ายแล้ว' : 'อนุมัติแล้ว' },
+  ];
+  const missing = checks.filter((c) => !c.ok);
+
+  if (!input.started) {
+    return { tone: 'slate', label: 'ยังไม่ออกเดินทาง', detail: `ออกเดินทาง ${input.startText} · เคลียร์ได้ตั้งแต่วันกลับ ${input.endText}`, checks, ready: false };
+  }
+  if (!input.ended) {
+    return { tone: 'sky', label: 'กำลังเดินทาง', detail: `เคลียร์ได้ตั้งแต่วันกลับ ${input.endText}`, checks, ready: false };
+  }
+  if (missing.length > 0) {
+    return { tone: 'amber', label: `ยังไม่ครบ ${missing.length} อย่าง`, detail: `ต้องทำ: ${missing.map((c) => `${c.label} (${c.text})`).join(' · ')}`, checks, ready: false };
+  }
+  return { tone: 'emerald', label: 'ครบแล้ว', detail: 'ทำครบทุกอย่างแล้ว — นัดเข้ามาเคลียร์เงินกับบัญชีได้เลย', checks, ready: true };
+}

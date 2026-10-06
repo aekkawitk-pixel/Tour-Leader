@@ -1048,6 +1048,11 @@ export interface Appointment {
   kind?: AppointmentKind;
   /** ข้อความจากหัวหน้าทัวร์ตอนขอเลื่อนนัด (วันเวลาที่สะดวก / เหตุผล) */
   leaderNote?: string;
+  /**
+   * หัวหน้าทัวร์ขอนัดเอง (นัดเคลียร์เงินเมื่อทำครบทุกหัวข้อ) — สถานะ pending = รอ "การเงิน" ยืนยัน
+   * (นัดที่การเงินสร้าง pending = รอ "หัวหน้าทัวร์" ยืนยัน) · ไม่ระบุ = การเงินเป็นผู้นัด
+   */
+  requestedByLeader?: boolean;
   staffName: string; // เจ้าหน้าที่ผู้รับผิดชอบ
   mode: AppointmentMode;
   location: string; // สถานที่หรือลิงก์ประชุม
