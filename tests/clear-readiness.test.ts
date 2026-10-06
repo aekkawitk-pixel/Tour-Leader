@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clearReadiness } from '../src/lib/logic/clearReadiness';
+import { clearReadiness, receiptsBlockedReason } from '../src/lib/logic/clearReadiness';
 import type { CashEnvelope } from '../src/lib/logic/cashEnvelope';
 import type { ExpenseRequest } from '../src/types';
 
@@ -21,7 +21,7 @@ test('พร้อมเคลียร์ — ยังไม่ออก / ก
 test('พร้อมเคลียร์ — ครบ: ซองรับครบ ใบเสร็จมี เบี้ยเลี้ยงส่งแล้ว', () => {
   const r = run({ envs: [env(true)], receipts: [doc('submitted')], perDiem: doc('submitted') });
   assert.equal(r.ready, true);
-  assert.equal(r.label, 'ครบแล้ว');
+  assert.equal(r.label, 'ครบแล้ว · ทำนัดหมายได้');
   assert.ok(r.checks.every((c) => c.ok));
 });
 
@@ -46,6 +46,7 @@ test('พร้อมเคลียร์ — ใบเสร็จบังค
     const r = run({ envs, perDiem: doc('submitted') });
     assert.equal(r.ready, true);
     assert.equal(r.checks[1].text, 'ไม่มีค่าใช้จ่าย');
+    assert.equal(r.checks[1].na, true);
   }
 });
 
@@ -55,14 +56,36 @@ test('พร้อมเคลียร์ — ซองเงิน: นับ�
   for (const envs of [[], [notHanded], [returned]]) {
     const r = run({ envs, perDiem: doc('submitted') });
     assert.equal(r.checks[0].ok, true);
-    assert.equal(r.checks[0].text, 'ไม่มีซองมอบหมาย');
+    assert.equal(r.checks[0].text, envs[0] === notHanded ? 'การเงินยังไม่ส่งมอบ' : 'ไม่มีซองมอบหมาย');
+    assert.equal(r.checks[0].na, true);
     assert.equal(r.ready, true);
   }
   // มอบหมายแล้วยังไม่รับ = ไม่ผ่าน
   assert.equal(run({ envs: [env(false)], perDiem: doc('submitted') }).checks[0].ok, false);
 });
 
+test('พร้อมเคลียร์ — ยังไม่จบทริป: เบี้ยเลี้ยงยังไม่ใช่เรื่องค้าง · มีซองรอส่งมอบ = รอรับซองก่อน (ไม่ใช่ไม่มีค่าใช้จ่าย)', () => {
+  const notHanded = { id: 'E2' } as CashEnvelope;
+  const r = run({ started: false, ended: false, envs: [notHanded] });
+  assert.equal(r.checks[1].text, 'รอรับซองก่อน');
+  assert.equal(r.checks[1].na, true);
+  assert.equal(r.checks[2].na, true);
+  assert.equal(r.checks[2].text, 'ส่งได้ตั้งแต่ 12/10/26');
+  // ไม่มีซอง ระหว่างเดินทาง
+  assert.equal(run({ ended: false }).checks[1].text, 'บันทึกระหว่างเดินทาง');
+  // จบทริปแล้ว เบี้ยเลี้ยงยังไม่ทำ = ต้องทำ
+  assert.equal(run({}).checks[2].ok, false);
+});
+
 test('พร้อมเคลียร์ — เบี้ยเลี้ยงร่าง / ใบเสร็จร่าง ยังไม่ครบ', () => {
   assert.equal(run({ perDiem: doc('draft') }).ready, false);
   assert.equal(run({ perDiem: doc('approved'), receipts: [doc('draft')] }).ready, false);
+});
+
+test('บันทึกใบเสร็จได้หรือยัง — ซองยังไม่ถึงมือ = ยังไม่ได้ · ไม่มีซอง / รับแล้ว / ส่งคืนการเงิน = ได้', () => {
+  assert.equal(receiptsBlockedReason([]), null);
+  assert.equal(receiptsBlockedReason([{ } as CashEnvelope]), 'รอการเงินส่งมอบซองก่อน');
+  assert.equal(receiptsBlockedReason([env(false)]), 'ยืนยันรับซองก่อน');
+  assert.equal(receiptsBlockedReason([env(true)]), null);
+  assert.equal(receiptsBlockedReason([{ ...env(false), staffReturn: { at: 't', staffName: 'S', reason: 'x' } } as CashEnvelope]), null);
 });

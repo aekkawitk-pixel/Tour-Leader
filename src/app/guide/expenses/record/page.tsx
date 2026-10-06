@@ -20,6 +20,8 @@ import { diffDays, formatDateRange, formatThaiMonthYear, toISODate } from '@/lib
 import { Button, Card } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import { ExpenseQuickForm } from '../ExpenseQuickForm';
+import { receiptsBlockedReason } from '@/lib/logic/clearReadiness';
+import Link from 'next/link';
 import { ExpensesBackHeader } from '../ExpensesBackHeader';
 import { SpendSummaryCard } from '../SpendSummaryCard';
 import { CurrencyStack } from '../CurrencyStack';
@@ -215,7 +217,17 @@ export default function GuideExpensesRecordPage() {
             </div>
           </div>
           <SpendSummaryCard recorded={jobExpenses} budgetItems={leaderBudgetItems(expenses, envelopes, noEnvelopeMarks, selectedPeriod.internalId)} />
-          {justSaved ? (
+          {(() => {
+            // ซองของกรุ๊ปนี้ยังไม่ถึงมือ → ยังบันทึกใบเสร็จไม่ได้ (กติกาเดียวกับหน้าตรวจสอบก่อนเคลียร์)
+            const blocked = receiptsBlockedReason(envelopes.filter((e) => e.periodId === selectedPeriod.internalId && e.sealed));
+            return blocked ? (
+              <Card className="space-y-2 bg-amber-50 ring-1 ring-amber-200">
+                <p className="text-sm font-semibold text-amber-900">ยังบันทึกใบเสร็จของกรุ๊ปนี้ไม่ได้ — {blocked}</p>
+                <p className="text-xs text-amber-900">ใบเสร็จหักจากเงินในซอง จึงต้องได้รับซองก่อน</p>
+                <Link href="/guide/finance/envelopes" className="inline-flex items-center text-xs font-medium zego-text-info hover:underline">ไปที่การจัดการซองเงิน →</Link>
+              </Card>
+            ) : null;
+          })() ?? (justSaved ? (
             <SavedPrompt
               expense={justSaved.expense}
               viaBudget={justSaved.viaBudget}
@@ -230,7 +242,7 @@ export default function GuideExpensesRecordPage() {
               onCancel={() => selectPeriod(null)}
               onSaved={(expense, viaBudget) => setJustSaved({ expense, viaBudget })}
             />
-          )}
+          ))}
         </div>
       )}
     </div>

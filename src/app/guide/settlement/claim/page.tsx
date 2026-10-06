@@ -31,7 +31,7 @@ import { GuideExpenseDetailDrawer } from '../../expenses/GuideExpenseDetailDrawe
 import { expenseOriginalTotals, requestedAtOf } from '../../expenses/expenseAmounts';
 import type { ExpenseRequest } from '@/types';
 import { tripEnded, tripStarted } from '@/lib/logic/tripPhase';
-import { clearReadiness, type ReadinessTone } from '@/lib/logic/clearReadiness';
+import { clearReadiness, receiptsBlockedReason, type ReadinessTone } from '@/lib/logic/clearReadiness';
 import { appointmentStatusMeta } from '@/lib/labels';
 import { RequestClearModal } from './RequestClearModal';
 import type { Appointment } from '@/types';
@@ -167,46 +167,50 @@ export default function GuideSettlementClaimPage() {
                 </span>
                 <span className={cx('inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-semibold', READINESS_BADGE[ready.tone])}>
                   {ready.ready && <Icon name="check" className="h-3 w-3" />}
-                  {ready.label}
+                  {/* นัดไปแล้ว ไม่ต้องชวนทำนัดซ้ำ */}
+                  {ready.ready && clearAptOf(period.internalId) ? 'ครบแล้ว · นัดแล้ว' : ready.label}
                 </span>
                 <Icon name="chevronDown" className={cx('mt-0.5 h-4 w-4 shrink-0 zego-text-disabled transition', open && 'rotate-180')} />
               </button>
+
+              {/* ครบแล้ว → ปุ่มทำนัดหมายเห็นได้ทันทีโดยไม่ต้องกางการ์ด · นัดแล้ว → บอกสถานะนัด */}
+              {(() => {
+                const apt = clearAptOf(period.internalId);
+                if (apt) {
+                  return (
+                    <Link href="/guide/settlement/appointments" className="mx-4 mb-3 flex items-center justify-between gap-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900 ring-1 ring-inset ring-sky-200">
+                      <span>
+                        <span className="font-semibold">นัดเคลียร์เงิน {formatDate(apt.date)} {apt.time} น.</span>
+                        {' · '}{appointmentStatusMeta(apt).label}
+                      </span>
+                      <Icon name="chevronRight" className="h-4 w-4 shrink-0" />
+                    </Link>
+                  );
+                }
+                return ready.ready ? (
+                  <div className="px-4 pb-3">
+                    <Button variant="primary" icon="calendar" className="w-full justify-center" onClick={() => setRequestFor(period)}>
+                      ทำนัดหมายเคลียร์เงิน
+                    </Button>
+                  </div>
+                ) : null;
+              })()}
 
               {open && (
                 <div className="space-y-3 zego-divider-top px-4 pb-4 pt-3">
                   {/* สรุป ✓/✗ ทีละเรื่อง — ดูแวบเดียวรู้ว่าขาดอะไร */}
                   <ul className="grid grid-cols-3 gap-1.5">
                     {ready.checks.map((c) => (
-                      <li key={c.label} className={cx('rounded-lg px-2 py-1.5 text-center ring-1 ring-inset', c.ok ? 'bg-emerald-50 ring-emerald-200' : 'bg-amber-50 ring-amber-200')}>
-                        <span className={cx('flex items-center justify-center gap-1 text-xs font-semibold', c.ok ? 'text-emerald-800' : 'text-amber-800')}>
-                          <Icon name={c.ok ? 'check' : 'warning'} className="h-3.5 w-3.5" />
+                      // เขียว = เรียบร้อย · ส้ม = ต้องทำ · เทา = ไม่เกี่ยวข้องกับกรุ๊ปนี้ (นับว่าผ่าน)
+                      <li key={c.label} className={cx('rounded-lg px-2 py-1.5 text-center ring-1 ring-inset', c.na ? 'zego-surface-soft-bg ring-[var(--zego-border-soft)]' : c.ok ? 'bg-emerald-50 ring-emerald-200' : 'bg-amber-50 ring-amber-200')}>
+                        <span className={cx('flex items-center justify-center gap-1 text-xs font-semibold', c.na ? 'zego-text-tertiary' : c.ok ? 'text-emerald-800' : 'text-amber-800')}>
+                          {!c.na && <Icon name={c.ok ? 'check' : 'warning'} className="h-3.5 w-3.5" />}
                           {c.label}
                         </span>
-                        <span className={cx('block text-[11px] leading-tight', c.ok ? 'text-emerald-700' : 'text-amber-800')}>{c.text}</span>
+                        <span className={cx('block text-[11px] leading-tight', c.na ? 'zego-text-tertiary' : c.ok ? 'text-emerald-700' : 'text-amber-800')}>{c.text}</span>
                       </li>
                     ))}
                   </ul>
-
-                  {/* ครบแล้ว → ขอนัดเคลียร์เงินกับบัญชีได้เลย · นัดแล้ว → บอกสถานะนัด */}
-                  {(() => {
-                    const apt = clearAptOf(period.internalId);
-                    if (apt) {
-                      return (
-                        <Link href="/guide/settlement/appointments" className="flex items-center justify-between gap-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900 ring-1 ring-inset ring-sky-200">
-                          <span>
-                            <span className="font-semibold">นัดเคลียร์เงิน {formatDate(apt.date)} {apt.time} น.</span>
-                            {' · '}{appointmentStatusMeta(apt).label}
-                          </span>
-                          <Icon name="chevronRight" className="h-4 w-4 shrink-0" />
-                        </Link>
-                      );
-                    }
-                    return ready.ready ? (
-                      <Button variant="primary" icon="calendar" className="w-full justify-center" onClick={() => setRequestFor(period)}>
-                        นัดเคลียร์เงินกับบัญชี
-                      </Button>
-                    ) : null;
-                  })()}
 
                   {/* 1) ซองเงินที่ได้รับ */}
                   <Section title="ซองเงิน" count={envs.length}>
@@ -221,7 +225,10 @@ export default function GuideSettlementClaimPage() {
                   <Section
                     title="ใบเสร็จค่าใช้จ่าย"
                     count={receipts.length}
-                    action={<Link href={`/guide/expenses/record?period=${encodeURIComponent(period.internalId)}`} className="text-xs font-medium zego-text-info hover:underline">+ บันทึกใบเสร็จ</Link>}
+                    action={receiptsBlockedReason(envs)
+                      // ยังบันทึกไม่ได้ (ซองยังไม่ถึงมือ) — ปุ่มเป็นสีเทา บอกเหตุผล ตรงกับช่องเช็กด้านบน
+                      ? <span className="text-xs zego-text-disabled" title={receiptsBlockedReason(envs) ?? undefined}>+ บันทึกใบเสร็จ · {receiptsBlockedReason(envs)}</span>
+                      : <Link href={`/guide/expenses/record?period=${encodeURIComponent(period.internalId)}`} className="text-xs font-medium zego-text-info hover:underline">+ บันทึกใบเสร็จ</Link>}
                   >
                     {receipts.length === 0 ? <Empty text="ยังไม่ได้บันทึกใบเสร็จ" /> : receipts.map((r) => (
                       <Row
@@ -240,7 +247,7 @@ export default function GuideSettlementClaimPage() {
                   <Section
                     title="เบี้ยเลี้ยง"
                     count={perDiem ? 1 : 0}
-                    action={<Link href="/guide/settlement/allowance" className="text-xs font-medium zego-text-info hover:underline">{perDiem ? 'ไปที่เบิกเบี้ยเลี้ยง' : '+ ทำใบเบิก'}</Link>}
+                    action={<Link href="/guide/settlement/allowance" className="text-xs font-medium zego-text-info hover:underline">{perDiem ? 'ไปที่เบิกเบี้ยเลี้ยง' : ended ? '+ ทำใบเบิก' : '+ ทำร่างไว้ก่อน'}</Link>}
                   >
                     {!perDiem ? <Empty text={ended ? 'ยังไม่ได้ทำใบเบิกเบี้ยเลี้ยง' : 'ทำร่างรอไว้ได้ · ส่งอนุมัติได้หลังจบทริป'} /> : (
                       <Row
@@ -261,16 +268,6 @@ export default function GuideSettlementClaimPage() {
         })
       )}
 
-      {/* ขั้นถัดไป — ทำรายการครบแล้ว นัดหมายเข้ามาเคลียร์เงินกับบัญชี */}
-      {groups.length > 0 && (
-        <Link href="/guide/settlement/appointments" className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm zego-hover-surface">
-          <span className="min-w-0">
-            <span className="block font-semibold text-emerald-800">ขั้นถัดไป: นัดหมายเคลียร์เงิน</span>
-            <span className="block text-xs text-emerald-700">กรุ๊ปที่ทำครบแล้วกด &quot;นัดเคลียร์เงินกับบัญชี&quot; ในการ์ดกรุ๊ป — ดูสถานะนัดทั้งหมดได้ที่นี่</span>
-          </span>
-          <Icon name="chevronRight" className="h-4 w-4 shrink-0 text-emerald-700" />
-        </Link>
-      )}
 
       <GuideExpenseDetailDrawer expense={detail} onClose={() => setDetail(null)} />
       {requestFor && leaderId && <RequestClearModal period={requestFor} leaderId={leaderId} onClose={() => setRequestFor(null)} />}

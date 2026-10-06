@@ -27,6 +27,7 @@ import { Icon, type IconName } from '@/components/ui/Icon';
 import { tripEnded, tripOngoing } from '@/lib/logic/tripPhase';
 import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
 import { afterTripProgress, type StepState } from '@/lib/logic/afterTripProgress';
+import { receiptsBlockedReason } from '@/lib/logic/clearReadiness';
 import { loadGroupClears } from '@/services/groupClearStore';
 import type { Appointment } from '@/types';
 
@@ -166,7 +167,9 @@ export default function GuideFinancePage() {
               ))}
             </ol>
             <div className="flex items-center justify-between gap-2 zego-divider-top pt-2">
-              <Link href={progress.recordHref} className="text-xs font-medium zego-text-info hover:underline">บันทึกใบเสร็จ</Link>
+              {receiptsBlockedReason(envelopes.filter((e) => e.periodId === period.internalId && e.sealed))
+                ? <span className="text-xs zego-text-disabled">บันทึกใบเสร็จ · รับซองก่อน</span>
+                : <Link href={progress.recordHref} className="text-xs font-medium zego-text-info hover:underline">บันทึกใบเสร็จ</Link>}
               {progress.next.href ? (
                 <Link href={progress.next.href} className="inline-flex items-center gap-0.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">
                   {progress.next.label}

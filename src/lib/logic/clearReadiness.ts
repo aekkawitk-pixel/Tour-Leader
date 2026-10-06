@@ -16,9 +16,23 @@ import type { CashEnvelope } from './cashEnvelope';
 
 export type ReadinessTone = 'slate' | 'sky' | 'amber' | 'emerald';
 
+/**
+ * บันทึกใบเสร็จของกรุ๊ปนี้ได้หรือยัง — กติกาเดียวทุกหน้า (ตรวจสอบก่อนเคลียร์ · บันทึกใบเสร็จ · การ์ดหลังเดินทาง)
+ * มีซองที่ยังไม่ถึงมือ (การเงินยังไม่ส่งมอบ / ยังไม่ยืนยันรับ) = ยังไม่ได้ — คืนเหตุผล · ไม่มีซอง หรือรับครบแล้ว = null (ได้)
+ * ซองที่ถูกส่งคืนการเงินไม่นับ (ไม่ได้รอหัวหน้าทัวร์)
+ */
+export function receiptsBlockedReason(envs: Pick<CashEnvelope, 'handover' | 'leaderAck' | 'staffReturn'>[]): string | null {
+  if (envs.some((e) => !e.handover)) return 'รอการเงินส่งมอบซองก่อน';
+  if (envs.some((e) => !e.leaderAck && !e.staffReturn)) return 'ยืนยันรับซองก่อน';
+  return null;
+}
+
 export interface ReadinessCheck {
   label: string;
+  /** ผ่าน (รวมกรณีไม่เกี่ยวข้อง) */
   ok: boolean;
+  /** ไม่เกี่ยวข้องกับกรุ๊ปนี้ (ไม่มีซองมอบหมาย / ไม่มีค่าใช้จ่าย) — นับว่าผ่าน แต่แสดงสีเทา ไม่ให้สับสนกับ "เรียบร้อย" */
+  na?: boolean;
   text: string;
 }
 
@@ -51,10 +65,12 @@ export function clearReadiness(input: {
   const revise = receipts.filter((r) => r.status === 'revise').length;
   const draft = receipts.filter((r) => r.status === 'draft').length;
   const needsReceipts = input.needsReceipts ?? assigned.some((e) => e.leaderAck && !e.leaderForward && !e.landPayments?.length);
+  // มีซองที่ยังไม่ถึงมือ (การเงินยังไม่ส่งมอบ / ยังไม่ยืนยันรับ) — ยังสรุปไม่ได้ว่า "ไม่มีค่าใช้จ่าย"
+  const envPending = receiptsBlockedReason(envs) !== null;
 
   const checks: ReadinessCheck[] = [
     assigned.length === 0
-      ? { label: 'ซองเงิน', ok: true, text: 'ไม่มีซองมอบหมาย' }
+      ? { label: 'ซองเงิน', ok: true, na: true, text: envs.some((e) => !e.handover) ? 'การเงินยังไม่ส่งมอบ' : 'ไม่มีซองมอบหมาย' }
       : notAcked > 0
         ? { label: 'ซองเงิน', ok: false, text: `ยังไม่ยืนยันรับ ${notAcked} ซอง` }
         : { label: 'ซองเงิน', ok: true, text: `รับครบ ${assigned.length} ซอง` },
@@ -66,8 +82,15 @@ export function clearReadiness(input: {
           ? { label: 'ใบเสร็จ', ok: true, text: `บันทึกแล้ว ${receipts.length} รายการ` }
           : needsReceipts
             ? { label: 'ใบเสร็จ', ok: false, text: 'ยังไม่ได้บันทึก' }
-            : { label: 'ใบเสร็จ', ok: true, text: 'ไม่มีค่าใช้จ่าย' },
-    !perDiem
+            : envPending
+              ? { label: 'ใบเสร็จ', ok: true, na: true, text: 'รอรับซองก่อน' }
+              : !input.ended
+                ? { label: 'ใบเสร็จ', ok: true, na: true, text: 'บันทึกระหว่างเดินทาง' }
+                : { label: 'ใบเสร็จ', ok: true, na: true, text: 'ไม่มีค่าใช้จ่าย' },
+    // ยังไม่จบทริป — ส่งเบี้ยเลี้ยงยังไม่ได้ จึงยังไม่ใช่เรื่องค้าง (เทา บอกวันที่ส่งได้)
+    !input.ended && (!perDiem || perDiem.status === 'draft')
+      ? { label: 'เบี้ยเลี้ยง', ok: true, na: true, text: `${perDiem ? 'ร่างไว้แล้ว · ' : ''}ส่งได้ตั้งแต่ ${input.endText}` }
+      : !perDiem
       ? { label: 'เบี้ยเลี้ยง', ok: false, text: 'ยังไม่ทำใบเบิก' }
       : perDiem.status === 'draft'
         ? { label: 'เบี้ยเลี้ยง', ok: false, text: 'ร่าง ยังไม่ส่ง' }
@@ -86,5 +109,5 @@ export function clearReadiness(input: {
   if (missing.length > 0) {
     return { tone: 'amber', label: `ยังไม่ครบ ${missing.length} อย่าง`, detail: `ต้องทำ: ${missing.map((c) => `${c.label} (${c.text})`).join(' · ')}`, checks, ready: false };
   }
-  return { tone: 'emerald', label: 'ครบแล้ว', detail: 'ทำครบทุกอย่างแล้ว — นัดเข้ามาเคลียร์เงินกับบัญชีได้เลย', checks, ready: true };
+  return { tone: 'emerald', label: 'ครบแล้ว · ทำนัดหมายได้', detail: 'ทำครบทุกอย่างแล้ว — นัดเข้ามาเคลียร์เงินกับบัญชีได้เลย', checks, ready: true };
 }
