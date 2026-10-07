@@ -38,6 +38,13 @@ export interface SendOffLeaveRecord {
   /** ช่วงวันที่ลา (ISO yyyy-mm-dd) — ลาวันเดียว startDate = endDate */
   startDate: string;
   endDate: string;
+  /**
+   * ลาบางช่วงเวลา (เหมือนฝั่งหัวหน้าทัวร์) — false = ระบุเวลา startTime–endTime (HH:mm)
+   * ไม่มีค่า / true = ทั้งวัน (ข้อมูลเดิมก่อนมีฟิลด์นี้เป็นทั้งวันทั้งหมด) · การจัดตารางยังกันทั้งวันเหมือนเดิม
+   */
+  isAllDay?: boolean;
+  startTime?: string;
+  endTime?: string;
   reason: string;
   status: SendOffLeaveStatus;
   requestedBy: string;
@@ -59,6 +66,14 @@ export function leaveDayCount(r: Pick<SendOffLeaveRecord, 'startDate' | 'endDate
   const end = new Date(`${r.endDate}T00:00:00`);
   const diff = Math.round((end.getTime() - start.getTime()) / 86_400_000);
   return Math.max(1, diff + 1);
+}
+
+/** ลาทั้งวันไหม — ไม่ระบุ = ทั้งวัน (ข้อมูลเดิม) */
+export const leaveIsAllDay = (r: Pick<SendOffLeaveRecord, 'isAllDay'>) => r.isAllDay !== false;
+
+/** เวลาที่ลา (ถ้าลาบางช่วง) เช่น "09:00–12:00 น." · ทั้งวัน = '' — ต่อท้ายช่วงวันที่ตอนแสดงผล */
+export function leaveTimeLabel(r: Pick<SendOffLeaveRecord, 'isAllDay' | 'startTime' | 'endTime'>): string {
+  return leaveIsAllDay(r) || !r.startTime || !r.endTime ? '' : `${r.startTime}–${r.endTime} น.`;
 }
 
 /** รายการลาของคนคนนี้ — เรียงล่าสุดก่อน (วันที่ยื่นคำขอ) */

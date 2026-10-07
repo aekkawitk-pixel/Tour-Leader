@@ -42,7 +42,7 @@ import {
 import { loadSendOffStaff, upsertSendOffStaff, setSendOffStaffStatus } from '@/services/sendOffStaffStore';
 import {
   SEND_OFF_LEAVE_STATUS, SEND_OFF_LEAVE_TYPE, SEND_OFF_LEAVE_TYPE_ORDER,
-  leaveCoversDate, leaveDayCount, leaveRecordsForStaff, type SendOffLeaveRecord, type SendOffLeaveType,
+  leaveCoversDate, leaveDayCount, leaveRecordsForStaff, leaveTimeLabel, type SendOffLeaveRecord, type SendOffLeaveType,
 } from '@/lib/logic/sendOffStaffLeave';
 import {
   cancelSendOffLeave, decideSendOffLeave, loadSendOffLeave, nextSendOffLeaveId, upsertSendOffLeave,
@@ -792,7 +792,7 @@ function LeaveTab({ staffId, records, canManage, onChanged }: {
                     <StatusBadge meta={SEND_OFF_LEAVE_STATUS[r.status]} size="sm" />
                   </div>
                   <p className="zego-text-secondary mt-1 text-sm">
-                    {formatDate(r.startDate)}{r.startDate !== r.endDate ? ` – ${formatDate(r.endDate)}` : ''} · {leaveDayCount(r)} วัน
+                    {formatDate(r.startDate)}{r.startDate !== r.endDate ? ` – ${formatDate(r.endDate)}` : ''} · {leaveTimeLabel(r) || `${leaveDayCount(r)} วัน`}
                   </p>
                   <p className="zego-text-tertiary text-xs">เหตุผล: {r.reason || '—'}</p>
                   <p className="zego-text-tertiary mt-0.5 text-xs">{r.id} · ยื่นโดย {r.requestedBy}</p>
@@ -985,7 +985,7 @@ function LeaveRecordDetailModal({ record, canManage, onClose, onApprove, onRejec
       <div className="space-y-3">
         <StatusBadge meta={SEND_OFF_LEAVE_STATUS[record.status]} />
         <p className="zego-text-secondary text-sm">
-          {formatDate(record.startDate)}{record.startDate !== record.endDate ? ` – ${formatDate(record.endDate)}` : ''} · {leaveDayCount(record)} วัน
+          {formatDate(record.startDate)}{record.startDate !== record.endDate ? ` – ${formatDate(record.endDate)}` : ''} · {leaveTimeLabel(record) || `${leaveDayCount(record)} วัน`}
         </p>
         <p className="zego-text-secondary text-sm">เหตุผล: {record.reason || '—'}</p>
         <p className="zego-text-tertiary text-xs">{record.id} · ยื่นโดย {record.requestedBy}</p>

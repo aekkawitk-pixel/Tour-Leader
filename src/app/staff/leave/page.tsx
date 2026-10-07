@@ -6,8 +6,8 @@
  * ยื่นคำขอลาเอง (สถานะ "รอคอนเฟิร์ม") → ผู้จัดคอนเฟิร์ม/ปฏิเสธที่หน้ารายละเอียดเจ้าหน้าที่ (แท็บสถานะ/การลา)
  * ใช้ข้อมูลชุดเดียวกับฝั่งผู้จัด (sendOffStaffLeave) — วันลาที่คอนเฟิร์มแล้วจะถูกข้ามตอนจัดตาราง
  * ถอนคำขอได้เองเฉพาะที่ยังรอคอนเฟิร์ม
- * เลือกวันลาจากปฏิทินรายเดือน: เลือกได้ครั้งละ 1 วัน (แตะวันอื่น = เปลี่ยนวัน · แตะซ้ำ = เอาออก) → "ขอลา" เปิดฟอร์มพร้อมวันที่
- * ส่งครั้งเดียว = คำขอลาตามช่วงวันที่ติดกัน (6, 9–10 → 2 คำขอ) — ผู้จัดคอนเฟิร์มทีละช่วงได้
+ * แตะวันในปฏิทินเพื่อตั้งวันเริ่ม (ไม่บังคับ) → "ขอลา" เปิดฟอร์มแบบเดียวกับฝั่งหัวหน้าทัวร์
+ *   (ประเภท · ลาทั้งวัน ↔ ระบุเวลา · วันที่เริ่ม/สิ้นสุด · เหตุผล) — ส่ง 1 ครั้ง = คำขอลา 1 ช่วง
  * ปฏิทินระบายสีวันที่ลาอยู่แล้ว (รอคอนเฟิร์ม / คอนเฟิร์มแล้ว) และจุดวันที่มีงานส่งกรุ๊ป · วันที่ผ่านมาแล้วเลือกไม่ได้
  */
 
@@ -18,10 +18,12 @@ import { useDemo } from '@/store/DemoStore';
 import { Button, Card, cx, StatusBadge } from '@/components/ui/Primitives';
 import { Modal } from '@/components/ui/Modal';
 import { SelectInput, TextArea } from '@/components/ui/FormField';
+import { DateField } from '@/components/ui/DateInput';
+import { TimeField } from '@/components/ui/TimeInput';
 import { formatDate, formatDateTime, parseDate, TH_WEEKDAYS_SHORT, toISODateTime } from '@/lib/format';
 import { cancelSendOffLeave, loadSendOffLeave, nextSendOffLeaveId, upsertSendOffLeave } from '@/services/sendOffStaffLeaveStore';
 import {
-  activeLeaveOn, leaveDatesLabel, leaveDayCount, leaveRangesOf, SEND_OFF_LEAVE_STATUS, SEND_OFF_LEAVE_TYPE, SEND_OFF_LEAVE_TYPE_ORDER,
+  activeLeaveOn, leaveDatesLabel, leaveDayCount, leaveIsAllDay, leaveTimeLabel, SEND_OFF_LEAVE_STATUS, SEND_OFF_LEAVE_TYPE, SEND_OFF_LEAVE_TYPE_ORDER,
   type SendOffLeaveRecord, type SendOffLeaveType,
 } from '@/lib/logic/sendOffStaffLeave';
 import { useStaffPortal } from '../useStaffPortal';
@@ -74,9 +76,9 @@ export default function StaffLeavePage() {
               <Card className="space-y-1">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold zego-text">{SEND_OFF_LEAVE_TYPE[r.type].label} · {leaveDayCount(r)} วัน</p>
+                    <p className="text-sm font-semibold zego-text">{SEND_OFF_LEAVE_TYPE[r.type].label} · {leaveIsAllDay(r) ? `${leaveDayCount(r)} วัน` : 'บางช่วงเวลา'}</p>
                     <p className="text-xs zego-text-secondary">
-                      {formatDate(r.startDate)}{r.endDate !== r.startDate ? ` – ${formatDate(r.endDate)}` : ''}
+                      {formatDate(r.startDate)}{r.endDate !== r.startDate ? ` – ${formatDate(r.endDate)}` : ''}{leaveTimeLabel(r) ? ` · ${leaveTimeLabel(r)}` : ''}
                     </p>
                   </div>
                   <StatusBadge meta={SEND_OFF_LEAVE_STATUS[r.status]} size="sm" />
@@ -100,27 +102,25 @@ export default function StaffLeavePage() {
 
       {open && (
         <LeaveRequestModal
-          dates={picked}
+          staffName={currentUser.name}
+          today={today}
+          initialDate={picked[0]}
+          records={mine}
+          dutyDates={new Set(duties.map((d) => d.dutyDate))}
           onClose={() => setOpen(false)}
           onSubmit={(v) => {
             try {
-              // ช่วงวันที่ติดกัน = คำขอ 1 รายการ
-              let rows = loadSendOffLeave();
-              // กันอีกชั้น — วันที่มีงานส่งกรุ๊ปไม่ส่งเป็นคำขอลา
-              const busy = new Set(duties.map((d) => d.dutyDate));
-              for (const r of leaveRangesOf(picked.filter((d) => !busy.has(d)))) {
-                rows = upsertSendOffLeave({
-                  id: nextSendOffLeaveId(rows),
-                  staffId,
-                  ...v,
-                  ...r,
-                  status: 'pending',
-                  requestedBy: currentUser.name,
-                  requestedAt: toISODateTime(new Date()),
-                });
-              }
+              // 1 คำขอ = 1 ช่วงวันที่ตามที่กรอก (เหมือนฝั่งหัวหน้าทัวร์)
+              const rows = upsertSendOffLeave({
+                id: nextSendOffLeaveId(loadSendOffLeave()),
+                staffId,
+                ...v,
+                status: 'pending',
+                requestedBy: currentUser.name,
+                requestedAt: toISODateTime(new Date()),
+              });
               setAll(rows);
-              pushToast('success', 'ส่งคำขอลาแล้ว', `${leaveDatesLabel(picked)} · รอผู้จัดคอนเฟิร์ม`);
+              pushToast('success', 'ส่งคำขอลาแล้ว', `${formatDate(v.startDate)}${v.endDate !== v.startDate ? `–${formatDate(v.endDate)}` : ''} · รอผู้จัดคอนเฟิร์ม`);
               setOpen(false);
               setPicked([]);
             } catch {
@@ -133,44 +133,125 @@ export default function StaffLeavePage() {
   );
 }
 
+type LeaveFormValue = { type: SendOffLeaveType; startDate: string; endDate: string; isAllDay: boolean; startTime?: string; endTime?: string; reason: string };
+
+/**
+ * ฟอร์มขอลา — หน้าตาและช่องเดียวกับฝั่งหัวหน้าทัวร์ (AvailabilityFormModal):
+ *   ประเภท · ลาทั้งวัน ↔ ระบุเวลา · วันที่เริ่ม/สิ้นสุด (+ เวลาเริ่ม/สิ้นสุด) · เหตุผล/รายละเอียด · ส่งคำขอ (รออนุมัติ)
+ * วันที่ตั้งต้นจากวันที่แตะในปฏิทิน (แก้ได้) · กติกาเจ้าหน้าที่: ห้ามย้อนหลัง · ห้ามทับวันที่มีงานส่งกรุ๊ป · ห้ามทับคำขอลาเดิม
+ */
 function LeaveRequestModal({
-  dates,
+  staffName,
+  today,
+  initialDate,
+  records,
+  dutyDates,
   onClose,
   onSubmit,
 }: {
-  /** วันที่เลือกจากปฏิทิน (ไม่มีวันที่มีงานส่งกรุ๊ป — เลือกไม่ได้ตั้งแต่ปฏิทิน) */
-  dates: string[];
+  staffName: string;
+  today: string;
+  /** วันที่แตะเลือกในปฏิทิน (ไม่มี = วันนี้) */
+  initialDate?: string;
+  /** คำขอลาของเจ้าหน้าที่คนนี้ — ใช้กันลาทับช่วงเดิม */
+  records: SendOffLeaveRecord[];
+  /** วันที่มีงานส่งกรุ๊ป — ขอลาในระบบไม่ได้ ต้องแจ้งผู้จัดโดยตรง */
+  dutyDates: Set<string>;
   onClose: () => void;
-  onSubmit: (v: { type: SendOffLeaveType; reason: string }) => void;
+  onSubmit: (v: LeaveFormValue) => void;
 }) {
   const [type, setType] = useState<SendOffLeaveType>('personal');
+  const [startDate, setStartDate] = useState(initialDate ?? today);
+  const [endDate, setEndDate] = useState(initialDate ?? today);
+  // ค่าเริ่มต้นเมื่อระบุเวลา 09:00–18:00 เหมือนฝั่งหัวหน้าทัวร์ · เปิดจากวันที่แตะในปฏิทิน = ทั้งวัน
+  const [isAllDay, setIsAllDay] = useState(true);
+  const [startTime, setStartTime] = useState('09:00');
+  const [endTime, setEndTime] = useState('18:00');
   const [reason, setReason] = useState('');
+  type FieldErrors = { start?: string; end?: string; startTime?: string; endTime?: string; general?: string };
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const clearErrors = () => setErrors({});
+
+  const validate = (): FieldErrors => {
+    const e: FieldErrors = {};
+    if (!startDate) e.start = 'กรุณาระบุวันที่ให้ถูกต้องในรูปแบบ dd/mm/yy';
+    else if (startDate < today) e.start = 'ขอลาย้อนหลังไม่ได้';
+    if (!endDate) e.end = 'กรุณาระบุวันที่ให้ถูกต้องในรูปแบบ dd/mm/yy';
+    if (startDate && endDate && endDate < startDate) e.end = 'วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่มต้น';
+    if (!isAllDay) {
+      if (!startTime) e.startTime = 'กรุณาระบุเวลาเริ่มต้น';
+      if (!endTime) e.endTime = 'กรุณาระบุเวลาสิ้นสุด';
+      // วันเดียวกัน → เวลาสิ้นสุดต้องหลังเวลาเริ่ม · คนละวัน → ข้ามวันได้
+      if (startDate && endDate && startDate === endDate && startTime && endTime && endTime <= startTime) e.endTime = 'เวลาสิ้นสุดต้องอยู่หลังเวลาเริ่มต้น';
+    }
+    if (!e.start && !e.end && startDate && endDate) {
+      const busy = [...dutyDates].filter((d) => d >= startDate && d <= endDate).sort();
+      if (busy.length > 0) e.general = `ช่วงนี้มีงานส่งกรุ๊ป (${busy.map(formatDate).join(', ')}) — ขอลาในระบบไม่ได้ ให้แจ้งผู้จัดสเก็ตโดยตรง`;
+      const dup = records.find((r) => (r.status === 'pending' || r.status === 'approved') && r.startDate <= endDate && startDate <= r.endDate);
+      if (!e.general && dup) e.general = `ทับกับคำขอ${SEND_OFF_LEAVE_TYPE[dup.type].label} ${formatDate(dup.startDate)}${dup.endDate !== dup.startDate ? `–${formatDate(dup.endDate)}` : ''} ที่มีอยู่แล้ว`;
+    }
+    return e;
+  };
+
+  const submit = () => {
+    const e = validate();
+    if (Object.keys(e).length > 0) {
+      setErrors(e);
+      return;
+    }
+    onSubmit({ type, startDate, endDate, isAllDay, ...(isAllDay ? {} : { startTime, endTime }), reason: reason.trim() });
+  };
+
   return (
     <Modal
       open
       onClose={onClose}
-      size="sm"
-      title="ขอลา"
+      size="md"
+      title="เพิ่มวันลา/ช่วงไม่พร้อม"
       description="ส่งให้ผู้จัดคอนเฟิร์ม — ระหว่างรอยังอาจถูกจัดงานได้"
       footer={
-        <div className="grid w-full grid-cols-2 gap-2">
+        <>
           <Button variant="secondary" onClick={onClose}>ยกเลิก</Button>
-          <Button variant="primary" disabled={dates.length === 0} onClick={() => onSubmit({ type, reason: reason.trim() })}>ส่งคำขอ</Button>
-        </div>
+          <Button variant="primary" icon="check" onClick={submit}>ส่งคำขอ (รออนุมัติ)</Button>
+        </>
       }
     >
       <div className="space-y-3">
-        <div className="rounded-lg zego-surface-soft-bg px-3 py-2">
-          <p className="text-xs zego-text-tertiary">วันที่ลา</p>
-          <p className="text-sm font-semibold zego-text">{leaveDatesLabel(dates)}</p>
+        <div className="rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-tertiary">
+          เจ้าหน้าที่ส่งกรุ๊ป: <strong className="zego-text-secondary">{staffName}</strong> (กำหนดไว้แล้ว)
         </div>
+
         <SelectInput
-          label="ประเภทการลา"
+          label="ประเภท"
+          required
           value={type}
-          onChange={(e) => setType(e.target.value as SendOffLeaveType)}
+          onChange={(e) => { setType(e.target.value as SendOffLeaveType); clearErrors(); }}
           options={SEND_OFF_LEAVE_TYPE_ORDER.map((t) => ({ value: t, label: SEND_OFF_LEAVE_TYPE[t].label }))}
         />
-        <TextArea label="เหตุผล" optional rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+
+        {/* สลับ ทั้งวัน ↔ ระบุเวลา — ไม่ล้างวันที่ */}
+        <label className="flex cursor-pointer items-center gap-2 text-sm zego-text-secondary">
+          <input type="checkbox" className="h-4 w-4 accent-[var(--zego-primary-500)]" checked={isAllDay} onChange={(e) => { setIsAllDay(e.target.checked); clearErrors(); }} />
+          ลาทั้งวัน (00:00–23:59)
+        </label>
+
+        {isAllDay ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <DateField label="วันที่เริ่ม" required value={startDate} onChange={(v) => { setStartDate(v); if (v > endDate) setEndDate(v); clearErrors(); }} min={today} error={errors.start} />
+            <DateField label="วันที่สิ้นสุด" required value={endDate} onChange={(v) => { setEndDate(v); clearErrors(); }} min={startDate} error={errors.end} />
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <DateField label="วันที่เริ่ม" required value={startDate} onChange={(v) => { setStartDate(v); if (v > endDate) setEndDate(v); clearErrors(); }} min={today} error={errors.start} />
+            <TimeField label="เวลาเริ่ม" required value={startTime} onChange={(v) => { setStartTime(v); clearErrors(); }} error={errors.startTime} />
+            <DateField label="วันที่สิ้นสุด" required value={endDate} onChange={(v) => { setEndDate(v); clearErrors(); }} min={startDate} error={errors.end} />
+            <TimeField label="เวลาสิ้นสุด" required value={endTime} onChange={(v) => { setEndTime(v); clearErrors(); }} error={errors.endTime} />
+          </div>
+        )}
+
+        <TextArea label="เหตุผล/รายละเอียด" rows={2} value={reason} onChange={(e) => { setReason(e.target.value); clearErrors(); }} />
+
+        {errors.general && <p className="text-sm font-medium zego-text-danger">{errors.general}</p>}
       </div>
     </Modal>
   );
@@ -327,10 +408,10 @@ function LeaveCalendar({
         <p className="min-w-0 flex-1 text-xs zego-text-secondary">
           {picked.length > 0
             ? <>วันที่ลา: <b className="zego-text">{leaveDatesLabel(picked)}</b></>
-            : 'แตะวันที่ต้องการลา'}
+            : 'แตะวันที่ต้องการลา หรือกด “ขอลา” แล้วระบุวันที่'}
         </p>
         {picked.length > 0 && <Button size="sm" variant="ghost" onClick={onClear}>ล้าง</Button>}
-        <Button size="sm" variant="primary" icon="plus" disabled={picked.length === 0} onClick={onRequest}>ขอลา</Button>
+        <Button size="sm" variant="primary" icon="plus" onClick={onRequest}>ขอลา</Button>
       </div>
     </Card>
   );
