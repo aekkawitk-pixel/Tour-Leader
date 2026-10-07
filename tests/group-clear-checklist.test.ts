@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clearChecklist, summarizeGroupClear } from '../src/lib/logic/groupClear';
+import { clearChecklist, followUpsFromClose, fxCovered, fxRateText, settlementText, summarizeGroupClear } from '../src/lib/logic/groupClear';
 import type { CashEnvelope } from '../src/lib/logic/cashEnvelope';
 import type { ExpenseRequest } from '../src/types';
 
@@ -64,4 +64,63 @@ test('เคลียร์เงินกรุ๊ป — ข้อที่ไ
   assert.equal(item(checks, 'paidExtra').na, true); // ไม่ได้ใช้เกิน
   assert.equal(item(checks, 'returned').na, true); // ไม่มียอดต้องคืน
   assert.equal(item(checks, 'perDiem').na, undefined); // เบี้ยเลี้ยงยังต้องตรวจ
+});
+
+test('เคลียร์เงินกรุ๊ป — ใบเสร็จนอกรายการเบิกไม่ใช่เงินในซอง: ไม่หักจากคงเหลือ แสดงแยก', () => {
+  const advance = {
+    id: 'ADV', jobId: 'P1', category: 'advance', status: 'approved', lines: [{ id: 'B1', amount: 500, currency: 'JPY' }],
+  } as unknown as ExpenseRequest;
+  const inList = { ...receipt('approved', 400), id: 'R-in', lines: [{ id: 'l1', amount: 400, currency: 'JPY', budgetLineId: 'B1' }] } as unknown as ExpenseRequest;
+  const outsideOk = { ...receipt('approved', 200), id: 'R-out' } as ExpenseRequest;
+  const outsidePending = { ...receipt('submitted', 50), id: 'R-out2' } as ExpenseRequest;
+  const s = summary({ envs: [envelope()], expenses: [advance, inList, outsideOk, outsidePending] });
+  const jpy = s.balance.find((b) => b.currency === 'JPY')!;
+  assert.equal(jpy.spent, 400);
+  assert.equal(jpy.pending, 0);
+  assert.equal(jpy.remaining, 600);
+  assert.deepEqual(s.outside, [{ currency: 'JPY', approved: 200, pending: 50 }]);
+  // ยังต้องผ่านตรวจเหมือนใบอื่น
+  assert.equal(s.toReview.receipts, 1);
+});
+
+test('เคลียร์เงินกรุ๊ป — ใช้เกินซอง: จ่ายเพิ่ม หรือ ไม่อนุมัติจ่ายเพิ่ม ครอบคลุมยอดเกิน = ผ่าน · ส่วนที่ไม่อนุมัติไม่เป็นยอดค้าง', () => {
+  const advance = { id: 'ADV', jobId: 'P1', category: 'advance', status: 'approved', lines: [{ id: 'B1', amount: 2000, currency: 'JPY' }] } as unknown as ExpenseRequest;
+  const spend = { ...receipt('approved', 1500), lines: [{ id: 'l1', amount: 1500, currency: 'JPY', budgetLineId: 'B1' }] } as unknown as ExpenseRequest;
+  const s = summary({ envs: [envelope()], expenses: [advance, spend] });
+  assert.equal(s.balance[0].remaining, -500);
+  const none = clearChecklist(s, NO_VALUES);
+  assert.equal(item(none, 'paidExtra').ok, false);
+  const rejected = clearChecklist(s, { ...NO_VALUES, rejectedExtra: [{ currency: 'JPY', amount: 500 }] });
+  assert.equal(item(rejected, 'paidExtra').ok, true);
+  assert.match(item(rejected, 'paidExtra').detail, /ไม่อนุมัติจ่ายเพิ่ม/);
+  const split = clearChecklist(s, { ...NO_VALUES, paidExtra: [{ currency: 'JPY', amount: 200 }], rejectedExtra: [{ currency: 'JPY', amount: 300 }] });
+  assert.equal(item(split, 'paidExtra').ok, true);
+  assert.deepEqual(followUpsFromClose(s, { returned: [], paidExtra: [], rejectedExtra: [{ currency: 'JPY', amount: 500 }] }, 't', 'fin'), []);
+  assert.equal(followUpsFromClose(s, { returned: [], paidExtra: [] }, 't', 'fin')[0].amount, 500);
+});
+
+test('เคลียร์เงินกรุ๊ป — คืนเงินหลายสกุล: ยอดที่ตัด (amount) รวมกันครบ = คืนครบ', () => {
+  const s = summary({ envs: [envelope()] }); // ในซอง 1,000 JPY ไม่มีใบเสร็จ → ต้องคืน 1,000
+  const returned = [
+    { currency: 'JPY', amount: 600 },
+    { currency: 'JPY', amount: 400, paidCurrency: 'THB', paidAmount: 88, fxRate: 0.22 },
+  ];
+  assert.equal(item(clearChecklist(s, { ...NO_VALUES, returned }), 'returned').ok, true);
+  assert.deepEqual(followUpsFromClose(s, { returned, paidExtra: [] }, 't', 'fin'), []);
+  assert.equal(settlementText(returned[1]), '88.00 THB (อัตรา 1 JPY = 0.22 THB) = 400.00 JPY');
+  assert.equal(followUpsFromClose(s, { returned: [returned[0]], paidExtra: [] }, 't', 'fin')[0].amount, 400);
+});
+
+test('เคลียร์เงินกรุ๊ป — อัตราแลกเปลี่ยนอ้างอิงบาท: แปลงกลับเป็นสกุลของยอด', () => {
+  // ยอด JPY คืนเป็นบาท — 1 JPY = 0.22 THB → 32,820 THB = 149,181.82 JPY
+  assert.equal(fxRateText('JPY', 'THB', 0.22), '1 JPY = 0.22 THB');
+  assert.equal(fxCovered('JPY', 'THB', 32820, 0.22), 149181.82);
+  // ยอดบาท คืนเป็น USD — 1 USD = 35 THB → 100 USD = 3,500 THB
+  assert.equal(fxRateText('THB', 'USD', 35), '1 USD = 35 THB');
+  assert.equal(fxCovered('THB', 'USD', 100, 35), 3500);
+  // ไม่มีบาท — ยอด JPY คืนเป็น USD · 1 USD = 150 JPY
+  assert.equal(fxRateText('JPY', 'USD', 150), '1 USD = 150 JPY');
+  assert.equal(fxCovered('JPY', 'USD', 10, 150), 1500);
+  // ยังไม่กรอกอัตรา = ยังไม่ตัดยอด
+  assert.equal(fxCovered('JPY', 'THB', 32820, 0), 0);
 });

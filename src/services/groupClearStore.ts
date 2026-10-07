@@ -66,12 +66,30 @@ export const FOLLOW_UP_REASON: Record<FollowUp['reason'], string> = {
   other: 'อื่น ๆ',
 };
 
+/**
+ * รับเงินคืน / บริษัทจ่ายเพิ่ม 1 รายการ — currency + amount = ยอดที่ตัดในสกุลของยอดนั้น (ใช้คิดเช็กลิสต์ / ยอดค้าง)
+ * คืน/จ่ายเป็นสกุลอื่น (เช่น ต้องคืน JPY แต่คืนเป็นบาท) = paidCurrency + paidAmount + fxRate
+ * fxRate = จำนวนสกุลที่จ่าย ต่อ 1 หน่วยสกุลของยอด (เช่น 1 JPY = 0.22 THB) · amount = paidAmount ÷ fxRate
+ */
+export interface ClearSettlement {
+  currency: string;
+  amount: number;
+  paidCurrency?: string;
+  paidAmount?: number;
+  fxRate?: number;
+}
+
 export interface GroupClearRecord {
   periodId: string;
   /** เงินที่หัวหน้าทัวร์คืนจริงตอนเคลียร์ แยกสกุล (0 = ไม่ต้องคืน) */
-  returned: { currency: string; amount: number }[];
+  returned: ClearSettlement[];
   /** บริษัทจ่ายเพิ่มให้หัวหน้าทัวร์แล้ว (กรณีใช้เกินเงินในซอง) แยกสกุล */
-  paidExtra?: { currency: string; amount: number }[];
+  paidExtra?: ClearSettlement[];
+  /**
+   * บริษัทไม่อนุมัติจ่ายเพิ่มส่วนที่ใช้เกินเงินในซอง (แยกสกุล · ต้องมีเหตุผล) — ไม่เป็นยอดค้างที่บริษัทต้องจ่าย
+   * หัวหน้าทัวร์รับผิดชอบส่วนนี้เอง · พิมพ์ในใบเคลียร์เงินให้หัวหน้าทัวร์รับทราบ
+   */
+  rejectedExtra?: { currency: string; amount: number; reason: string }[];
   /** กรุ๊ปนี้ไม่มีเบี้ยเลี้ยง — ข้อ "เบี้ยเลี้ยงโอนแล้ว" ถือว่าผ่าน */
   noPerDiem?: boolean;
   /** complete = เช็กลิสต์ผ่านครบตอนปิด · partial = ปิดทั้งที่มีข้อค้าง (ต้องมีเหตุผล) */

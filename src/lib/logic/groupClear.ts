@@ -8,13 +8,15 @@
  *   รอตรวจ     = ใบเสร็จที่หัวหน้าทัวร์ส่งแล้ว รอบัญชีตรวจ — ยังไม่หักจากคงเหลือ
  *   (ร่าง / ส่งกลับแก้ไข = หัวหน้าทัวร์ยังไม่ส่ง — นับแยก ไม่ใช่งานรอตรวจของบัญชี)
  *   คงเหลือ     = ในซอง − ส่งแลนด์ − ใช้ตามใบเสร็จ → บวก = หัวหน้าทัวร์ต้องคืน · ลบ = บริษัทจ่ายเพิ่ม
+ *   ใบเสร็จนอกรายการเบิก ไม่ใช่เงินในซอง — ไม่หักจากคงเหลือ แสดงแยก (outside) · ยังต้องผ่านตรวจเหมือนใบอื่น
  * เบี้ยเลี้ยงโอนแยก (ไม่หักกลบกับเงินคืน) — แสดงสถานะใบเบิกให้เห็นในหน้าเดียว
  * วันกลับนับเป็นจบทริป · กำหนดเคลียร์ = วันกลับ + 14 วัน
  */
 
 import type { ExpenseRequest } from '@/types';
-import type { FollowUp, GroupClearRecord } from '@/services/groupClearStore';
+import type { ClearSettlement, FollowUp, GroupClearRecord } from '@/services/groupClearStore';
 import { envelopeBalance, sumAmounts, type CashEnvelope, type EnvelopeAmount } from './cashEnvelope';
+import { isOutsideReceipt } from './groupBudget';
 
 /**
  * กำหนดเคลียร์เงิน — จำนวนวันหลังวันกลับ · null = ยังไม่มีนโยบาย (ไม่แสดงวันกำหนด / ไม่มี "เกินกำหนด")
@@ -54,6 +56,8 @@ export interface GroupClearSummary {
   receipts: ExpenseRequest[];
   perDiem: ExpenseRequest | null;
   balance: { currency: string; face: number; land: number; spent: number; pending: number; remaining: number }[];
+  /** ใบเสร็จนอกรายการเบิก — ไม่ใช่เงินในซอง ไม่หักจากคงเหลือ · approved = ตรวจแล้ว · pending = รอตรวจ */
+  outside: { currency: string; approved: number; pending: number }[];
   /** ส่งแล้ว รอบัญชีตรวจ — ใบเสร็จ (จำนวนใบ) / ใบเบิกเบี้ยเลี้ยง */
   toReview: { receipts: number; perDiem: boolean };
   /** หัวหน้าทัวร์ยังไม่ส่ง (ร่าง / ส่งกลับแก้ไข) — ใบเสร็จ (จำนวนใบ) / ใบเบิกเบี้ยเลี้ยง */
@@ -95,8 +99,18 @@ export function summarizeGroupClear(input: {
   const face = sumAmounts(received.flatMap((e) => e.sealed!.faceTotals));
   const inTransit = sumAmounts(envelopes.filter((e) => e.handover && !e.leaderAck && !e.staffReturn).flatMap((e) => e.sealed!.faceTotals));
   const land = sumAmounts(received.flatMap((e) => (e.landPayments ?? []).map((p) => ({ amount: p.amount, currency: p.currency }))));
-  const spent = sumAmounts(linesOf(receipts.filter((r) => APPROVED.has(r.status))));
-  const pendingAmt = sumAmounts(linesOf(receipts.filter((r) => TO_REVIEW.has(r.status))));
+  // เงินในซองหักเฉพาะใบเสร็จตามรายการเบิก — นอกรายการเบิกไม่ใช่เงินในซอง
+  const outsideList = receipts.filter((r) => isOutsideReceipt(input.expenses, r));
+  const inList = receipts.filter((r) => !outsideList.includes(r));
+  const spent = sumAmounts(linesOf(inList.filter((r) => APPROVED.has(r.status))));
+  const pendingAmt = sumAmounts(linesOf(inList.filter((r) => TO_REVIEW.has(r.status))));
+  const outApproved = sumAmounts(linesOf(outsideList.filter((r) => APPROVED.has(r.status))));
+  const outPending = sumAmounts(linesOf(outsideList.filter((r) => TO_REVIEW.has(r.status))));
+  const outside = [...new Set([...outApproved, ...outPending].map((x) => x.currency))].map((c) => ({
+    currency: c,
+    approved: outApproved.find((x) => x.currency === c)?.amount ?? 0,
+    pending: outPending.find((x) => x.currency === c)?.amount ?? 0,
+  }));
   const base = envelopeBalance(face, land, spent);
   const currencies = [...new Set([...base.map((b) => b.currency), ...pendingAmt.map((p) => p.currency)])];
   const balance = currencies.map((c) => {
@@ -117,7 +131,7 @@ export function summarizeGroupClear(input: {
         : leaderCount > 0 || (receipts.length === 0 && !perDiem && received.length > 0) ? 'waiting_leader'
           : 'ready';
   return {
-    periodId, envelopes, received, inTransit, receipts, perDiem, balance, toReview, atLeader, pendingDocs: reviewCount + leaderCount, dueDate,
+    periodId, envelopes, received, inTransit, receipts, perDiem, balance, outside, toReview, atLeader, pendingDocs: reviewCount + leaderCount, dueDate,
     overdue: dueDate !== null && stage !== 'closed' && stage !== 'closed_partial' && !clearNotEnded(stage) && today > dueDate,
     stage,
   };
@@ -156,7 +170,7 @@ const EPS = 0.005;
  */
 export function clearChecklist(
   s: GroupClearSummary,
-  v: { returned: { currency: string; amount: number }[]; paidExtra: { currency: string; amount: number }[]; noPerDiem: boolean },
+  v: { returned: ClearSettlement[]; paidExtra: ClearSettlement[]; rejectedExtra?: { currency: string; amount: number }[]; noPerDiem: boolean },
 ): ClearCheckItem[] {
   const handed = s.envelopes.filter((e) => e.handover || e.leaderAck);
   const envIssues = handed.flatMap((e) => [
@@ -167,6 +181,7 @@ export function clearChecklist(
 
   const pendingReceipts = s.toReview.receipts + s.atLeader.receipts;
   const amt = (list: { currency: string; amount: number }[], c: string) => list.filter((x) => x.currency === c).reduce((n, x) => n + x.amount, 0);
+  // คืนเป็นสกุลอื่น — amount คือยอดที่แปลงกลับเป็นสกุลของยอดแล้ว (ตามอัตราที่กรอก)
   const shortReturn = s.balance.filter((b) => b.remaining > EPS && amt(v.returned, b.currency) + EPS < b.remaining)
     .map((b) => `${b.currency} ขาด ${fmt(b.remaining - amt(v.returned, b.currency))}`);
   const toReturn = s.balance.filter((b) => b.remaining > EPS);
@@ -175,8 +190,11 @@ export function clearChecklist(
     .map((c) => ({ c, extra: amt(v.returned, c) - Math.max(0, s.balance.find((b) => b.currency === c)?.remaining ?? 0) }))
     .filter((x) => x.extra > EPS)
     .map((x) => `${x.c} คืนเกิน ${fmt(x.extra)}`);
-  const shortExtra = s.balance.filter((b) => b.remaining < -EPS && amt(v.paidExtra, b.currency) + EPS < -b.remaining)
-    .map((b) => `${b.currency} ค้าง ${fmt(-b.remaining - amt(v.paidExtra, b.currency))}`);
+  // ใช้เกินซอง — ปิดได้เมื่อบริษัทจ่ายเพิ่ม + ไม่อนุมัติจ่ายเพิ่ม ครอบคลุมยอดที่เกินครบ
+  const rejected = v.rejectedExtra ?? [];
+  const settledExtra = (c: string) => amt(v.paidExtra, c) + amt(rejected, c);
+  const shortExtra = s.balance.filter((b) => b.remaining < -EPS && settledExtra(b.currency) + EPS < -b.remaining)
+    .map((b) => `${b.currency} ยังไม่ได้จ่ายเพิ่ม/ตัดสิน ${fmt(-b.remaining - settledExtra(b.currency))}`);
   const over = s.balance.filter((b) => b.remaining < -EPS);
   const land = s.received.flatMap((e) => (e.landPayments ?? []).map((lp) => ({ e, lp })));
   const noProof = land.filter((x) => !x.lp.evidenceImage);
@@ -198,7 +216,7 @@ export function clearChecklist(
       envelopesItem,
       { key: 'receipts', label: 'ใบเสร็จผ่านตรวจครบ', ...later },
       { key: 'returned', label: 'รับเงินคืนครบทุกสกุล (ไม่ขาด ไม่เกิน)', ...later },
-      { key: 'paidExtra', label: 'ใช้เกินซอง — บริษัทจ่ายเพิ่มแล้ว', ...later },
+      { key: 'paidExtra', label: 'ใช้เกินซอง — บริษัทจ่ายเพิ่ม / ไม่อนุมัติแล้ว', ...later },
       { key: 'perDiem', label: 'เบี้ยเลี้ยงโอนแล้ว', ...later },
       { key: 'landProof', label: 'ส่งแลนด์ครบและมีหลักฐาน', ...later },
     ];
@@ -231,9 +249,14 @@ export function clearChecklist(
     { key: 'returned', label: 'รับเงินคืนครบทุกสกุล (ไม่ขาด ไม่เกิน)', ok: shortReturn.length === 0 && overReturn.length === 0,
       ...(toReturn.length === 0 && overReturn.length === 0 ? { na: true } : {}),
       detail: [...shortReturn, ...overReturn].join(' · ') || (toReturn.length ? `รับคืนครบ ${toReturn.map((b) => b.currency).join(', ')}` : 'ไม่มียอดต้องคืน') },
-    { key: 'paidExtra', label: 'ใช้เกินซอง — บริษัทจ่ายเพิ่มแล้ว', ok: shortExtra.length === 0,
+    { key: 'paidExtra', label: 'ใช้เกินซอง — บริษัทจ่ายเพิ่ม / ไม่อนุมัติแล้ว', ok: shortExtra.length === 0,
       ...(over.length === 0 ? { na: true } : {}),
-      detail: shortExtra.length ? shortExtra.join(' · ') : over.length ? `จ่ายเพิ่มครบ ${over.map((b) => b.currency).join(', ')}` : 'ไม่ได้ใช้เกินซอง' },
+      detail: shortExtra.length ? shortExtra.join(' · ')
+        : over.length ? over.map((b) => [
+          amt(v.paidExtra, b.currency) > EPS && `จ่ายเพิ่ม ${b.currency} ${fmt(amt(v.paidExtra, b.currency))}`,
+          amt(rejected, b.currency) > EPS && `ไม่อนุมัติจ่ายเพิ่ม ${b.currency} ${fmt(amt(rejected, b.currency))}`,
+        ].filter(Boolean).join(' · ')).join(' · ')
+          : 'ไม่ได้ใช้เกินซอง' },
     { key: 'perDiem', label: 'เบี้ยเลี้ยงโอนแล้ว', ok: v.noPerDiem || pd?.status === 'paid',
       ...(v.noPerDiem ? { na: true } : {}),
       detail: v.noPerDiem ? 'ระบุว่ากรุ๊ปนี้ไม่มีเบี้ยเลี้ยง' : !pd ? 'ยังไม่มีใบเบิกเบี้ยเลี้ยง' : pd.status === 'paid' ? `โอนแล้ว${pd.paidRef ? ` · ${pd.paidRef}` : ''}` : `ใบเบิก ${pd.id} ยังไม่โอน` },
@@ -245,7 +268,41 @@ export function clearChecklist(
 /* ยอดค้างติดตาม — หลังปิดแบบมีค้าง                                     */
 /* ------------------------------------------------------------------ */
 
-export const followUpCovered = (f: FollowUp) => f.payments.reduce((n, p) => n + p.covered, 0);
+/*
+  คืน/จ่ายเป็นสกุลอื่น — กรอกอัตราแลกเปลี่ยน แล้วแปลงกลับเป็นสกุลของยอด (amount) ให้คิดขาด/เกินได้แม่นยำ
+  อัตราอ้างอิงบาทเสมอเมื่อมีบาทเกี่ยวข้อง (ตามที่การเงินใช้กันจริง):
+    จ่ายเป็นบาท  (ยอด JPY)  → "1 JPY = x THB"   ยอดที่ตัด = จำนวน ÷ x
+    ยอดเป็นบาท  (จ่าย USD)  → "1 USD = x THB"   ยอดที่ตัด = จำนวน × x
+    ไม่มีบาท    (ยอด JPY จ่าย USD) → "1 USD = x JPY"   ยอดที่ตัด = จำนวน × x
+*/
+/** อัตรา "1 หน่วยของสกุลไหน" — owed = 1 สกุลของยอด · paid = 1 สกุลที่จ่าย */
+export const fxBase = (owed: string, paid: string): 'owed' | 'paid' => (paid === 'THB' ? 'owed' : 'paid');
+/** ยอดที่ตัดในสกุลของยอด จากจำนวนที่จ่าย + อัตรา (อัตราไม่ถูกต้อง = 0) */
+export function fxCovered(owed: string, paid: string, paidAmount: number, rate: number): number {
+  if (!(paidAmount > 0) || !(rate > 0)) return 0;
+  return Math.round((fxBase(owed, paid) === 'owed' ? paidAmount / rate : paidAmount * rate) * 100) / 100;
+}
+/** ข้อความอัตรา เช่น "1 JPY = 0.22 THB" */
+export function fxRateText(owed: string, paid: string, rate: number | string): string {
+  const r = typeof rate === 'number' ? rate.toLocaleString('th-TH', { maximumFractionDigits: 6 }) : rate;
+  return fxBase(owed, paid) === 'owed' ? `1 ${owed} = ${r} ${paid}` : `1 ${paid} = ${r} ${owed}`;
+}
+
+/** ข้อความของการรับคืน / จ่ายเพิ่ม 1 รายการ — สกุลอื่นแสดงอัตราและยอดที่ตัด */
+export function settlementText(e: ClearSettlement): string {
+  if (e.paidCurrency && e.paidCurrency !== e.currency && e.paidAmount != null) {
+    return `${fmt(e.paidAmount)} ${e.paidCurrency}${e.fxRate ? ` (อัตรา ${fxRateText(e.currency, e.paidCurrency, e.fxRate)})` : ''} = ${fmt(e.amount)} ${e.currency}`;
+  }
+  return `${fmt(e.amount)} ${e.currency}`;
+}
+
+/** รายละเอียดการคืน/จ่ายของยอดสกุลนี้ — มีสกุลอื่นหรือหลายรายการ = แจกแจงทีละรายการ · ไม่มี = '' */
+export function settlementBreakdown(list: ClearSettlement[], currency: string): string[] {
+  const mine = list.filter((x) => x.currency === currency && (x.paidAmount ?? x.amount) > 0);
+  return mine.length > 1 || mine.some((x) => x.paidCurrency && x.paidCurrency !== x.currency) ? mine.map(settlementText) : [];
+}
+
+export const followUpCovered =(f: FollowUp) => f.payments.reduce((n, p) => n + p.covered, 0);
 export const followUpRemaining = (f: FollowUp) => Math.max(0, f.amount - followUpCovered(f));
 export const followUpOpen = (f: FollowUp) => followUpRemaining(f) > EPS;
 
@@ -254,7 +311,7 @@ export const followUpOpen = (f: FollowUp) => followUpRemaining(f) > EPS;
  */
 export function followUpsFromClose(
   s: GroupClearSummary,
-  v: { returned: { currency: string; amount: number }[]; paidExtra: { currency: string; amount: number }[] },
+  v: { returned: ClearSettlement[]; paidExtra: ClearSettlement[]; rejectedExtra?: { currency: string; amount: number }[] },
   at: string,
   by: string,
 ): FollowUp[] {
@@ -268,7 +325,8 @@ export function followUpsFromClose(
     const ret = amt(v.returned, c);
     if (remaining > EPS && ret + EPS < remaining) mk('leader_owes', 'short_return', c, remaining - ret);
     if (ret - Math.max(0, remaining) > EPS) mk('company_owes', 'over_return', c, ret - Math.max(0, remaining));
-    const extra = amt(v.paidExtra, c);
+    // ส่วนที่ไม่อนุมัติจ่ายเพิ่ม ไม่ใช่ยอดที่บริษัทค้าง
+    const extra = amt(v.paidExtra, c) + amt(v.rejectedExtra ?? [], c);
     if (remaining < -EPS && extra + EPS < -remaining) mk('company_owes', 'over_spend', c, -remaining - extra);
   }
   return out;
@@ -290,5 +348,5 @@ export function effectiveClearValues(rec: GroupClearRecord | undefined) {
     if (f.reason === 'over_return') returned.push({ currency: f.currency, amount: -covered });
     if (f.reason === 'over_spend') paidExtra.push({ currency: f.currency, amount: covered });
   }
-  return { returned, paidExtra, noPerDiem: !!rec?.noPerDiem };
+  return { returned, paidExtra, rejectedExtra: rec?.rejectedExtra ?? [], noPerDiem: !!rec?.noPerDiem };
 }

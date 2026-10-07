@@ -116,7 +116,7 @@ export default function GroupClearPage() {
     <>
       <PageHeader
         title="เคลียร์เงินกรุ๊ป"
-        description="สรุปเงินของแต่ละกรุ๊ป แยกทีละสกุล: ในซอง − ส่งแลนด์ − ใบเสร็จที่ตรวจแล้ว = คงเหลือ (หัวหน้าทัวร์ต้องคืน / บริษัทจ่ายเพิ่ม) · เบี้ยเลี้ยงโอนแยก"
+        description="สรุปเงินของแต่ละกรุ๊ป แยกทีละสกุล: ในซอง − ส่งแลนด์ − ใบเสร็จตามรายการเบิกที่ตรวจแล้ว = คงเหลือ (หัวหน้าทัวร์ต้องคืน / บริษัทจ่ายเพิ่ม) · นอกรายการเบิกไม่หักจากซอง · เบี้ยเลี้ยงโอนแยก"
         actions={
           <Link href="/settlements/custody">
             <Button variant="secondary" size="sm" icon="money">เงินค่าแลนด์ที่ถือไป</Button>
@@ -163,9 +163,7 @@ export default function GroupClearPage() {
                   <th className={th}>รหัสกรุ๊ป</th>
                   <th className={th}>วันเดินทางไป-กลับ</th>
                   <th className={th}>หัวหน้าทัวร์</th>
-                  <th className={`${th} text-right`}>ในซอง</th>
-                  <th className={`${th} text-right`}>ใช้ไป (ตรวจแล้ว)</th>
-                  <th className={`${th} text-right`}>คงเหลือ</th>
+                  <th className={th}>เงินในซอง / ใช้แล้ว</th>
                   <th className={th}>เบี้ยเลี้ยง</th>
                   <th className={th}>สถานะ</th>
                   <th className={`${th} text-right`}>Action</th>
@@ -206,45 +204,60 @@ export default function GroupClearPage() {
                       </td>
                       <td className="px-3 py-2.5 align-top tabular-nums zego-text">{formatDateRange(p.startDate, p.endDate)}</td>
                       <td className="px-3 py-2.5 align-top">{leader ? <span className="zego-text">{leader.name}</span> : <span className="zego-text-tertiary">—</span>}</td>
-                      <td className="px-3 py-2.5 text-right align-top tabular-nums">
-                        {s.balance.filter((b) => b.face > 0).map((b) => <p key={b.currency} className="whitespace-nowrap zego-text">{formatCurrency(b.face, b.currency)}</p>)}
-                        {!s.balance.some((b) => b.face > 0) && s.inTransit.length === 0 && <p className="zego-text-tertiary">—</p>}
+                      {/*
+                        เงินในซอง / ใช้แล้ว — คอลัมน์เดียว แยกทีละสกุล
+                          บรรทัดบน: ในซอง / ใช้แล้ว (ส่งแลนด์ + ใบเสร็จตามรายการเบิกที่ตรวจแล้ว)
+                          แถบ: เขียว ใช้แล้ว · ม่วง รอตรวจ · เทา ยังเหลือ · แดง ใช้เกินซอง
+                          บรรทัดล่าง: ผล — คิดแบบรอตรวจผ่านหมดแล้ว (ใกล้ยอดเคลียร์จริงที่สุด) · ปิดแล้วแสดงเงินที่รับคืนจริง
+                        นอกรายการเบิกไม่ใช่เงินในซอง — บรรทัดเล็กท้ายช่อง · รายละเอียด (แลนด์/ใบเสร็จ) ดูในแผงของกรุ๊ป
+                      */}
+                      <td className="min-w-[15rem] px-3 py-2.5 align-top tabular-nums">
+                        {s.balance.length === 0 && s.inTransit.length === 0 && <p className="zego-text-tertiary">—</p>}
+                        <div className="space-y-2">
+                          {s.balance.map((b) => {
+                            const used = b.land + b.spent;
+                            const after = Math.round((b.remaining - b.pending) * 100) / 100;
+                            const scale = Math.max(b.face, used + b.pending) || 1;
+                            const pct = (n: number) => `${Math.min(100, (n / scale) * 100)}%`;
+                            const over = after < -0.005;
+                            return (
+                              <div key={b.currency}>
+                                <p className="whitespace-nowrap zego-text">
+                                  <span className="font-semibold">{money(b.face)}</span>
+                                  <span className="zego-text-tertiary"> / </span>
+                                  {money(used)} <span className="text-xs zego-text-tertiary">{b.currency}</span>
+                                </p>
+                                <div className="mt-1 flex h-1.5 w-full overflow-hidden rounded-full bg-slate-200" aria-hidden>
+                                  <span className={over ? 'bg-rose-500' : 'bg-emerald-500'} style={{ width: pct(used) }} />
+                                  <span className="bg-violet-400" style={{ width: pct(b.pending) }} />
+                                </div>
+                                <p className="mt-0.5 whitespace-nowrap text-[11px]">
+                                  {b.pending > 0 && <span className="text-violet-700">รอตรวจ {money(b.pending)} · </span>}
+                                  {isClosed ? <span className="zego-text-tertiary">ปิดแล้ว</span>
+                                    : Math.abs(after) < 0.005 ? <span className="font-semibold text-emerald-700">ใช้ครบ</span>
+                                      : over ? <span className="font-semibold text-rose-700">ใช้เกิน {money(-after)}</span>
+                                        : <span className={cx('font-semibold', notEnded ? 'zego-text-secondary' : 'zego-text-danger')}>{notEnded ? 'เหลือ' : 'ต้องคืน'} {money(after)}</span>}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
                         {/* ส่งมอบแล้ว หัวหน้าทัวร์ยังไม่กดรับ — ยังไม่นับในยอด แต่เห็นว่าเงินออกไปแล้ว */}
                         {s.inTransit.map((t) => (
-                          <p key={t.currency} className="whitespace-nowrap text-[11px] zego-text-tertiary">รอรับ {formatCurrency(t.amount, t.currency)}</p>
+                          <p key={t.currency} className="whitespace-nowrap text-[11px] zego-text-tertiary">รอหัวหน้าทัวร์รับ {formatCurrency(t.amount, t.currency)}</p>
                         ))}
-                      </td>
-                      <td className="px-3 py-2.5 text-right align-top tabular-nums">
-                        {s.balance.filter((b) => b.land + b.spent > 0).map((b) => <p key={b.currency} className="whitespace-nowrap zego-text">{formatCurrency(b.land + b.spent, b.currency)}</p>)}
-                        {!s.balance.some((b) => b.land + b.spent > 0) && <p className="zego-text-tertiary">—</p>}
-                        {/* แยกให้ชัด: ส่งแล้วรอบัญชีตรวจ กับ หัวหน้าทัวร์ยังไม่ส่ง · ใบเสร็จ กับ เบี้ยเลี้ยง */}
-                        {/* ใช้ไป = ใบเสร็จเท่านั้น (เบี้ยเลี้ยงโอนแยก — ดูสถานะที่คอลัมน์เบี้ยเลี้ยง) */}
-                        {s.toReview.receipts > 0 && (
-                          <p className="whitespace-nowrap text-[11px] text-violet-700">ใบเสร็จรอตรวจ {s.toReview.receipts} ใบ</p>
-                        )}
                         {s.atLeader.receipts > 0 && (
                           <p className="whitespace-nowrap text-[11px] zego-text-warning">ใบเสร็จยังไม่ส่ง {s.atLeader.receipts} ใบ</p>
                         )}
-                      </td>
-                      <td className="px-3 py-2.5 text-right align-top tabular-nums">
-                        {/* ปิดแล้ว = แสดงเงินที่รับคืนจริง (ไม่ใช่ยอดค้าง) */}
-                        {isClosed ? (
-                          (records[p.internalId]?.returned.length ?? 0) > 0
-                            ? records[p.internalId]!.returned.map((r) => (
-                              <p key={r.currency} className="whitespace-nowrap">
-                                <span className="font-semibold text-emerald-700">{money(r.amount)} {r.currency}</span>
-                                <span className="block text-[11px] zego-text-tertiary">รับคืนแล้ว</span>
-                              </p>
-                            ))
-                            : <p className="text-xs zego-text-tertiary">ไม่มีเงินคืน</p>
-                        ) : s.balance.filter((b) => b.remaining !== 0).map((b) => (
-                          <p key={b.currency} className="whitespace-nowrap">
-                            {/* ยังไม่จบทริป = แค่เงินที่ยังอยู่ในซอง ยังไม่ใช่ยอดต้องคืน */}
-                            <span className={cx('font-semibold', notEnded ? 'zego-text' : b.remaining > 0 ? 'zego-text-danger' : 'text-emerald-700')}>{money(Math.abs(b.remaining))} {b.currency}</span>
-                            <span className="block text-[11px] zego-text-tertiary">{notEnded ? 'คงเหลือในซอง' : b.remaining > 0 ? 'ต้องคืน' : 'บริษัทจ่ายเพิ่ม'}</span>
+                        {s.outside.map((o) => (
+                          <p key={o.currency} className="whitespace-nowrap text-[11px] text-amber-800">
+                            + นอกรายการ {formatCurrency(o.approved + o.pending, o.currency)}{o.pending > 0 ? ' (มีรอตรวจ)' : ''}
                           </p>
                         ))}
-                        {!isClosed && !s.balance.some((b) => b.remaining !== 0) && <p className="zego-text-tertiary">—</p>}
+                        {/* ปิดแล้ว — เงินที่รับคืนจริง (คืนเป็นสกุลอื่นแสดงตามสกุลที่จ่าย) */}
+                        {isClosed && (records[p.internalId]?.returned ?? []).map((r, i) => (
+                          <p key={i} className="whitespace-nowrap text-[11px] font-semibold text-emerald-700">รับคืนแล้ว {money(r.paidAmount ?? r.amount)} {r.paidCurrency ?? r.currency}</p>
+                        ))}
                       </td>
                       <td className="px-3 py-2.5 align-top">
                         {s.perDiem ? (
@@ -328,7 +341,7 @@ export default function GroupClearPage() {
           leader={open.leader}
           record={records[open.p.internalId]}
           onClose={() => setOpenId(null)}
-          onSaved={() => { setRecords(loadGroupClears()); setOpenId(null); }}
+          onSaved={(keepOpen) => { setRecords(loadGroupClears()); if (!keepOpen) setOpenId(null); }}
         />
       )}
     </>

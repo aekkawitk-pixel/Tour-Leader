@@ -117,6 +117,12 @@ export function budgetUseOf(expenses: ExpenseRequest[], receipt: ExpenseRequest,
   return budgetUseOfItem(expenses, receipt.jobId, line.budgetLineId);
 }
 
+/**
+ * ใบเสร็จนอกรายการเบิก (ไม่ได้ผูก / รายการที่ผูกถูกลบจากใบเบิกแล้ว) — ไม่ใช่เงินในซอง
+ * จึงไม่หักจากยอดคงเหลือในซอง (ไม่นับใน "ใช้ตามใบเสร็จ" / "รอตรวจ" ของการเคลียร์เงินกรุ๊ป)
+ */
+export const isOutsideReceipt = (expenses: ExpenseRequest[], receipt: ExpenseRequest) => budgetUseOf(expenses, receipt).kind === 'outside';
+
 /** รายการเบิก 1 รายการของกรุ๊ป ใช้ไปครบ / ไม่ครบ / เกิน (รวมทุกใบเสร็จที่ผูก) · หาไม่เจอ = นอกรายการเบิก */
 export function budgetUseOfItem(expenses: ExpenseRequest[], groupId: string, budgetLineId: string): BudgetUse {
   const item = budgetItemsForGroup(expenses, groupId).find((b) => b.line.id === budgetLineId);

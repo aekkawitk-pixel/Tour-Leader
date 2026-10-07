@@ -28,6 +28,7 @@ import {
   type Allocation, type CashEnvelope, type EnvelopeAmount, type EnvelopeTone,
 } from '@/lib/logic/cashEnvelope';
 import { getAssignablePeriods, getTourPeriodById } from '@/services/tourPeriodMaster';
+import { isOutsideReceipt } from '@/lib/logic/groupBudget';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { loadSendOffAssignments } from '@/services/sendOffAssignmentStore';
 import { loadSendOffStaff } from '@/services/sendOffStaffStore';
@@ -72,8 +73,9 @@ const fmtTotals = (list: EnvelopeAmount[]) => list.map((t) => formatCurrency(t.a
 export function spentByReceipts(expenses: ExpenseRequest[], periodId: string, leaderId?: string): EnvelopeAmount[] {
   return sumAmounts(
     expenses
+      // นอกรายการเบิกไม่ใช่เงินในซอง — ไม่หักจากคงเหลือในซอง
       .filter((e) => e.jobId === periodId && e.category === 'actual' && e.status !== 'cancelled' && e.status !== 'rejected'
-        && (!leaderId || e.requesterId === leaderId))
+        && (!leaderId || e.requesterId === leaderId) && !isOutsideReceipt(expenses, e))
       .flatMap((e) => e.lines.filter((l) => !l.rejected).map((l) => ({ amount: l.amount, currency: l.currency }))),
   );
 }
