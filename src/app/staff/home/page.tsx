@@ -1,0 +1,336 @@
+'use client';
+
+/**
+ * หน้าหลัก — /staff/home (พอร์ทัลเจ้าหน้าที่ส่งกรุ๊ป)
+ *
+ *   หัวหน้า: เลือกเดือนที่ดู (มีผลกับการ์ดจำนวนงานเดือน)
+ *   1) จำนวนงานของเดือน + แถบสัดส่วน สุวรรณภูมิ (ฟ้า) / ดอนเมือง (ส้ม) + จำนวน·%
+ *   แถบเลือกวันที่รายสัปดาห์ อา.–ส. กด ‹ › เลื่อนทีละสัปดาห์ (ค่าเริ่มต้น = วันนี้) — การ์ดงานรายวันและรายการงานเปลี่ยนตามวันที่เลือก
+ *   2) งานวันนี้ / งานวันที่เลือก — รวมทั้งหมด · ช่วงเช้า 00:01–12:00 / ช่วงเย็น 12:01–00:00 (ตามเวลาต้องถึงสนามบิน · แตะเพื่อกรองรายการ)
+ *      · แยกตามสนามบิน (วันนี้)
+ *   3) รายการงานวันนี้ — กรองทั้งหมด / ตามสนามบิน · เวลานัด · สนามบิน · รหัสกรุ๊ป · สถานะตามเวลา
+ * ตัวเลขคำนวณที่ staffHomeSummary / dutyStage (lib/logic/staffPortal.ts)
+ */
+
+import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Card, StatusBadge, cx } from '@/components/ui/Primitives';
+import { Icon, type IconName } from '@/components/ui/Icon';
+import { formatDate } from '@/lib/format';
+import { airportName } from '@/lib/logic/airportLabel';
+import { DUTY_STAGE, dutyShift, dutyStage, staffHomeSummary } from '@/lib/logic/staffPortal';
+import { useStaffPortal } from '../useStaffPortal';
+import { staffEnvelopeNotice } from '../envelopeNotice';
+import { useDemo } from '@/store/DemoStore';
+
+const TH_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+const TH_DAYS = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+const monthTitle = (ym: string) => `${TH_MONTHS[Number(ym.slice(5, 7)) - 1]} ${Number(ym.slice(0, 4)) + 543}`;
+const dayTitle = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`);
+  return `วัน${TH_DAYS[d.getDay()]}ที่ ${d.getDate()} ${TH_MONTHS[d.getMonth()]} ${d.getFullYear() + 543}`;
+};
+/** ชื่อสนามบินสำหรับการ์ด — ไม่ทราบสนามบิน = "ยังไม่ระบุสนามบิน" */
+const airportText = (code: string) => (code ? (airportName(code) !== code ? airportName(code) : code) : 'ยังไม่ระบุสนามบิน');
+/** สีประจำสนามบิน — โทนเขียว/น้ำตาลของระบบ: สุวรรณภูมิ เขียว · ดอนเมือง น้ำตาล · อื่น ๆ เทา */
+const GREEN = { tile: 'bg-emerald-50', text: 'text-emerald-700', bar: 'bg-emerald-600', badge: 'bg-emerald-100 text-emerald-800' };
+const BROWN = { tile: 'bg-[#f6efe6]', text: 'text-[#8a5a2b]', bar: 'bg-[#a8763e]', badge: 'bg-[#ecdcc6] text-[#6f4520]' };
+const AIRPORT_TONE: Record<string, { tile: string; text: string; bar: string; badge: string }> = {
+  BKK: GREEN,
+  DMK: BROWN,
+};
+const OTHER_TONE = { tile: 'zego-surface-soft-bg', text: 'zego-text-secondary', bar: 'bg-slate-400', badge: 'bg-slate-100 text-slate-700' };
+const toneOf = (code: string) => AIRPORT_TONE[code] ?? OTHER_TONE;
+
+export default function StaffHomePage() {
+  const router = useRouter();
+  const { duties, today, staffId } = useStaffPortal();
+  const { envelopes, expenses, currentUser } = useDemo();
+  const [month, setMonth] = useState(today.slice(0, 7));
+  // วันที่เลือกดูในเดือน — ค่าเริ่มต้นวันนี้ · เปลี่ยนเดือน = วันนี้ (ถ้าเป็นเดือนนี้) ไม่งั้นวันแรกที่มีงาน / วันที่ 1
+  const [day, setDay] = useState(today);
+  const changeMonth = (m: string) => {
+    setMonth(m);
+    setDay(m === today.slice(0, 7) ? today : duties.map((d) => d.dutyDate).filter((d) => d.startsWith(m)).sort()[0] ?? `${m}-01`);
+  };
+  const s = staffHomeSummary(duties, today, month, day);
+  const isToday = day === today;
+  // จำนวนงานต่อวัน — ตัวเลขบนแถบวันที่
+  const dayCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const d of duties) m.set(d.dutyDate, (m.get(d.dutyDate) ?? 0) + 1);
+    return m;
+  }, [duties]);
+  /** เลือกวัน — สัปดาห์คร่อมเดือนได้ เลือกวันของเดือนอื่น = เปลี่ยนเดือนที่ดูตามไปด้วย */
+  const pickDay = (iso: string) => {
+    setDay(iso);
+    if (iso.slice(0, 7) !== month) setMonth(iso.slice(0, 7));
+  };
+  /** คำเรียกวันที่เลือก — "วันนี้" / "วันที่ 20/10/26" */
+  const dayWord = isToday ? 'วันนี้' : `วันที่ ${formatDate(day)}`;
+  // เดือนที่เลือกได้ = เดือนนี้ + เดือนที่มีงาน
+  const months = useMemo(
+    // + เดือนที่ดูอยู่ (เลื่อนสัปดาห์ไปเดือนที่ไม่มีงานก็ยังแสดงชื่อเดือนในช่องเลือก)
+    () => [...new Set([today.slice(0, 7), month, ...duties.map((d) => d.dutyDate.slice(0, 7))])].filter(Boolean).sort(),
+    [duties, today, month],
+  );
+  const now = new Date().toTimeString().slice(0, 5);
+  // ตัวกรองรายการวันนี้ — สนามบิน / ช่วงเวลา (แตะการ์ดช่วงเช้า/เย็น)
+  const [airportFilter, setAirportFilter] = useState<string>('all');
+  const [shiftFilter, setShiftFilter] = useState<'morning' | 'evening' | null>(null);
+  const list = s.today.duties.filter((d) => (airportFilter === 'all' || (d.airport ?? '').toUpperCase() === airportFilter)
+    && (!shiftFilter || dutyShift(d.arrivalTime) === shiftFilter));
+  const total = s.monthCount || 1;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h1 className="text-lg font-bold zego-text">หน้าหลัก</h1>
+          <p className="text-xs zego-text-tertiary">สรุปงานส่งกรุ๊ป · วันนี้ {formatDate(today)}</p>
+        </div>
+        <label className="flex items-center gap-1.5 rounded-lg border zego-border-color zego-surface-bg px-2.5 py-1.5 text-xs">
+          <Icon name="calendar" className="h-3.5 w-3.5 zego-text-secondary" />
+          <select aria-label="เลือกเดือน" value={month} onChange={(e) => changeMonth(e.target.value)} className="bg-transparent font-medium zego-text outline-none">
+            {months.map((m) => <option key={m} value={m}>{monthTitle(m)}</option>)}
+          </select>
+        </label>
+      </div>
+
+      {/* 1) จำนวนงานของเดือน + สัดส่วนสนามบิน */}
+      <Card className="space-y-3 border-emerald-200 bg-emerald-50/40">
+        <div className="flex items-center gap-3">
+          <IconTile icon="calendar" className="bg-emerald-100 text-emerald-700" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold zego-text">{month === today.slice(0, 7) ? 'จำนวนงานเดือนปัจจุบัน' : 'จำนวนงานของเดือน'}</p>
+            <p className="text-xs zego-text-tertiary">{monthTitle(month)}</p>
+          </div>
+          <p className="text-3xl font-bold tabular-nums text-emerald-700">{s.monthCount} <span className="text-sm font-medium">งาน</span></p>
+        </div>
+        {s.monthPending > 0 && <p className="text-[11px] zego-text-warning">รอคอนเฟิร์ม {s.monthPending} งาน</p>}
+        {/* แถบสัดส่วนตามสนามบิน */}
+        <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-200" aria-hidden>
+          {s.monthByAirport.filter((a) => a.count > 0).map((a) => (
+            <span key={a.code || 'none'} className={toneOf(a.code).bar} style={{ width: `${(a.count / total) * 100}%` }} />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {s.monthByAirport.map((a) => {
+            const t = toneOf(a.code);
+            return (
+              <div key={a.code || 'none'} className={cx('flex items-start gap-2 rounded-lg px-3 py-2', t.tile)}>
+                <Icon name="plane" className={cx('mt-0.5 h-5 w-5 shrink-0', t.text)} />
+                <div className="min-w-0 flex-1">
+                  {/* ชื่อสนามบินแสดงเต็ม (ขึ้นบรรทัดใหม่ได้) · % อยู่แถวเดียวกับจำนวน จะได้ไม่บีบชื่อ */}
+                  <p className="text-xs leading-tight zego-text-secondary">{airportText(a.code)}{a.code && ` (${a.code})`}</p>
+                  <p className="mt-0.5 flex items-center justify-between gap-1">
+                    <span className={cx('text-lg font-bold tabular-nums', t.text)}>{a.count} <span className="text-xs font-medium">งาน</span></span>
+                    {s.monthCount > 0 && <span className={cx('rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums', t.badge)}>{Math.round((a.count / s.monthCount) * 100)}%</span>}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* 2) งานรายวัน — แถบเลือกวันที่ในเดือน + ช่วงเช้า/เย็น + แยกสนามบิน */}
+      <Card className="space-y-3">
+        {/* หัวข้อบรรทัดเดียวเหนือแถบวันที่ — บอกวันที่กำลังดู (แม้วันที่เลือกเลื่อนพ้นแถบ) + จำนวนงาน · ไม่ซ้ำตัวเลขใหญ่ */}
+        <p className="text-sm zego-text">
+          <span className="font-semibold">{isToday ? 'งานวันนี้ · ' : 'งาน'}{dayTitle(day)}</span>
+          <span className="zego-text-tertiary"> · </span>
+          <span className="font-semibold text-emerald-700">{s.today.duties.length} งาน</span>
+        </p>
+        <WeekStrip day={day} today={today} counts={dayCounts} onPick={pickDay} />
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            ['morning', 'ช่วงเช้า', '00:01 – 12:00', 'sun', GREEN.tile, GREEN.text, s.today.morning],
+            ['evening', 'ช่วงเย็น', '12:01 – 00:00', 'moon', BROWN.tile, BROWN.text, s.today.evening],
+          ] as const).map(([k, label, range, icon, bg, text, n]) => (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={shiftFilter === k}
+              // แตะ = กรองรายการงานด้านล่างตามช่วงนี้ · แตะซ้ำ = ยกเลิก (กรอบเขียวบอกว่ากรองอยู่ ไม่มีป้ายแยก)
+              title={shiftFilter === k ? 'แตะอีกครั้งเพื่อแสดงทุกช่วง' : `แสดงเฉพาะ${label}`}
+              onClick={() => setShiftFilter((f) => (f === k ? null : k))}
+              className={cx('flex items-center gap-2 rounded-lg px-3 py-2 text-left transition', bg, shiftFilter === k && 'ring-2 ring-emerald-500')}
+            >
+              <Icon name={icon} className={cx('h-6 w-6 shrink-0', text)} />
+              <span className="min-w-0 flex-1">
+                <span className={cx('block text-sm font-semibold', text)}>{label}</span>
+                <span className="block text-[11px] zego-text-tertiary">{range}</span>
+                <span className={cx('block text-lg font-bold tabular-nums', text)}>{n} <span className="text-xs font-medium">งาน</span></span>
+              </span>
+              <Icon name="chevronRight" className="h-4 w-4 zego-text-tertiary" />
+            </button>
+          ))}
+        </div>
+        {s.today.noTime > 0 && <p className="text-[11px] zego-text-warning">ยังไม่ทราบเวลา {s.today.noTime} งาน — ไม่นับในช่วงเช้า/เย็น</p>}
+        <div>
+          <p className="mb-1.5 text-xs font-semibold zego-text">แยกตามสนามบิน ({dayWord})</p>
+          <div className="grid grid-cols-2 gap-2">
+            {(['BKK', 'DMK'] as const).map((code) => s.today.airports.find((a) => a.code === code) ?? { code, count: 0 })
+              .concat(s.today.airports.filter((a) => a.code !== 'BKK' && a.code !== 'DMK'))
+              .map((a) => {
+                const t = toneOf(a.code);
+                return (
+                  <div key={a.code || 'none'} className={cx('flex items-center gap-2 rounded-lg px-3 py-2', t.tile)}>
+                    <Icon name="plane" className={cx('h-5 w-5 shrink-0', t.text)} />
+                    <div className="min-w-0">
+                      <p className="text-xs leading-tight zego-text-secondary">{airportText(a.code)}{a.code && ` (${a.code})`}</p>
+                      <p className={cx('text-lg font-bold tabular-nums', t.text)}>{a.count} <span className="text-xs font-medium">งาน</span></p>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      </Card>
+
+      {/* 3) รายการงานวันนี้ */}
+      <Card className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Icon name="list" className="h-5 w-5 text-emerald-700" />
+          <h2 className="min-w-0 flex-1 text-sm font-semibold zego-text">รายการงาน{isToday ? '' : ' '}{dayWord}</h2>
+        </div>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="กรองตามสนามบิน">
+          {[
+            { code: 'all', label: 'ทั้งหมด', count: s.today.duties.length },
+            // สุวรรณภูมิ / ดอนเมือง แสดงเสมอ (แม้ 0) · สนามบินอื่นแสดงเมื่อมีงาน
+            ...(['BKK', 'DMK'] as const).map((code) => ({ code, label: airportText(code), count: s.today.airports.find((a) => a.code === code)?.count ?? 0 })),
+            ...s.today.airports.filter((a) => a.code !== 'BKK' && a.code !== 'DMK').map((a) => ({ code: a.code, label: airportText(a.code), count: a.count })),
+          ].map((f) => (
+            <button
+              key={f.code || 'none'}
+              type="button"
+              aria-pressed={airportFilter === f.code}
+              onClick={() => setAirportFilter(f.code)}
+              className={cx('rounded-full px-2.5 py-0.5 text-[11px] font-medium leading-5 transition', airportFilter === f.code ? 'bg-emerald-600 text-white' : 'zego-surface-soft-bg zego-text-secondary hover:bg-emerald-50')}
+            >
+              {f.label} ({f.count})
+            </button>
+          ))}
+        </div>
+
+        {list.length === 0 ? (
+          <p className="rounded-lg zego-surface-soft-bg px-3 py-4 text-center text-sm zego-text-tertiary">
+            {s.today.duties.length === 0 ? `${dayWord}${isToday ? '' : ' '}ไม่มีงานส่งกรุ๊ป` : 'ไม่มีงานที่ตรงกับตัวกรอง'}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-[11px] zego-text-tertiary">
+                  <th className="whitespace-nowrap py-1.5 pr-2 font-medium">เวลานัด</th>
+                  <th className="whitespace-nowrap py-1.5 pr-2 font-medium">สนามบิน</th>
+                  <th className="py-1.5 pr-2 font-medium">รหัสกรุ๊ป</th>
+                  <th className="py-1.5 font-medium">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--zego-border-soft)]">
+                {list.map((d) => {
+                  const code = (d.airport ?? '').toUpperCase();
+                  const stage = DUTY_STAGE[dutyStage(d, now, today)];
+                  return (
+                    <tr key={d.assignmentId} className="cursor-pointer align-top hover:bg-emerald-50/40" onClick={() => router.push('/staff')}>
+                      <td className="py-2 pr-2 font-semibold tabular-nums zego-text">{d.arrivalTime ?? '—'}</td>
+                      <td className="py-2 pr-2">
+                        <span className={cx('rounded px-1.5 py-0.5 text-[11px] font-semibold', toneOf(code).badge)}>{code || '—'}</span>
+                      </td>
+                      <td className="py-2 pr-2">
+                        <span className="block font-medium zego-text">{d.period?.groupCode ?? d.periodId}</span>
+                        {/* ซองเงินของกรุ๊ปนี้ — ข้อความเดียวกับหน้าตารางงาน · ต้องทำอะไรต่อ = สีเหลือง */}
+                        {(() => {
+                          const n = staffEnvelopeNotice({ envelopes, expenses, staffId, staffName: currentUser.name, periodId: d.periodId });
+                          return n && (
+                            <span className={cx('mt-0.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium', n.tone === 'amber' ? 'bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200' : 'zego-surface-soft-bg zego-text-secondary')}>
+                              <Icon name="money" className="h-3 w-3 shrink-0" />
+                              {n.text}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="py-2"><StatusBadge meta={stage} size="sm" /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p className="mt-1.5 text-[11px] zego-text-tertiary">เวลานัด = เวลาที่ต้องถึงสนามบิน · แตะรายการเพื่อดูตารางงาน</p>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function IconTile({ icon, className }: { icon: IconName; className?: string }) {
+  return (
+    <span className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', className)}>
+      <Icon name={icon} className="h-5 w-5" />
+    </span>
+  );
+}
+
+const TH_DAYS_SHORT = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+
+/** เลื่อนวันที่ ISO ไป n วัน */
+const shiftDay = (iso: string, n: number) => {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/**
+ * แถบเลือกวันที่รายสัปดาห์ — 7 วัน อา.–ส. ของสัปดาห์ที่มีวันที่เลือก
+ * ‹ › เลื่อนทีละสัปดาห์ (วันที่เลือกเลื่อนไป 7 วัน) · วันที่เลือกพื้นเขียว · วันนี้มีกรอบ · มีงาน = ตัวเลขจำนวนงานใต้วัน
+ * วันนอกเดือนที่ดูอยู่แสดงจางลง (แตะได้ — เปลี่ยนเดือนตาม)
+ */
+function WeekStrip({ day, today, counts, onPick }: {
+  day: string;
+  today: string;
+  counts: Map<string, number>;
+  onPick: (iso: string) => void;
+}) {
+  const sunday = shiftDay(day, -new Date(`${day}T00:00:00`).getDay());
+  const days = Array.from({ length: 7 }, (_, i) => shiftDay(sunday, i));
+  const month = day.slice(0, 7);
+  const arrow = 'flex h-8 w-7 shrink-0 items-center justify-center rounded-lg zego-text-secondary zego-hover-surface';
+  return (
+    <div className="flex items-center gap-1">
+      <button type="button" aria-label="สัปดาห์ก่อน" className={arrow} onClick={() => onPick(shiftDay(day, -7))}>
+        <Icon name="chevronLeft" className="h-4 w-4" />
+      </button>
+      <div className="grid min-w-0 flex-1 grid-cols-7 gap-1" role="group" aria-label="เลือกวันที่">
+        {days.map((iso, i) => {
+          const on = iso === day;
+          const n = counts.get(iso) ?? 0;
+          return (
+            <button
+              key={iso}
+              type="button"
+              aria-pressed={on}
+              aria-label={`${formatDate(iso)}${n ? ` · ${n} งาน` : ''}`}
+              onClick={() => onPick(iso)}
+              className={cx(
+                'flex flex-col items-center rounded-lg py-1.5 text-center transition',
+                on ? 'bg-emerald-600 text-white' : 'zego-surface-soft-bg zego-text hover:bg-emerald-50',
+                iso === today && !on && 'ring-1 ring-inset ring-emerald-500',
+                !on && iso.slice(0, 7) !== month && 'opacity-50',
+              )}
+            >
+              <span className={cx('text-[10px]', on ? 'text-white/80' : i === 0 || i === 6 ? 'text-rose-500' : 'zego-text-tertiary')}>{TH_DAYS_SHORT[i]}</span>
+              <span className="text-sm font-semibold tabular-nums">{Number(iso.slice(8, 10))}</span>
+              <span className={cx('mt-0.5 h-3.5 min-w-3.5 rounded-full px-1 text-[9px] font-bold leading-[14px]', n ? (on ? 'bg-white text-emerald-700' : 'bg-emerald-600 text-white') : 'invisible')}>{n || 0}</span>
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" aria-label="สัปดาห์ถัดไป" className={arrow} onClick={() => onPick(shiftDay(day, 7))}>
+        <Icon name="chevronRight" className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}

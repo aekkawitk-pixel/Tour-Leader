@@ -3,7 +3,8 @@
 /**
  * Chrome ของพอร์ทัลเจ้าหน้าที่ส่งกรุ๊ป (/staff/*) — มือถือเป็นหลัก เหมือนพอร์ทัลหัวหน้าทัวร์
  *
- * แถบล่าง 5 เมนู: ตารางงาน · ซองเงิน · เบิกค่าใช้จ่าย · การลา · โปรไฟล์
+ * แถบล่าง 5 เมนู: หน้าหลัก · ตารางงาน · ซองเงิน · เบิกค่าใช้จ่าย · โปรไฟล์ (หน้าหลัก = หน้าแรกหลังเข้าพอร์ทัล)
+ * การลาอยู่ในโปรไฟล์ (เหมือนพอร์ทัลหัวหน้าทัวร์) — เปิดหน้าการลาแล้วแถบล่างไฮไลต์ "โปรไฟล์"
  * ซองเงิน = ทอดกลางของเงินกรุ๊ป (การเงิน → เจ้าหน้าที่ → หัวหน้าทัวร์) ยืนยันในเครื่องตัวเองทุกขั้น
  */
 
@@ -16,10 +17,10 @@ import { ROLE } from '@/lib/labels';
 import type { Role } from '@/types';
 
 const STAFF_NAV: { href: string; label: string; icon: IconName }[] = [
+  { href: '/staff/home', label: 'หน้าหลัก', icon: 'grid' },
   { href: '/staff', label: 'ตารางงาน', icon: 'calendar' },
   { href: '/staff/envelopes', label: 'ซองเงิน', icon: 'money' },
   { href: '/staff/claims', label: 'เบิกค่าใช้จ่าย', icon: 'receipt' },
-  { href: '/staff/leave', label: 'การลา', icon: 'clock' },
   { href: '/staff/profile', label: 'โปรไฟล์', icon: 'guide' },
 ];
 
@@ -34,8 +35,10 @@ export function StaffShell({ children }: { children: React.ReactNode }) {
     ? envelopes.filter((e) => e.handover?.proxyStaffId === staffId && !e.leaderAck && (!e.staffAck || !e.staffHandoff)).length
     : 0;
 
+  // หน้าการลาเป็นหน้าย่อยของโปรไฟล์
+  const navPath = pathname.startsWith('/staff/leave') ? '/staff/profile' : pathname;
   const activeHref = [...STAFF_NAV]
-    .filter((i) => (i.href === '/staff' ? pathname === '/staff' : pathname.startsWith(i.href)))
+    .filter((i) => (i.href === '/staff' ? navPath === '/staff' : navPath.startsWith(i.href)))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
   /** ออกจากมุมมองเจ้าหน้าที่ — สลับกลับบทบาทผู้จัด (ใช้ทดสอบ/สาธิตเท่านั้น ไม่ใช่ระบบ Login จริง) */

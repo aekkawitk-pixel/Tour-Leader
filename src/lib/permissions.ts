@@ -212,8 +212,8 @@ export function canViewPath(role: Role, pathname: string): boolean {
 export function landingPathForRole(role: Role): string {
   // หัวหน้าทัวร์ใช้พอร์ทัลมือถือของตัวเอง (/guide) แยกจากเมนูฝั่งผู้จัดทั้งหมด — ไม่อยู่ใน NAV_ITEMS
   if (role === 'leader') return '/guide';
-  // เจ้าหน้าที่ส่งกรุ๊ปใช้พอร์ทัลมือถือของตัวเอง (/staff)
-  if (role === 'sendoff') return '/staff';
+  // เจ้าหน้าที่ส่งกรุ๊ปใช้พอร์ทัลมือถือของตัวเอง — เข้ามาที่หน้าหลัก (สรุปงานเดือนนี้ / งานวันนี้)
+  if (role === 'sendoff') return '/staff/home';
   return navForRole(role).find((i) => isNavEnabled(i.key))?.href ?? '/';
 }
 

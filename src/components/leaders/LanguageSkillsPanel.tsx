@@ -3,7 +3,7 @@
 /**
  * ทักษะด้านภาษา — กรอกหลายภาษาแล้วบันทึกครั้งเดียว (Inline ในหน้าหลัก ไม่เปิด Modal)
  *
- * แต่ละภาษาแสดงเป็น 1 แถว: [ภาษา] [ระดับภาษา] [ภาษาแม่] [ลบ]
+ * แต่ละภาษาแสดงเป็น 1 แถว: [ภาษา] [ระดับภาษา (ตัวเลือกติก ขึ้นเมื่อเลือกภาษาแล้ว)] [ภาษาแม่] [ลบ]
  * ระดับภาษาใช้มาตรฐานของภาษานั้นเอง (อังกฤษ/ฝรั่งเศส/เยอรมัน/สเปน = CEFR, จีน = HSK, ญี่ปุ่น = JLPT,
  * เกาหลี = TOPIK, ภาษาอื่น = ระดับกลาง GENERAL) — เลือกภาษาแล้ว dropdown ระดับเปลี่ยนตามอัตโนมัติ
  * ผู้ใช้ไม่ต้องเลือกมาตรฐานเอง เปลี่ยนภาษาแล้วระดับเดิมถูกล้างทิ้งทันที (คนละมาตรฐานเทียบกันไม่ได้)
@@ -19,7 +19,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { Button, Card, CardHeader, cx, Pill } from '@/components/ui/Primitives';
-import { SelectInput, TextInput } from '@/components/ui/FormField';
+import { TextInput } from '@/components/ui/FormField';
 import { Combobox } from '@/components/ui/Combobox';
 import { Icon } from '@/components/ui/Icon';
 import { ConfirmDialog } from '@/components/ui/Modal';
@@ -493,7 +493,7 @@ function LanguageRowForm({
       {error && <p className="mb-2 text-xs font-medium zego-text-danger">{error}</p>}
 
       {/* [ภาษา] [ระดับภาษา] [ภาษาแม่] — ช่องภาษา+ระดับข้างกันเมื่อพื้นที่พอ ไม่งั้นเรียงคอลัมน์เดียว */}
-      <div className="grid grid-cols-1 items-start gap-3 [&_input]:h-[38px] [&_select]:h-[38px] sm:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-3 [&_input:not([type=radio])]:h-[38px] [&_select]:h-[38px] sm:grid-cols-2">
         <div className="min-w-0">
           <Combobox
             label="ภาษา"
@@ -519,16 +519,44 @@ function LanguageRowForm({
           )}
         </div>
 
-        <SelectInput
-          label="ระดับภาษา"
-          required={!skill.isNativeLanguage}
-          disabled={skill.isNativeLanguage}
-          placeholder={skill.isNativeLanguage ? 'ไม่ต้องระบุ (ภาษาแม่)' : 'เลือกระดับภาษา'}
-          value={skill.isNativeLanguage ? '' : (skill.levelCode ?? '')}
-          onChange={(e) => selectLevel(e.target.value)}
-          options={levelOptions.map((l) => ({ value: l.code, label: `${l.code} — ${l.name}` }))}
-          hint={skill.isNativeLanguage ? 'ภาษาแม่ไม่ต้องระบุระดับ' : undefined}
-        />
+        {/*
+          ระดับภาษา — เลือกภาษาแล้วแสดงทุกระดับของมาตรฐานนั้นเป็นตัวเลือกติกได้ทันที (ไม่ต้องเปิด dropdown)
+          ยังไม่เลือกภาษา = บอกให้เลือกภาษาก่อน · ภาษาแม่ = ไม่ต้องระบุระดับ
+        */}
+        <fieldset className="min-w-0">
+          <legend className="mb-1.5 text-sm font-medium zego-text">
+            ระดับภาษา{!skill.isNativeLanguage && <span className="zego-text-danger" aria-hidden="true">*</span>}
+          </legend>
+          {skill.isNativeLanguage ? (
+            <p className="rounded-lg zego-surface-bg px-3 py-2 text-sm zego-text-tertiary">ไม่ต้องระบุ — ภาษาแม่</p>
+          ) : !skill.languageName && !isCustom ? (
+            <p className="rounded-lg zego-surface-bg px-3 py-2 text-sm zego-text-tertiary">เลือกภาษาก่อน แล้วระดับภาษาจะขึ้นให้เลือก</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={`ระดับภาษา — ${skill.languageName || 'ภาษา'}`}>
+              {levelOptions.map((l) => {
+                const on = skill.levelCode === l.code;
+                return (
+                  <label
+                    key={l.code}
+                    className={cx(
+                      'flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition',
+                      on ? 'border-emerald-500 bg-emerald-50 font-semibold text-emerald-800 ring-1 ring-emerald-500' : 'zego-border-color zego-surface-bg zego-text-secondary hover:border-emerald-300',
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name={`level-${skill.id}`}
+                      className="h-4 w-4 accent-emerald-600"
+                      checked={on}
+                      onChange={() => selectLevel(l.code)}
+                    />
+                    <span><b className="font-semibold">{l.code}</b> — {l.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </fieldset>
       </div>
 
       <div className="mt-3">

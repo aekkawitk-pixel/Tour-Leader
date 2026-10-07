@@ -229,7 +229,7 @@ describe('สลับบทบาทขณะอยู่หน้าที่�
       }
       // เจ้าหน้าที่ส่งกรุ๊ปก็มีพอร์ทัลมือถือของตัวเอง (/staff) — ไม่มีเมนูฝั่งผู้จัด
       if (role === 'sendoff') {
-        assert.equal(landingPathForRole(role), '/staff', 'เจ้าหน้าที่ส่งกรุ๊ปต้องไปที่พอร์ทัลของตัวเอง (/staff)');
+        assert.equal(landingPathForRole(role), '/staff/home', 'เจ้าหน้าที่ส่งกรุ๊ปต้องไปที่หน้าหลักของพอร์ทัลตัวเอง (/staff/home)');
         assert.equal(navForRole(role).length, 0, 'เจ้าหน้าที่ส่งกรุ๊ปต้องไม่เห็นเมนูฝั่งผู้จัด');
         continue;
       }

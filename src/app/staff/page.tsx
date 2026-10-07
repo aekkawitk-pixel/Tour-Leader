@@ -16,8 +16,7 @@ import { formatDate, parseDate, TH_WEEKDAYS_SHORT } from '@/lib/format';
 import { loadSendOffLeave } from '@/services/sendOffStaffLeaveStore';
 import { leaveCoversDate } from '@/lib/logic/sendOffStaffLeave';
 import { airportName } from '@/lib/logic/airportLabel';
-import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
-import { groupEnvelopeStatus, groupLines, returnedToFinanceBy } from '@/lib/logic/cashEnvelope';
+import { staffEnvelopeNotice } from './envelopeNotice';
 import { useStaffPortal } from './useStaffPortal';
 import { MonthYearSelect, MonthHeader, useMonthGroups } from '@/components/ui/MonthFilter';
 
@@ -32,28 +31,8 @@ export default function StaffSchedulePage() {
   const shown = tab === 'upcoming' ? upcoming : past;
   // แบ่งเป็นรายเดือนตาม "วันที่ต้องไปส่ง" + เลือกดูทีละเดือนได้ (ลำดับในแต่ละแท็บคงเดิม)
   const monthGroups = useMonthGroups(shown, (d) => d.dutyDate, today);
-  /*
-    ซองเงินของกรุ๊ปนี้อยู่ขั้นไหน มองจากฝั่งเจ้าหน้าที่ — บอกให้รู้ตั้งแต่การเงินยังจัดอยู่ ไม่ใช่แค่ตอนฝากมาแล้ว
-    ซองที่การเงินฝากคนอื่น/ส่งหัวหน้าทัวร์ตรง ไม่ใช่เรื่องของคนนี้ → ไม่แสดง
-  */
-  const envelopeNotice = (periodId: string): { text: string; tone: 'amber' | 'slate' } | null => {
-    const envs = envelopes.filter((e) => e.periodId === periodId);
-    const mine = envs.filter((e) => e.handover?.proxyStaffId === staffId && !e.leaderAck);
-    if (mine.some((e) => e.staffReturn)) return { text: 'ส่งซองเงินคืนการเงินแล้ว — รอการเงินยืนยันรับ', tone: 'slate' };
-    if (mine.some((e) => !e.staffAck)) return { text: 'การเงินส่งมอบซองเงินให้คุณแล้ว — กดยืนยันรับ', tone: 'amber' };
-    if (mine.some((e) => !e.staffHandoff)) return { text: 'มีซองเงินต้องนำส่งหัวหน้าทัวร์', tone: 'amber' };
-    if (mine.length > 0) return { text: 'ส่งซองเงินแล้ว — รอหัวหน้าทัวร์ยืนยันรับ', tone: 'slate' };
-    if (envs.some((e) => e.handover)) return null;
-    if (envs.some((e) => returnedToFinanceBy(e, { id: staffId, name: currentUser.name }))) {
-      return { text: 'ส่งซองเงินคืนการเงินแล้ว', tone: 'slate' };
-    }
-    const docs = expenses.filter((e) => isGroupAdvanceDoc(e) && e.jobId === periodId);
-    if (docs.length === 0) return null;
-    const status = groupEnvelopeStatus(groupLines(docs), envs);
-    if (status.stage === 'sealed') return { text: 'มีซองเงินให้ไปรับที่การเงิน', tone: 'amber' };
-    if (status.stage === 'packing') return { text: 'การเงินกำลังจัดซองเงินของกรุ๊ปนี้', tone: 'slate' };
-    return null;
-  };
+  /** ซองเงินของกรุ๊ปนี้อยู่ขั้นไหน (ใช้ร่วมกับหน้าหลัก — envelopeNotice.ts) */
+  const envelopeNotice = (periodId: string) => staffEnvelopeNotice({ envelopes, expenses, staffId, staffName: currentUser.name, periodId });
 
   if (!staffId) {
     return <Card><EmptyState icon="warning" title="บัญชีนี้ยังไม่ผูกกับทะเบียนเจ้าหน้าที่ส่งกรุ๊ป" description="ติดต่อผู้ดูแลระบบให้ผูกรหัส SOS ก่อนใช้งาน" /></Card>;

@@ -161,3 +161,94 @@ export function dutiesByMonth(duties: StaffDuty[]): { month: string; duties: Sta
   }
   return [...m].sort(([a], [b]) => a.localeCompare(b)).map(([month, list]) => ({ month, duties: list }));
 }
+
+/* ------------------------------------------------------------------ */
+/* หน้าหลักพอร์ทัลเจ้าหน้าที่ — สรุปงานเดือนนี้ / สนามบิน / งานวันนี้        */
+/* ------------------------------------------------------------------ */
+
+export interface AirportCount { code: string; count: number }
+
+export interface StaffHomeSummary {
+  /** จำนวนงานเดือนปัจจุบัน (ตามวันที่ต้องไปสนามบิน) */
+  monthCount: number;
+  /** งานเดือนนี้ที่ยังรอคอนเฟิร์ม */
+  monthPending: number;
+  /** งานเดือนนี้แยกสนามบิน — BKK / DMK ขึ้นก่อนเสมอ (แม้เป็น 0) แล้วสนามบินอื่นตามจำนวน · ไม่ทราบสนามบิน = code '' */
+  monthByAirport: AirportCount[];
+  today: {
+    duties: StaffDuty[];
+    /** สนามบินของงานวันนี้ (ไม่ซ้ำ) พร้อมจำนวน */
+    airports: AirportCount[];
+    /** ช่วงเช้า 00:01–12:00 · ช่วงเย็น 12:01–00:00 — ตามเวลาต้องถึงสนามบิน */
+    morning: number;
+    evening: number;
+    /** ยังไม่ทราบเวลา (ยังไม่มีเวลาเครื่องออก) */
+    noTime: number;
+  };
+}
+
+/** ช่วงเวลาของงานจากเวลาถึงสนามบิน — เช้า 00:01–12:00 · เย็น 12:01–00:00 (00:00 นับเป็นเย็นของวันก่อน) */
+export function dutyShift(time: string | null): 'morning' | 'evening' | null {
+  if (!time) return null;
+  return time >= '00:01' && time <= '12:00' ? 'morning' : 'evening';
+}
+
+const countAirports = (list: StaffDuty[]): AirportCount[] => {
+  const m = new Map<string, number>();
+  for (const d of list) {
+    const code = (d.airport ?? '').trim().toUpperCase();
+    m.set(code, (m.get(code) ?? 0) + 1);
+  }
+  return [...m].map(([code, count]) => ({ code, count }));
+};
+
+/**
+ * month = เดือนที่เลือกดู (yyyy-mm) — ไม่ระบุ = เดือนของวันนี้
+ * day = วันที่เลือกดูในส่วน "งานรายวัน" (ฟิลด์ today) — ไม่ระบุ = วันนี้
+ */
+export function staffHomeSummary(duties: StaffDuty[], today: string, month: string = today.slice(0, 7), day: string = today): StaffHomeSummary {
+  const inMonth = duties.filter((d) => d.dutyDate.startsWith(month));
+  const counted = countAirports(inMonth);
+  // สุวรรณภูมิ / ดอนเมือง แสดงเสมอ (ผู้ใช้ถามสองแห่งนี้โดยตรง) · แห่งอื่นมีงานจึงแสดง · ไม่ทราบสนามบินไว้ท้าย
+  const main = ['BKK', 'DMK'].map((code) => ({ code, count: counted.find((c) => c.code === code)?.count ?? 0 }));
+  const others = counted.filter((c) => c.code && c.code !== 'BKK' && c.code !== 'DMK').sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
+  const unknown = counted.filter((c) => !c.code);
+  const todays = duties.filter((d) => d.dutyDate === day).sort((a, b) => (a.arrivalTime ?? '99').localeCompare(b.arrivalTime ?? '99'));
+  return {
+    monthCount: inMonth.length,
+    monthPending: inMonth.filter((d) => !d.confirmed).length,
+    monthByAirport: [...main, ...others, ...unknown],
+    today: {
+      duties: todays,
+      airports: countAirports(todays).sort((a, b) => b.count - a.count || a.code.localeCompare(b.code)),
+      morning: todays.filter((d) => dutyShift(d.arrivalTime) === 'morning').length,
+      evening: todays.filter((d) => dutyShift(d.arrivalTime) === 'evening').length,
+      noTime: todays.filter((d) => !d.arrivalTime).length,
+    },
+  };
+}
+
+/**
+ * สถานะของงานวันนี้ตามเวลา (หน้าหลัก) — รอคอนเฟิร์มมาก่อนเสมอ
+ *   ถึงเวลาถึงสนามบินแล้ว = ดำเนินการ · อีกไม่เกิน 3 ชม. = เตรียมการ · ไกลกว่านั้น = รอเดินทาง · ไม่ทราบเวลา = ยังไม่ทราบเวลา
+ * now = เวลาปัจจุบัน HH:MM
+ */
+export type DutyStage = 'pending' | 'in_progress' | 'preparing' | 'waiting' | 'no_time' | 'past';
+export const DUTY_STAGE: Record<DutyStage, { label: string; tone: 'amber' | 'green' | 'blue' | 'slate' }> = {
+  pending: { label: 'รอคอนเฟิร์ม', tone: 'amber' },
+  in_progress: { label: 'ดำเนินการ', tone: 'green' },
+  preparing: { label: 'เตรียมการ', tone: 'blue' },
+  waiting: { label: 'รอเดินทาง', tone: 'amber' },
+  no_time: { label: 'ยังไม่ทราบเวลา', tone: 'slate' },
+  past: { label: 'ผ่านมาแล้ว', tone: 'slate' },
+};
+export function dutyStage(d: Pick<StaffDuty, 'confirmed' | 'arrivalTime' | 'dutyDate'>, now: string, today?: string): DutyStage {
+  // ดูวันอื่น (ไม่ใช่วันนี้) — วันที่ผ่านมาแล้ว = ผ่านมาแล้ว · วันข้างหน้า = รอเดินทาง (ยังรอคอนเฟิร์มก็บอก)
+  if (today && d.dutyDate < today) return 'past';
+  if (!d.confirmed) return 'pending';
+  if (today && d.dutyDate > today) return 'waiting';
+  if (!d.arrivalTime) return 'no_time';
+  if (now >= d.arrivalTime) return 'in_progress';
+  const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  return mins(d.arrivalTime) - mins(now) <= 180 ? 'preparing' : 'waiting';
+}

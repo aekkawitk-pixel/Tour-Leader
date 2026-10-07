@@ -12,6 +12,7 @@
  */
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Icon } from '@/components/ui/Icon';
 import { buildMonthGrid, monthTitle, shiftMonth } from '@/lib/logic/calendar';
 import { useDemo } from '@/store/DemoStore';
@@ -51,6 +52,11 @@ export default function StaffLeavePage() {
   return (
     <div className="space-y-4">
       <div>
+        {/* การลาเป็นหน้าย่อยของโปรไฟล์ — ลิงก์กลับเหมือนพอร์ทัลหัวหน้าทัวร์ */}
+        <Link href="/staff/profile" className="mb-2 inline-flex items-center gap-1 text-sm font-medium zego-text-success">
+          <Icon name="chevronLeft" className="h-4 w-4" />
+          โปรไฟล์
+        </Link>
         <h1 className="text-lg font-bold zego-text">การลา</h1>
         <p className="text-xs zego-text-tertiary">แตะวันในปฏิทินเพื่อเลือกวันลา · ผู้จัดคอนเฟิร์มแล้วจะไม่ถูกจัดงานในวันนั้น · วันที่มีงานส่งกรุ๊ปแล้วต้องแจ้งผู้จัดโดยตรง</p>
       </div>

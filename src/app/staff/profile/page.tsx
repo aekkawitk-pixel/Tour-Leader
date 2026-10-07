@@ -28,6 +28,9 @@ import { upsertSendOffStaff } from '@/services/sendOffStaffStore';
 import { SendOffStaffFormDrawer } from '@/components/staff/SendOffStaffFormDrawer';
 import { BankAccountEditor } from '@/components/leaders/BankAccountEditor';
 import { useStaffPortal } from '../useStaffPortal';
+import Link from 'next/link';
+import { Icon } from '@/components/ui/Icon';
+import { loadSendOffLeave } from '@/services/sendOffStaffLeaveStore';
 
 /** เลขบัญชีแสดงเฉพาะ 4 หลักท้าย */
 const maskAccount = (no: string) => {
@@ -66,6 +69,8 @@ export default function StaffProfilePage() {
   const thisMonth = duties.filter((d) => d.dutyDate.startsWith(month)).length;
   const done = duties.filter((d) => d.confirmed && d.dutyDate < today).length;
   const ec = staff.emergencyContact;
+  // คำขอลาที่ยังรอผู้จัดคอนเฟิร์ม — บอกที่เมนูการลา
+  const pendingLeave = loadSendOffLeave().filter((r) => r.staffId === staff.id && r.status === 'pending').length;
 
   return (
     <div className="space-y-4">
@@ -89,6 +94,21 @@ export default function StaffProfilePage() {
           <p className="text-xs zego-text-tertiary">ส่งกรุ๊ปแล้วทั้งหมด</p>
         </Card>
       </div>
+
+      {/* การลา — ย้ายจากแถบล่างมาอยู่ในโปรไฟล์ (เหมือนพอร์ทัลหัวหน้าทัวร์) */}
+      <Link href="/staff/leave" className="block">
+        <Card className="flex items-center gap-3 transition hover:ring-1 hover:ring-emerald-200">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+            <Icon name="calendar" className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold zego-text">การลา</span>
+            <span className="block text-xs zego-text-tertiary">ขอลา และดูสถานะคำขอลา</span>
+          </span>
+          {pendingLeave > 0 && <StatusBadge meta={{ label: `รอคอนเฟิร์ม ${pendingLeave}`, tone: 'amber' }} size="sm" />}
+          <Icon name="chevronRight" className="h-4 w-4 zego-text-tertiary" />
+        </Card>
+      </Link>
 
       {/* ข้อมูลทั่วไป — ประเภท / สถานะ / วันเริ่มงาน กำหนดโดยผู้ดูแล · วันเกิดมาจากบัตรประชาชน */}
       {editing === 'general' ? (
