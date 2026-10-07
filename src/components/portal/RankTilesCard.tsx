@@ -3,7 +3,7 @@
 /**
  * การ์ดจัดอันดับแบบช่อง (หน้าหลักพอร์ทัล) — ใช้ร่วมกัน "ปลายทางเดือนนี้" และ "สายการบินเดือนนี้"
  * หัวการ์ด: ไอคอน + หัวข้อ + บรรทัดรอง · ช่อง: ภาพ (ธง/โลโก้) + ชื่อ + จำนวนงาน
- * รายการเรียงมาแล้ว (มาก→น้อย) · พอดี 4 ช่องต่อแถว · มากกว่า 4 = เลื่อนแนวนอนดูต่อ · ช่องที่งานมากสุดเน้นสีเขียว
+ * รายการเรียงมาแล้ว (มาก→น้อย) · พอดี 4 ช่องต่อแถว · ไม่เกิน 4 = จัดกึ่งกลาง · มากกว่า 4 = เลื่อนแนวนอนดูต่อ · ช่องที่งานมากสุดเน้นสีเขียว
  */
 
 import type { ReactNode } from 'react';
@@ -44,7 +44,8 @@ export function RankTilesCard({ icon, title, subtitle, items, moreText, emptyTex
         <p className="rounded-lg zego-surface-soft-bg px-3 py-3 text-center text-xs zego-text-tertiary">{emptyText}</p>
       ) : (
         // 4 ช่องเต็มความกว้าง — เกิน 4 เลื่อนแนวนอนดูต่อ (ช่องกว้างคงที่ = 1/4 ของแถว)
-        <div className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1" role="list" aria-label={title}>
+        // ไม่เกิน 4 ช่อง = จัดกึ่งกลาง · เกิน 4 = ชิดซ้าย (กึ่งกลางตอนเลื่อนได้จะตัดช่องแรกและเลื่อนกลับไปดูไม่ได้)
+        <div className={cx('-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1', items.length <= 4 && 'justify-center')} role="list" aria-label={title}>
           {items.map((d) => {
             const lead = d.count === top && top > 0;
             return (
