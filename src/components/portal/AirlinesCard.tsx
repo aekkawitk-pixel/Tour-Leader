@@ -46,7 +46,8 @@ export function AirlinesCard({ month, isCurrent, items }: {
       moreText="เลื่อนดูสายการบินเพิ่ม ›"
       items={items.map((a) => ({
         key: a.code || 'none',
-        label: a.label,
+        // แสดงตัวย่อ (รหัส IATA เช่น CZ) — ชื่อเต็มดูได้จากโลโก้ · ไม่ทราบสายการบิน = '?'
+        label: a.code || '?',
         count: a.count,
         visual: <AirlineLogo code={a.code} />,
       }))}

@@ -60,7 +60,8 @@ export function RankTilesCard({ icon, title, subtitle, items, moreText, emptyTex
                 )}
               >
                 {d.visual}
-                <span className="line-clamp-1 w-full text-xs font-medium zego-text" title={d.label}>{d.label}</span>
+                {/* ชื่อยาว (เช่น China Southern) ขึ้นได้ 2 บรรทัด · สูงคงที่ 2 บรรทัด ให้จำนวนงานทุกช่องอยู่แนวเดียวกัน */}
+                <span className="line-clamp-2 min-h-[2.5em] w-full text-center text-xs font-medium leading-tight zego-text" title={d.label}>{d.label}</span>
                 <span className={cx('text-sm font-bold tabular-nums', lead ? 'text-emerald-700' : 'zego-text-secondary')}>
                   {d.count} <span className="text-[11px] font-medium">งาน</span>
                 </span>
