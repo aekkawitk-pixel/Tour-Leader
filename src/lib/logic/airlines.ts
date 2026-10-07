@@ -53,3 +53,32 @@ export function airlineBreakdown(trips: { airlineCode?: string | null; groupCode
     .map(([code, count]) => ({ code, label: airlineName(code), count }))
     .sort((a, b) => Number(!a.code) - Number(!b.code) || b.count - a.count || a.label.localeCompare(b.label));
 }
+
+/**
+ * เลขเที่ยวบินแบบเต็ม เช่น "NH806" — ข้อมูลเที่ยวบินบางแหล่งเก็บเลขเที่ยวบินรวมรหัสสายการบินมาแล้ว ("NH806")
+ * บางแหล่งเก็บแค่ตัวเลข ("806") · ต่อรหัสสายการบินข้างหน้าเฉพาะเมื่อยังไม่มี (กัน "NHNH806")
+ */
+export function flightNoOf(sector: { airlineCode?: string | null; flightNumber?: string | null } | null | undefined): string {
+  if (!sector) return '';
+  const airline = (sector.airlineCode ?? '').trim().toUpperCase();
+  const num = (sector.flightNumber ?? '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!num) return airline;
+  return airline && !num.startsWith(airline) ? `${airline}${num}` : num;
+}
+
+/**
+ * สนามบินขาไป / ขากลับ (ฝั่งไทย) ของทริป — ใช้แสดงในรายการงานหัวหน้าทัวร์
+ *   ขาไป  = สนามบินต้นทางของเที่ยวบินแรก (ไม่มี sector ใช้ departureAirportCode)
+ *   ขากลับ = สนามบินปลายทางของเที่ยวบินสุดท้าย — นับเฉพาะสนามบินในไทย (บินขาเดียว/จบต่างประเทศ = ไม่ทราบ)
+ * splitFlightLegs (guideBoard) แยกขากลับได้เฉพาะเมื่อกลับสนามบินเดิม จึงไม่ใช้ที่นี่ — กรณีไป BKK กลับ DMK ต้องเห็นทั้งคู่
+ * isThai = ตัวตรวจว่าเป็นสนามบินในไทย (ส่งเข้ามา เพื่อให้ทดสอบได้โดยไม่ผูกกับ Airport Master)
+ */
+export function tripAirports(
+  p: { departureAirportCode?: string | null; sectors?: { fromAirportCode?: string | null; toAirportCode?: string | null }[] | null },
+  isThai: (code: string) => boolean,
+): { out: string; back: string } {
+  const sectors = p.sectors ?? [];
+  const out = (sectors[0]?.fromAirportCode || p.departureAirportCode || '').trim().toUpperCase();
+  const last = sectors.length >= 2 ? (sectors[sectors.length - 1]?.toAirportCode ?? '').trim().toUpperCase() : '';
+  return { out, back: last && isThai(last) ? last : '' };
+}

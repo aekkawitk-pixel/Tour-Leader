@@ -27,7 +27,9 @@ export function RankTilesCard({ icon, title, subtitle, items, moreText, emptyTex
   moreText: string;
   emptyText?: string;
 }) {
+  // เน้นสีเขียวเฉพาะอันดับหนึ่งที่ชัดเจน — เท่ากันหลายช่อง (เช่น ทุกสาย 1 งาน) ไม่เน้น จะได้ไม่เขียวทั้งแถว
   const top = items[0]?.count ?? 0;
+  const tied = items.filter((x) => x.count === top).length > 1;
   return (
     <Card className="space-y-3">
       <div className="flex items-center gap-3">
@@ -47,7 +49,7 @@ export function RankTilesCard({ icon, title, subtitle, items, moreText, emptyTex
         // ไม่เกิน 4 ช่อง = จัดกึ่งกลาง · เกิน 4 = ชิดซ้าย (กึ่งกลางตอนเลื่อนได้จะตัดช่องแรกและเลื่อนกลับไปดูไม่ได้)
         <div className={cx('-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1', items.length <= 4 && 'justify-center')} role="list" aria-label={title}>
           {items.map((d) => {
-            const lead = d.count === top && top > 0;
+            const lead = !tied && d.count === top && top > 0;
             return (
               <div
                 key={d.key}

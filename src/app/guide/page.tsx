@@ -8,7 +8,7 @@
  *   1) จำนวนงานของเดือน + แยกสนามบินที่กรุ๊ปออกเดินทาง (การ์ดกลาง MonthJobsCard · แสดงอย่างเดียว ไม่ลิงก์)
  *   2) ปลายทางของเดือน — แยกประเทศ เรียงมาก→น้อย · เกิน 4 เลื่อนดูได้ (DestinationsCard)
  *   2.1) สายการบินของเดือน — แยกสายการบิน เรียงมาก→น้อย · เกิน 4 เลื่อนดูได้ (AirlinesCard)
- *   3) รายการงานของเดือน — กรองทั้งหมด / สุวรรณภูมิ / ดอนเมือง · วันที่ (ไป/กลับ 2 บรรทัด) · สนามบิน · รหัสกรุ๊ป · สถานะช่วงทริป (แสดงอย่างเดียว)
+ *   3) รายการงานของเดือน — กรองทั้งหมด / สุวรรณภูมิ / ดอนเมือง · วันที่ (ไป/กลับ 2 บรรทัด) · สนามบิน · รหัสกรุ๊ป (+ ไฟลท์ขาไป · เวลาเครื่องออก · ซองเงิน) · สถานะช่วงทริป (แสดงอย่างเดียว)
  *   4) มีซองเงินค้าง (รอรับ / กำลังมา / แจ้งไม่ได้รับ) → การ์ดเตือนกรุ๊ปละบรรทัด แตะไปยืนยันที่หน้าการจัดการซองเงิน
  *      (ยืนยันรับซองทำที่เดียว — การ์ดซองเงินชุดเดียวกับหน้ารายละเอียดงาน ไม่มีหน้าตาที่สองที่หน้าหลัก)
  * ไม่มี checklist/attendance/customer-care ที่เพิ่มภาระรายวัน (ตัดออกแล้วตามที่คุยกัน)
@@ -34,8 +34,22 @@ import { Card, Callout, StatusBadge, cx } from '@/components/ui/Primitives';
 import { DestinationsCard } from '@/components/portal/DestinationsCard';
 import { destinationBreakdown } from '@/lib/logic/destinations';
 import { AirlinesCard } from '@/components/portal/AirlinesCard';
-import { airlineBreakdown } from '@/lib/logic/airlines';
+import { airlineBreakdown, flightNoOf, tripAirports } from '@/lib/logic/airlines';
+import { airportByIata } from '@/data/airports';
+
+import { periodTurnaround } from '@/lib/logic/guideBoard';
+import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import { airportBreakdown } from '@/lib/logic/staffPortal';
+
+/** สนามบินในไทย — ใช้ตัดสินว่าเที่ยวบินสุดท้ายคือขากลับเข้าไทย */
+const isThaiAirport = (code: string) => airportByIata(code)?.countryCode === 'TH';
+
+/** ไฟลท์ขาไป (เที่ยวบินแรก) + เวลาเครื่องออก — ไม่มีข้อมูล = ค่าว่าง */
+function outboundFlight(p: TourPeriodMaster): { no: string; time: string } {
+  const first = p.sectors?.[0];
+  const no = flightNoOf(first);
+  return { no, time: periodTurnaround(p).departureTime ?? '' };
+}
 
 /** สีป้ายแจ้งเตือนซองเงินในรายการงาน */
 const NOTICE_TONE = {
@@ -85,10 +99,10 @@ export default function GuideHomePage() {
   const envelopeNoticeOf = (periodId: string): { text: string; tone: 'red' | 'amber' | 'slate' } | null => {
     const states = envelopes.filter((e) => e.periodId === periodId).map((e) => leaderEnvelopeState(e, leaderId));
     const n = (st: string) => states.filter((x) => x === st).length;
-    if (n('not_received')) return { text: `แจ้งไม่ได้รับซอง ${n('not_received')} ซอง — รอการเงินตาม`, tone: 'red' };
-    if (n('to_ack')) return { text: `มีซองเงินรอรับ ${n('to_ack')} ซอง — กดยืนยันรับ`, tone: 'amber' };
-    if (n('in_transit')) return { text: `ซองเงินกำลังนำมาส่ง ${n('in_transit')} ซอง`, tone: 'amber' };
-    if (n('at_finance')) return { text: `มีซองเงิน ${n('at_finance')} ซอง — ยังอยู่ที่การเงิน`, tone: 'slate' };
+    if (n('not_received')) return { text: `ไม่ได้รับซอง ${n('not_received')}`, tone: 'red' };
+    if (n('to_ack')) return { text: `รอรับซอง ${n('to_ack')}`, tone: 'amber' };
+    if (n('in_transit')) return { text: `ซองกำลังมา ${n('in_transit')}`, tone: 'amber' };
+    if (n('at_finance')) return { text: `ซองอยู่การเงิน ${n('at_finance')}`, tone: 'slate' };
     return null;
   };
   const monthAirports = airportBreakdown(monthJobs.map((p) => p.departureAirportCode));
@@ -233,7 +247,7 @@ export default function GuideHomePage() {
             <thead>
               <tr className="text-left text-[11px] zego-text-tertiary">
                 <th className="whitespace-nowrap py-1.5 pr-2 font-medium">วันที่</th>
-                <th className="whitespace-nowrap py-1.5 pr-2 font-medium">สนามบิน</th>
+                <th className="whitespace-nowrap py-1.5 pr-2 text-center font-medium">สนามบิน</th>
                 <th className="py-1.5 pr-2 font-medium">รหัสกรุ๊ป</th>
                 <th className="py-1.5 font-medium">สถานะ</th>
               </tr>
@@ -241,22 +255,46 @@ export default function GuideHomePage() {
             <tbody className="divide-y divide-[var(--zego-border-soft)]">
               {listJobs.map((p) => {
                 const code = (p.departureAirportCode ?? '').trim().toUpperCase();
+                // ไปกับกลับคนละสนามบิน (เช่น ไป BKK กลับ DMK) — แสดงทั้งคู่
+                const ap = tripAirports(p, isThaiAirport);
+                const outCode = ap.out || code;
+                const twoAirports = !!ap.back && ap.back !== outCode;
                 // สถานะตามช่วงทริป — ยังไม่ออก / กำลังเดินทาง / จบทริปแล้ว
                 const stage = tripEnded(p, realToday)
                   ? { label: 'จบทริปแล้ว', tone: 'slate' as const }
                   : tripStarted(p, realToday) ? { label: 'กำลังเดินทาง', tone: 'green' as const } : { label: 'รอเดินทาง', tone: 'amber' as const };
                 return (
                   <tr key={p.internalId} className="align-top">
-                    {/* 2 บรรทัด — ไป (หนา) / กลับ (เทา) · ป้ายกว้างเท่ากัน วันที่จึงตรงกัน */}
+                    {/* 2 บรรทัด — วันไป (หนา) / วันกลับ (เทา) · ไม่มีป้ายคำ ให้กระชับ */}
                     <td className="whitespace-nowrap py-2 pr-2 tabular-nums">
-                      <span className="block font-semibold zego-text"><span className="inline-block w-6 text-[10px] font-normal zego-text-tertiary">ไป</span>{formatDate(p.startDate)}</span>
-                      <span className="block zego-text-secondary"><span className="inline-block w-6 text-[10px] zego-text-tertiary">กลับ</span>{formatDate(p.endDate)}</span>
+                      <span className="block font-semibold zego-text">{formatDate(p.startDate)}</span>
+                      <span className="block zego-text-secondary">{formatDate(p.endDate)}</span>
+                    </td>
+                    {/* สนามบิน — กึ่งกลางทั้งแนวนอนและแนวตั้งของแถว (แถวสูง 2 บรรทัดจากวันที่/ไฟลท์) */}
+                    <td className="py-2 pr-2 text-center align-middle">
+                      {twoAirports ? (
+                        <span className="inline-flex flex-col items-center gap-1">
+                          <span className="flex items-center gap-1"><span className={cx('rounded px-1.5 py-0.5 text-[11px] font-semibold', airportTone(outCode).badge)}>{outCode}</span></span>
+                          <span className="flex items-center gap-1"><span className={cx('rounded px-1.5 py-0.5 text-[11px] font-semibold', airportTone(ap.back).badge)}>{ap.back}</span></span>
+                        </span>
+                      ) : (
+                        <span className={cx('rounded px-1.5 py-0.5 text-[11px] font-semibold', airportTone(outCode).badge)}>{outCode || '—'}</span>
+                      )}
                     </td>
                     <td className="py-2 pr-2">
-                      <span className={cx('rounded px-1.5 py-0.5 text-[11px] font-semibold', airportTone(code).badge)}>{code || '—'}</span>
-                    </td>
-                    <td className="py-2 pr-2">
-                      <span className="block font-medium zego-text">{p.groupCode}</span>
+                      <span className="block whitespace-nowrap font-medium zego-text">{p.groupCode}</span>
+                      {/* ไฟลท์ขาไป + เวลาเครื่องออก — แหล่งเดียวกับตารางงานเจ้าหน้าที่ส่งกรุ๊ป (เที่ยวบินแรก · periodTurnaround) */}
+                      {(() => {
+                        const f = outboundFlight(p);
+                        return (f.no || f.time) && (
+                          <span className="mt-0.5 flex items-center gap-1 whitespace-nowrap text-[11px] zego-text-secondary">
+                            <Icon name="plane" className="h-3 w-3 shrink-0 zego-text-tertiary" />
+                            {f.no && <span className="font-medium tabular-nums">{f.no}</span>}
+                            {f.no && f.time && <span className="zego-text-tertiary">·</span>}
+                            {f.time && <span className="tabular-nums">ออก {f.time}</span>}
+                          </span>
+                        );
+                      })()}
                       {/* ซองเงินของกรุ๊ปนี้ที่ต้องรับ — ต้องกดยืนยัน = เหลือง · กำลังมา = เทา · แจ้งไม่ได้รับ = แดง */}
                       {(() => {
                         const n = envelopeNoticeOf(p.internalId);

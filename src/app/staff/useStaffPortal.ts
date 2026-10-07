@@ -16,6 +16,7 @@ import { loadSendOffRules } from '@/services/sendOffRulesStore';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { periodTurnaround } from '@/lib/logic/guideBoard';
 import { staffDuties, type DutyPeriod } from '@/lib/logic/staffPortal';
+import { flightNoOf } from '@/lib/logic/airlines';
 
 export function periodForDuty(periodId: string): DutyPeriod | null {
   const p = getTourPeriodById(periodId);
@@ -29,7 +30,8 @@ export function periodForDuty(periodId: string): DutyPeriod | null {
     endDate: p.endDate,
     departureAirportCode: p.departureAirportCode,
     departureTime: periodTurnaround(p).departureTime ?? null,
-    flightNo: first ? `${first.airlineCode ?? ''}${first.flightNumber ?? ''}`.trim() || null : null,
+    // ไม่ต่อรหัสสายการบินซ้ำเมื่อเลขเที่ยวบินมีรหัสอยู่แล้ว (เดิมขึ้น "NHNH806")
+    flightNo: flightNoOf(first) || null,
   };
 }
 
