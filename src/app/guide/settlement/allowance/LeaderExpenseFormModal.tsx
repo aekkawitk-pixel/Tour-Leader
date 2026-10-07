@@ -28,8 +28,6 @@ export type LeaderClaimForm = NonNullable<ExpenseRequest['claimForm']>;
 const CURRENCIES = ['THB', 'JPY', 'CNY', 'USD', 'EUR', 'HKD', 'TWD', 'KRW', 'SGD', 'VND', 'GEL', 'TRY', 'GBP', 'CHF'];
 /** รายการตั้งต้นข้อ 2–5 — เบี้ยเลี้ยง (ข้อ 1) มีแถวเดียวคำนวณให้ */
 const EXTRA_ITEMS: readonly string[] = LEADER_FORM_ITEMS.slice(1);
-/** รายการที่ต้องระบุรายละเอียดเมื่อมียอด — ชื่อกว้าง บัญชีต้องรู้ว่าจ่ายอะไร */
-const NEED_DETAIL = new Set<string>(['ค่าเบ็ดเตล็ด']);
 
 interface Row { key: string; item: string; added: boolean; detail: string; price: string; qty: string; currency: string; note: string }
 
@@ -122,13 +120,11 @@ export function LeaderExpenseFormModal({
   }
   // ราคาที่กรอกต้องมากกว่า 0 และมีจำนวน (เว้นราคาว่าง = ไม่มีรายการนี้)
   const isBad = (x: Row) => x.price.trim() !== '' && (!(Number(x.price) > 0) || !(Number(x.qty) > 0));
-  const needsDetail = (x: Row) => amountOf(x) > 0 && !x.detail.trim() && NEED_DETAIL.has(x.item);
   // รายการที่เพิ่มเองต้องมีชื่อเมื่อกรอกยอด
   const needsName = (x: Row) => x.added && amountOf(x) > 0 && !x.item.trim();
   const badRow = rows.some(isBad);
-  const missingDetail = rows.some(needsDetail);
   const missingName = rows.some(needsName);
-  const ok = totals.size > 0 && !badRow && !missingDetail && !missingName;
+  const ok = totals.size > 0 && !badRow && !missingName;
   // ร่างบันทึกได้แม้ยังกรอกไม่ครบ — ขอแค่ยอดที่กรอกเป็นตัวเลขถูกต้อง
   const draftOk = !badRow;
   // ใบที่ส่งอนุมัติไปแล้ว (รออนุมัติ) ไม่ย้อนกลับเป็นร่าง — แก้แล้วต้องส่งใหม่
@@ -316,9 +312,9 @@ export function LeaderExpenseFormModal({
                     <span className={mLabel}>รายละเอียด</span>
                     <input
                       aria-label={`รายละเอียด ${x.item || 'รายการที่เพิ่ม'}`}
-                      className={cx(input, needsDetail(x) && 'border-amber-400')}
+                      className={input}
                       value={x.detail} onChange={(e) => setRow(x.key, { detail: e.target.value })}
-                      placeholder={NEED_DETAIL.has(x.item) ? 'ระบุรายการ' : 'รายละเอียด (ถ้ามี)'}
+                      placeholder="รายละเอียด (ถ้ามี)"
                     />
                   </span>
                   <span className="grid grid-cols-2 gap-2 sm:contents">
@@ -378,7 +374,6 @@ export function LeaderExpenseFormModal({
               </p>
             )}
             {badRow && <p className="zego-text-danger">ราคาและจำนวนต้องมากกว่า 0 (เว้นราคาว่าง = ไม่มีรายการนี้)</p>}
-            {missingDetail && <p className="zego-text-warning">ค่าเบ็ดเตล็ดที่มียอด ต้องระบุรายละเอียด</p>}
             {missingName && <p className="zego-text-warning">รายการที่เพิ่มและมียอด ต้องตั้งชื่อรายการ</p>}
           </div>
         </section>

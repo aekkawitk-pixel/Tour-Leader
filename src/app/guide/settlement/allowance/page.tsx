@@ -40,6 +40,7 @@ import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import { SettlementBackHeader } from '../SettlementBackHeader';
 import { MonthYearFilter, matchesPeriodFilter, validPeriodFilter } from '../../MonthYearFilter';
 import { tripEnded } from '@/lib/logic/tripPhase';
+import { DEMO_SUBMIT_BEFORE_TRIP_END } from '@/lib/featureFlags';
 
 const EDITABLE = new Set(['draft', 'submitted', 'revise']);
 
@@ -181,7 +182,7 @@ export default function GuideAllowancePage() {
         <>
         <MonthYearFilter counts={monthCounts} value={periodFilter} onChange={setPickedPeriod} />
         {shownGroups.map((period, i) => {
-          const finished = tripEnded(period, today);
+          const finished = DEMO_SUBMIT_BEFORE_TRIP_END || tripEnded(period, today);
           // หัวข้อเดือน — ขึ้นที่กรุ๊ปแรกของแต่ละเดือน
           const newMonth = i === 0 || monthOf(shownGroups[i - 1]) !== monthOf(period);
           const monthCount = monthCounts.get(monthOf(period)) ?? 0;
@@ -259,7 +260,7 @@ export default function GuideAllowancePage() {
           programRate={perDiemRateFor(open.period, perDiemRates)}
           paxSource={paxFromAdvanceDoc(open.period.internalId)}
           defaultPhone={leaderPhone}
-          canSubmit={tripEnded(open.period, today)}
+          canSubmit={DEMO_SUBMIT_BEFORE_TRIP_END || tripEnded(open.period, today)}
           onClose={() => setOpen(null)}
           onSave={(lines, form, note, submit) => saveForm(open.period, lines, form, note, open.existing, submit)}
         />
