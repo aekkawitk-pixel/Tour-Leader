@@ -19,6 +19,7 @@ import { useDemo } from '@/store/DemoStore';
 import { Drawer, Modal } from '@/components/ui/Modal';
 import { Button, cx } from '@/components/ui/Primitives';
 import { SearchBox, TextInput } from '@/components/ui/FormField';
+import { Combobox } from '@/components/ui/Combobox';
 import { Icon } from '@/components/ui/Icon';
 import { formatCurrency, formatDate, formatDateRange, formatDateTime, formatTime, toISODate, toISODateTime } from '@/lib/format';
 import {
@@ -26,7 +27,7 @@ import {
   envelopeTotals, groupEnvelopeStatus, groupLines, lineKey, newEnvelope, NO_ENVELOPE_REASONS, packingFromAllocation, sumAmounts, unassignedLines,
   type Allocation, type CashEnvelope, type EnvelopeAmount, type EnvelopeTone,
 } from '@/lib/logic/cashEnvelope';
-import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getAssignablePeriods, getTourPeriodById } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { loadSendOffAssignments } from '@/services/sendOffAssignmentStore';
 import { loadSendOffStaff } from '@/services/sendOffStaffStore';
@@ -659,6 +660,30 @@ function EnvelopePanel({
   const pendingStaff = staffChoice === 'carrierStaff' && !staffPerson;
   const pendingLeader = leaderChoice === 'carrierLeader' && !leaderCarrier && !staffPerson;
   const pending = pendingStaff || pendingLeader;
+  /*
+    รอฝากแต่รู้แล้วว่าจะไปกับกรุ๊ปไหน (ยังไม่รู้คนถือ) — ล็อกซองให้กรุ๊ปนั้นหยิบได้กรุ๊ปเดียว
+    กรุ๊ปที่เลือกได้ = กรุ๊ปที่ส่งทัน ตามเกณฑ์เดียวกับเลือกคน (รอเจ้าหน้าที่: ออกเดินทางวันนี้–วันออกเดินทางของกรุ๊ปนี้ · รอแค่หัวหน้าทัวร์: ยังไม่จบทริป และออกเดินทางไม่หลังวันกลับของกรุ๊ปนี้)
+  */
+  const [targetPeriodId, setTargetPeriodId] = useState(() => pd0?.target?.periodId ?? '');
+  const targetOptions = useMemo(() => {
+    if (!pending) return [];
+    const today = toISODate(new Date());
+    const ownStart = period?.startDate ?? '9999-12-31';
+    const ownEnd = period?.endDate ?? '9999-12-31';
+    return getAssignablePeriods()
+      .filter((p) => p.internalId !== periodId && (pendingStaff
+        ? p.startDate >= today && p.startDate <= ownStart
+        : p.endDate >= today && p.startDate <= ownEnd))
+      .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.groupCode.localeCompare(b.groupCode));
+  }, [pending, pendingStaff, periodId, period?.startDate, period?.endDate]);
+  // กรุ๊ปที่เลือกไว้ใช้ไม่ได้แล้ว (เปลี่ยนแบบฝาก / เลยวัน) → ถือว่ายังไม่ระบุ
+  const target = targetOptions.find((p) => p.internalId === targetPeriodId);
+  // ค้นหารหัสกรุ๊ป — กรุ๊ปที่เลือกไว้ยังอยู่ในรายการเสมอ
+  const [targetQuery, setTargetQuery] = useState('');
+  const targetQ = targetQuery.trim().toUpperCase();
+  const targetShown = targetQ
+    ? targetOptions.filter((p) => p.internalId === target?.internalId || p.groupCode.toUpperCase().includes(targetQ))
+    : targetOptions;
   const handoverMissing = [
     staffChoice === 'staff' && !staffPerson && 'เจ้าหน้าที่ส่งกรุ๊ป',
     !!staffPerson && leaderChoice === 'carrierLeader' && !leaderCarrier && 'หัวหน้าทัวร์ที่ฝาก (มีเจ้าหน้าที่รับซองแล้ว ต้องระบุว่าจะส่งให้ใคร)',
@@ -670,10 +695,10 @@ function EnvelopePanel({
   /** เส้นทางที่จะเกิดขึ้น — แสดงก่อนกดบันทึก */
   const plannedPath = [
     'การเงิน',
-    staffPerson ? `${staffPerson.name} (เจ้าหน้าที่ส่งกรุ๊ป${staffVia ? ` · ${staffVia}` : ''})` : pendingStaff && 'เจ้าหน้าที่กรุ๊ปอื่น (เลือกภายหลัง)',
+    staffPerson ? `${staffPerson.name} (เจ้าหน้าที่ส่งกรุ๊ป${staffVia ? ` · ${staffVia}` : ''})` : pendingStaff && `เจ้าหน้าที่${target ? `กรุ๊ป ${target.groupCode}` : 'กรุ๊ปอื่น'} (เลือกภายหลัง)`,
     leaderCarrier
       ? `${leaderCarrier.name} (หัวหน้าทัวร์ฝากส่ง${via ? ` · ${via}` : ''})`
-      : pendingLeader ? 'หัวหน้าทัวร์กรุ๊ปอื่น (เลือกภายหลัง)' : leaderChoice === 'carrierLeader' && 'หัวหน้าทัวร์ที่ฝาก (ยังไม่ได้เลือก)',
+      : pendingLeader ? `หัวหน้าทัวร์${target ? `กรุ๊ป ${target.groupCode}` : 'กรุ๊ปอื่น'} (เลือกภายหลัง)` : leaderChoice === 'carrierLeader' && 'หัวหน้าทัวร์ที่ฝาก (ยังไม่ได้เลือก)',
     `${leaderName} (หัวหน้าทัวร์หลัก)`,
   ].filter(Boolean) as string[];
 
@@ -692,6 +717,7 @@ function EnvelopePanel({
       byName: '',
       staff: pendingStaff ? 'pending' : staffPerson ? { id: staffPerson.id, name: staffPerson.name } : 'none',
       leader: pendingLeader ? 'pending' : leaderCarrier ? { id: leaderCarrier.id, name: leaderCarrier.name, ...(via ? { viaGroup: via } : {}) } : 'main',
+      ...(target ? { target: { periodId: target.internalId, groupCode: target.groupCode } } : {}),
     };
     return saveEnvelope({ ...env, pendingDeposit: pd }, env.pendingDeposit ? 'แก้ไขรอฝากไปกับกรุ๊ปอื่น' : 'ตั้งรอฝากไปกับกรุ๊ปอื่น', `${name} · ${pendingDepositLabel(pd)} · ${plannedPath.slice(1).join(' → ')}`);
   };
@@ -755,14 +781,18 @@ function EnvelopePanel({
       const xp = getTourPeriodById(x.periodId);
       const myStart = period?.startDate ?? '';
       const reason =
-        pd.staff === 'pending' && !attachStaff ? (env.handover ? 'ซองกรุ๊ปนี้ไม่ได้ฝากเจ้าหน้าที่ส่งกรุ๊ป' : 'เลือกเจ้าหน้าที่ส่งกรุ๊ปของกรุ๊ปนี้ก่อน')
+        // ระบุกรุ๊ปที่จะฝากไว้แล้ว — กรุ๊ปอื่นหยิบไม่ได้
+        pd.target && pd.target.periodId !== periodId ? `ระบุให้ฝากไปกับกรุ๊ป ${pd.target.groupCode}`
+        : pd.staff === 'pending' && !attachStaff ? (env.handover ? 'ซองกรุ๊ปนี้ไม่ได้ฝากเจ้าหน้าที่ส่งกรุ๊ป' : 'เลือกเจ้าหน้าที่ส่งกรุ๊ปของกรุ๊ปนี้ก่อน')
           : pd.leader === 'pending' && leaderLegOptions(x, pd.staff === 'pending' ? attachStaff : pd.staff === 'none' ? undefined : pd.staff).length === 0 ? 'กรุ๊ปนี้ยังไม่มีหัวหน้าทัวร์ให้ฝาก'
             // ส่งทันไหม — เจ้าหน้าที่ไปส่งกรุ๊ปนี้ก่อน/วันเดียวกับกรุ๊ปเจ้าของซองออกเดินทาง · หัวหน้าทัวร์ออกเดินทางไม่หลังวันกลับของกรุ๊ปเจ้าของซอง
             : xp && myStart && pd.staff === 'pending' && myStart > xp.startDate ? `กรุ๊ปนี้ออกเดินทางหลังกรุ๊ป ${xp.groupCode} — ส่งไม่ทัน`
               : xp && myStart && pd.staff !== 'pending' && pd.leader === 'pending' && myStart > xp.endDate ? `กรุ๊ปนี้ออกเดินทางหลังกรุ๊ป ${xp.groupCode} กลับแล้ว — ส่งไม่ทัน`
                 : null;
-      return { env: x, period: xp, reason };
-    });
+      return { env: x, period: xp, reason, forHere: pd.target?.periodId === periodId };
+    })
+    // ซองที่ระบุให้ฝากกับกรุ๊ปนี้ขึ้นก่อน · ซองที่ระบุกรุ๊ปอื่นไว้ไปท้ายสุด
+    .sort((a, b) => Number(b.forHere) - Number(a.forHere) || Number(!!a.env.pendingDeposit!.target) - Number(!!b.env.pendingDeposit!.target));
   const attachable = waitingOthers.filter((w) => !w.reason).map((w) => w.env);
   const [attachIds, setAttachIds] = useState<Set<string>>(new Set());
   // ค้นหารหัสกรุ๊ปในซองที่รอฝาก — ซองที่ติ๊กไว้แล้วยังแสดงอยู่เสมอ ไม่หายไปตอนเปลี่ยนคำค้น
@@ -991,7 +1021,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
         placeholder="ค้นหารหัสกรุ๊ป เช่น CAN-261102G"
       />
       {waitingShown.length === 0 && <p className="px-2 py-1.5 text-xs zego-text-tertiary">ไม่พบกรุ๊ปที่ตรงกับ “{attachQuery.trim()}”</p>}
-      {waitingShown.map(({ env: x, period: xp, reason }) => {
+      {waitingShown.map(({ env: x, period: xp, reason, forHere }) => {
         const { owner, staffSide, leaderSide, legOptions, legKey } = attachRoute(x);
         const ownerCode = xp?.groupCode ?? x.periodId;
         // เส้นทางเต็มของซองฝาก — ให้เห็นว่าผ่านใคร และปลายทางคือหัวหน้าทัวร์ของกรุ๊ปเจ้าของซอง (ไม่ใช่ของกรุ๊ปนี้)
@@ -1005,7 +1035,10 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
           <label className={cx('flex items-start gap-2', reason ? 'cursor-not-allowed' : 'cursor-pointer')}>
             <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" disabled={!!reason} checked={!reason && attachIds.has(x.id)} onChange={() => toggleAttach(x.id)} />
             <span className="min-w-0 flex-1">
-              <span className="block font-medium zego-text">{xp?.groupCode ?? x.periodId} · {envelopeName(x)}</span>
+              <span className="flex flex-wrap items-center gap-1.5 font-medium zego-text">
+                {xp?.groupCode ?? x.periodId} · {envelopeName(x)}
+                {forHere && <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">ระบุให้ฝากกับกรุ๊ปนี้</span>}
+              </span>
               <span className="block zego-text-secondary">
                 {xp && `ออกเดินทาง ${formatDateRange(xp.startDate, xp.endDate)} · `}{pendingDepositLabel(x.pendingDeposit!)}
               </span>
@@ -1431,7 +1464,32 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                 // ยังไม่ระบุคนที่ฝาก — อธิบายให้ชัดว่าบันทึกแล้วเกิดอะไรขึ้น และไปเลือกคนที่ไหน
                 <div className="space-y-0.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
                   <p className="font-semibold">ยังไม่ส่งมอบ — ยังไม่ได้เลือก{pendingStaff && pendingLeader ? 'เจ้าหน้าที่และหัวหน้าทัวร์' : pendingStaff ? 'เจ้าหน้าที่' : 'หัวหน้าทัวร์'}ที่จะฝากไป</p>
-                  <p>บันทึกไว้ก่อน แล้วตอนทำส่งมอบของกรุ๊ปที่จะฝากไปด้วย ซองนี้จะขึ้นให้ติ๊กฝากไปด้วย — ซองจะไปกับ{pendingStaff ? 'เจ้าหน้าที่' : ''}{pendingStaff && pendingLeader ? 'และ' : ''}{pendingLeader ? 'หัวหน้าทัวร์' : ''}ของกรุ๊ปนั้น แล้วนำส่ง {leaderName}</p>
+                  <p>บันทึกไว้ก่อน แล้วตอนทำส่งมอบของ{target ? `กรุ๊ป ${target.groupCode}` : 'กรุ๊ปที่จะฝากไปด้วย'} ซองนี้จะขึ้นให้ติ๊กฝากไปด้วย — ซองจะไปกับ{pendingStaff ? 'เจ้าหน้าที่' : ''}{pendingStaff && pendingLeader ? 'และ' : ''}{pendingLeader ? 'หัวหน้าทัวร์' : ''}ของกรุ๊ปนั้น แล้วนำส่ง {leaderName}</p>
+                  {/* รู้กรุ๊ปแต่ยังไม่รู้คน — ล็อกให้กรุ๊ปนั้นหยิบได้กรุ๊ปเดียว */}
+                  <div className="space-y-1.5 pt-1.5">
+                    {/* พิมพ์ค้นหาในช่องเลือกได้เลย · รายการแรก = ยังไม่ระบุ (ล้างกรุ๊ปที่เลือก) */}
+                    <Combobox
+                      label="ฝากไปกับกรุ๊ป (ถ้ารู้แล้ว)"
+                      value={target?.groupCode ?? ''}
+                      items={[...(targetQ ? [] : [{ id: '', code: 'ยังไม่ระบุ — กรุ๊ปไหนก็ได้ที่ส่งทัน', dates: '' }]), ...targetShown.map((p) => ({ id: p.internalId, code: p.groupCode, dates: formatDateRange(p.startDate, p.endDate) }))]}
+                      getKey={(o) => o.id || 'none'}
+                      getLabel={(o) => o.code}
+                      getSubLabel={(o) => o.dates || undefined}
+                      onSearch={setTargetQuery}
+                      onSelect={(o) => setTargetPeriodId(o?.id ?? '')}
+                      placeholder="พิมพ์ค้นหารหัสกรุ๊ป เช่น CKG-261009A — ไม่เลือก = ยังไม่ระบุ"
+                      emptyMessage="ไม่พบกรุ๊ปที่ส่งทันตรงกับคำค้น"
+                      placement="top"
+                    />
+                    <span className="mt-1 block">
+                      {target
+                        ? `เฉพาะกรุ๊ป ${target.groupCode} หยิบซองนี้ไปฝากได้ — กรุ๊ปอื่นจะเห็นแต่ติ๊กไม่ได้`
+                        : 'ไม่ระบุ = ทุกกรุ๊ปที่ส่งทันติ๊กฝากซองนี้ได้'}
+                    </span>
+                    {pd0?.target && !target && (
+                      <span className="mt-1 block font-semibold">กรุ๊ป {pd0.target.groupCode} ที่ระบุไว้ ส่งไม่ทันแล้ว — เลือกกรุ๊ปใหม่ หรือไม่ระบุ</span>
+                    )}
+                  </div>
                 </div>
               )}
               {handoverMissing.length > 0 && <p className="text-xs zego-text-warning">ยังขาด: {handoverMissing.join(' · ')}</p>}

@@ -180,6 +180,11 @@ export interface PendingDeposit {
   byName: string;
   staff: 'pending' | 'none' | { id: string; name: string };
   leader: 'pending' | 'main' | { id: string; name: string; viaGroup?: string };
+  /**
+   * รู้แล้วว่าจะฝากไปกับกรุ๊ปไหน แต่ยังไม่รู้คนที่ถือ — หยิบไปฝากได้เฉพาะกรุ๊ปนี้ (กรุ๊ปอื่นเห็นแต่ติ๊กไม่ได้)
+   * ไม่มี = ฝากกับกรุ๊ปไหนก็ได้ที่ส่งทัน
+   */
+  target?: { periodId: string; groupCode: string };
 }
 
 /**
@@ -195,6 +200,7 @@ export function depositedViaGroup(env: Pick<CashEnvelope, 'handover'>, ownGroupC
 
 /** ข้อความสถานะรอฝาก — บอกว่ารอฝากไปกับใครของกรุ๊ปอื่น */
 export function pendingDepositLabel(pd: PendingDeposit): string {
+  if (pd.target) return `รอฝากไปกับกรุ๊ป ${pd.target.groupCode}`;
   if (pd.staff === 'pending' && pd.leader === 'pending') return 'รอฝากไปกับกรุ๊ปอื่น';
   if (pd.staff === 'pending') return 'รอฝากไปกับเจ้าหน้าที่กรุ๊ปอื่น';
   return 'รอฝากไปกับหัวหน้าทัวร์กรุ๊ปอื่น';

@@ -50,6 +50,7 @@ export function Combobox<T>({
   loading = false,
   loadError,
   emptyMessage = 'ไม่พบรายการที่ค้นหา',
+  placement = 'bottom',
 }: {
   label: string;
   required?: boolean;
@@ -73,6 +74,8 @@ export function Combobox<T>({
   loading?: boolean;
   loadError?: string;
   emptyMessage?: string;
+  /** เปิดรายการลงล่าง (ค่าเริ่มต้น) หรือขึ้นบน — ใช้ขึ้นบนเมื่อช่องอยู่ท้ายพื้นที่เลื่อน รายการจะได้ไม่ล้นจอ */
+  placement?: 'bottom' | 'top';
 }) {
   const id = useId();
   const listId = `${id}-list`;
@@ -208,7 +211,7 @@ export function Combobox<T>({
             ref={listRef}
             role="listbox"
             aria-label={label}
-            className="zego-card-surface absolute z-40 mt-1 max-h-56 w-full overflow-auto py-1"
+            className={cx('zego-card-surface absolute z-40 max-h-56 w-full overflow-auto py-1', placement === 'top' ? 'bottom-full mb-1' : 'mt-1')}
           >
             {loading && (
               <li className="zego-text-secondary px-3 py-2 text-sm" role="status">
