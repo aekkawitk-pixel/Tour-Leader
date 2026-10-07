@@ -316,7 +316,6 @@ export default function ExpensesPage() {
   const safePage = Math.min(page, totalPages);
   const pageSlice = <T,>(rows: T[]) => rows.slice((safePage - 1) * pageSize, safePage * pageSize);
   /* แท็บค่าใช้จ่ายจริง = รายงานการใช้เงิน — สถานะแค่ รอตรวจ / ให้แก้ไข / ตรวจแล้ว / ปฏิเสธ (ไม่มีรอจ่าย/จ่ายแล้ว) */
-  const canManageGroup = canViewPath(currentUser.role, '/group-expenses');
 
   return (
     <>
@@ -350,12 +349,6 @@ export default function ExpensesPage() {
               <Link href="/payments" className="zego-button">
                 <Icon name="money" className="h-4 w-4" />
                 จ่ายเงิน
-              </Link>
-            )}
-            {canManageGroup && (
-              <Link href="/group-expenses" className="zego-button">
-                <Icon name="money" className="h-4 w-4" />
-                จัดการค่าใช้จ่ายกรุ๊ป
               </Link>
             )}
             {can(currentUser.role, 'expense.create') && (

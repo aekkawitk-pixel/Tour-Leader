@@ -15,3 +15,10 @@ export const LEADER_ASSIGNMENT_ENABLED = false;
  *   false = ส่งอนุมัติได้เมื่อจบทริปแล้วเท่านั้น (กติกาจริง) — ปิดก่อนใช้งานจริง
  */
 export const DEMO_SUBMIT_BEFORE_TRIP_END = true;
+
+/**
+ * PAYMENTS_MENU_ENABLED:
+ *   false = ซ่อนเมนู "จ่ายเงิน" ชั่วคราว (เมนูข้าง · ปุ่มในหน้าตรวจสอบรายการจ่าย · เปิดหน้า /payments ตรงไม่ได้)
+ *   true  = เปิดใช้เมนูจ่ายเงินกลับมา (โค้ดหน้ายังอยู่ครบ)
+ */
+export const PAYMENTS_MENU_ENABLED = false;

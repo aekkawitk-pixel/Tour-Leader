@@ -1,6 +1,7 @@
 /** เมนูและสิทธิ์ตามบทบาท — ใช้ทดลองว่าผู้ใช้แต่ละกลุ่มเห็นอะไรต่างกัน */
 
 import type { DemoUser, Role } from '@/types';
+import { PAYMENTS_MENU_ENABLED } from './featureFlags';
 
 export type NavKey =
   | 'dashboard'
@@ -86,7 +87,8 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'จ่ายเงิน',
     href: '/payments',
     icon: 'money',
-    roles: ['admin', 'accounting'],
+    // ซ่อนชั่วคราว (PAYMENTS_MENU_ENABLED) — ไม่มีบทบาทใดเห็นเมนู/ปุ่ม/หน้า · โค้ดหน้ายังอยู่ครบ
+    roles: PAYMENTS_MENU_ENABLED ? ['admin', 'accounting'] : [],
   },
   {
     key: 'settlements',

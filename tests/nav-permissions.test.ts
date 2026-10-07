@@ -7,6 +7,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { navForRole, NAV_ITEMS, type NavKey } from '../src/lib/permissions';
 import { ROLE_ORDER } from '../src/lib/labels';
+import { PAYMENTS_MENU_ENABLED } from '../src/lib/featureFlags';
 
 const ADMIN_ONLY: NavKey[] = ['zego', 'tourPeriods', 'leaderMaster', 'holidays', 'settings'];
 
@@ -78,8 +79,19 @@ describe('บทบาทฝ่ายบัญชี', () => {
 
   test('ยังเห็นเมนูงานการเงินครบ', () => {
     const keys = navForRole('accounting').map((i) => i.key);
-    for (const k of ['groupExpenses', 'expenses', 'payments', 'settlements', 'calendar'] as NavKey[]) {
+    // จ่ายเงินซ่อนชั่วคราวได้ด้วย PAYMENTS_MENU_ENABLED — เปิดอยู่ต้องเห็น
+    const finance: NavKey[] = ['groupExpenses', 'expenses', 'settlements', 'calendar', ...(PAYMENTS_MENU_ENABLED ? ['payments' as NavKey] : [])];
+    for (const k of finance) {
       assert.ok(keys.includes(k), `ฝ่ายบัญชีต้องยังเห็นเมนู ${k}`);
+    }
+  });
+
+  test('เมนูจ่ายเงินซ่อนอยู่ (PAYMENTS_MENU_ENABLED = false) — ไม่มีบทบาทใดเห็น และเปิด URL ตรงไม่ได้', async () => {
+    if (PAYMENTS_MENU_ENABLED) return;
+    const { canViewPath } = await import('../src/lib/permissions');
+    for (const role of ROLE_ORDER) {
+      assert.equal(navForRole(role).some((i) => i.key === 'payments'), false, `${role} ต้องไม่เห็นเมนูจ่ายเงิน`);
+      assert.equal(canViewPath(role, '/payments'), false, `${role} ต้องเปิด /payments ไม่ได้`);
     }
   });
 

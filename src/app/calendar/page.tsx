@@ -454,8 +454,8 @@ export default function CalendarPage() {
         onClick={(e) => { e.stopPropagation(); setSelectedId(p.internalId); }}
         title={[`${groupCodeLabel(p)} — ${p.displayName}`, complete ? 'จัดครบแล้ว (หัวหน้าทัวร์ + เจ้าหน้าที่ส่งกรุ๊ป)' : null, assignedLabel, sendOffLabel, `ขาย: ${SALE_STATUS_LABEL[p.saleStatus]}`].filter(Boolean).join(' · ')}
         className={cx(
-          // 9px + ระยะขอบแคบ — ป้ายยาวขึ้นเพราะมี (บัส) ต่อท้าย ถ้าคง 11px ไว้จะถูกตัดทุกชิปตั้งแต่จอ 1280
-          'flex w-full items-center gap-0.5 rounded border px-1 py-0.5 text-left text-[9px] font-medium transition hover:brightness-95',
+          // 8.5px + ระยะขอบแคบ — ป้ายยาวขึ้นเพราะมี (บัส) ต่อท้าย ตัวใหญ่กว่านี้ถูกตัดตั้งแต่จอ 1280 · ผู้ใช้ขอให้เล็กลงจาก 9px
+          'flex w-full items-center gap-0.5 rounded border px-1 py-0.5 text-left text-[8.5px] font-medium transition hover:brightness-95',
           complete ? COMPLETE_CHIP : NEUTRAL_CHIP,
         )}
       >
@@ -472,7 +472,7 @@ export default function CalendarPage() {
           />
         )}
         <span className="sr-only">{[assignedLabel, sendOffLabel].filter(Boolean).join(' · ')}</span>
-        <span className="min-w-0 truncate font-mono font-bold">{groupCodeLabel(p)}</span>
+        <span className="min-w-0 truncate font-mono font-semibold">{groupCodeLabel(p)}</span>
       </button>
     );
   };
@@ -531,7 +531,7 @@ export default function CalendarPage() {
               type="button"
               onClick={() => setDayOpen(cell.date)}
               title={openAllLabel}
-              className="zego-text-info rounded px-1 text-left text-[10px] font-medium underline-offset-2 hover:underline"
+              className="zego-text-info rounded px-1 text-left text-[9px] font-medium underline-offset-2 hover:underline"
             >
               +{dayPeriods.length - limit} พีเรียด · ดูทั้งหมด
             </button>

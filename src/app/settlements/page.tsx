@@ -11,11 +11,11 @@
  * ข้อมูลจริงทั้งหมด — ไม่มีข้อมูลจำลองชุดเก่า (STL-…) แล้ว
  */
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { Button, Card, cx, PageHeader } from '@/components/ui/Primitives';
-import { SearchBox } from '@/components/ui/FormField';
+import { FilterBox, FILTER_INPUT } from '@/components/ui/FilterBox';
+import { MultiSelectControl } from '@/components/ui/MultiSelect';
 import { formatCurrency, formatDate, formatDateRange, toISODate } from '@/lib/format';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
@@ -56,7 +56,14 @@ export default function GroupClearPage() {
     setRecords(loadGroupClears());
   }, []);
   const [filter, setFilter] = useState<Filter>('all');
-  const [query, setQuery] = useState('');
+  // แถบค้นหา — ไม่เลือกประเทศ = ทุกประเทศ · ช่วงเดินทางเริ่มต้น = หลังเดินทาง (กรุ๊ปที่ต้องเคลียร์เงิน)
+  const [countrySel, setCountrySel] = useState<string[]>([]);
+  const [codeQ, setCodeQ] = useState('');
+  const [tourQ, setTourQ] = useState('');
+  const [leaderQ, setLeaderQ] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [trip, setTrip] = useState<'before' | 'after'>('after');
   const [openId, setOpenId] = useState<string | null>(null);
 
   /** หัวหน้าทัวร์ของกรุ๊ป — คอนเฟิร์มแล้วก่อน ไม่มีจึงใช้ผู้ส่งใบเสร็จ/ใบเบิก */
@@ -97,8 +104,30 @@ export default function GroupClearPage() {
       .sort((a, b) => b.p.endDate.localeCompare(a.p.endDate));
   }, [envelopes, expenses, records, leaderOf, today]);
 
-  const q = query.trim().toLowerCase();
-  const searched = rows.filter((r) => !q || [r.p.groupCode, r.p.displayName, r.p.countryName, r.leader?.name ?? ''].join(' ').toLowerCase().includes(q));
+  /*
+    แถบค้นหา — ประเทศ (หลายประเทศ) · รหัสกรุ๊ป · รายการทัวร์ · หัวหน้าทัวร์ · ช่วงวันที่เดินทาง · ก่อน/หลังเดินทาง
+    การ์ดสรุปนับตามผลค้นหา · ไม่ระบุวันที่ = ไม่กรองวันที่
+  */
+  const countries = useMemo(() => [...new Set(rows.map((r) => r.p.countryName).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)), [rows]);
+  const has = (text: string | undefined | null, needle: string) => !needle || (text ?? '').toLowerCase().includes(needle);
+  const codeN = codeQ.trim().toLowerCase();
+  const tourN = tourQ.trim().toLowerCase();
+  const leaderN = leaderQ.trim().toLowerCase();
+  const searched = rows.filter((r) => {
+    if (countrySel.length > 0 && !countrySel.includes(r.p.countryName ?? '')) return false;
+    if (!has(r.p.groupCode, codeN)) return false;
+    if (!has([r.p.displayName, r.p.tourName, r.p.programCode].join(' '), tourN)) return false;
+    if (!has(r.leader?.name, leaderN)) return false;
+    // ก่อนเดินทาง = ยังไม่ออกเดินทาง · หลังเดินทาง = ออกเดินทางแล้ว (รวมกำลังเดินทาง) — เกณฑ์เดียวกับหน้าจัดการค่าใช้จ่ายกรุ๊ป
+    if (trip === 'before' && r.p.startDate < today) return false;
+    if (trip === 'after' && r.p.startDate >= today) return false;
+    // ช่วงวันที่ — กรุ๊ปที่เดินทางคาบเกี่ยวช่วงที่เลือก
+    if (dateFrom && r.p.endDate < dateFrom) return false;
+    if (dateTo && r.p.startDate > dateTo) return false;
+    return true;
+  });
+  const searching = !!(countrySel.length > 0 || codeN || tourN || leaderN || dateFrom || dateTo || trip !== 'after');
+  const clearSearch = () => { setCountrySel([]); setCodeQ(''); setTourQ(''); setLeaderQ(''); setDateFrom(''); setDateTo(''); setTrip('after'); };
   const matches = (s: GroupClearSummary, f: Filter) => f === 'all' || (f === 'overdue' ? s.overdue : s.stage === f);
   const rowMatches = (r: (typeof rows)[number], f: Filter) => (f === 'followup' ? r.openFollowUps.length > 0 : matches(r.s, f));
   const shown = searched.filter((r) => rowMatches(r, filter));
@@ -117,11 +146,6 @@ export default function GroupClearPage() {
       <PageHeader
         title="เคลียร์เงินกรุ๊ป"
         description="สรุปเงินของแต่ละกรุ๊ป แยกทีละสกุล: ในซอง − ส่งแลนด์ − ใบเสร็จตามรายการเบิกที่ตรวจแล้ว = คงเหลือ (หัวหน้าทัวร์ต้องคืน / บริษัทจ่ายเพิ่ม) · นอกรายการเบิกไม่หักจากซอง · เบี้ยเลี้ยงโอนแยก"
-        actions={
-          <Link href="/settlements/custody">
-            <Button variant="secondary" size="sm" icon="money">เงินค่าแลนด์ที่ถือไป</Button>
-          </Link>
-        }
       />
 
       {/* สรุปสถานะ — แตะเพื่อกรอง */}
@@ -145,9 +169,66 @@ export default function GroupClearPage() {
         })}
       </div>
 
-      <Card className="mb-4">
-        <SearchBox value={query} onChange={setQuery} onClear={() => setQuery('')} placeholder="ค้นหารหัสกรุ๊ป ชื่อโปรแกรม ประเทศ หรือหัวหน้าทัวร์" label="ค้นหากรุ๊ป" />
-      </Card>
+      {/* แถบค้นหา — แบบเดียวกับหน้าจัดการค่าใช้จ่ายกรุ๊ป: กล่องละ 1 เงื่อนไข */}
+      <div className="mb-4 flex flex-wrap items-stretch gap-2 2xl:flex-nowrap">
+        <FilterBox icon="plane" label="เลือกประเทศ" className="w-full sm:w-44" group>
+          <MultiSelectControl
+            ariaLabel="เลือกประเทศ"
+            value={countrySel}
+            onChange={setCountrySel}
+            options={countries.map((c) => ({ value: c, label: c }))}
+            allLabel="All Country"
+            summaryAfter={2}
+            summaryFormat={(n) => `${n} ประเทศ`}
+            triggerClassName="flex w-full items-center justify-between gap-2 bg-transparent text-left text-sm text-sky-700"
+            panelClassName="w-max min-w-full"
+          />
+        </FilterBox>
+        <FilterBox icon="briefcase" label="รหัสกรุ๊ป" className="w-full sm:w-44">
+          <input aria-label="รหัสกรุ๊ป" value={codeQ} onChange={(e) => setCodeQ(e.target.value)} placeholder="กรองข้อมูล..." className={FILTER_INPUT} />
+        </FilterBox>
+        <FilterBox icon="list" label="รายการทัวร์" className="min-w-[10rem] flex-1">
+          <input aria-label="รายการทัวร์" value={tourQ} onChange={(e) => setTourQ(e.target.value)} placeholder="กรองข้อมูล..." className={FILTER_INPUT} />
+        </FilterBox>
+        <FilterBox icon="users" label="หัวหน้าทัวร์" className="w-full sm:w-48">
+          <input aria-label="หัวหน้าทัวร์" value={leaderQ} onChange={(e) => setLeaderQ(e.target.value)} placeholder="กรองข้อมูล..." className={FILTER_INPUT} />
+        </FilterBox>
+        <div className="flex w-full shrink-0 items-stretch gap-1 sm:w-auto">
+          <FilterBox icon="calendar" label="วันที่" className="flex-1 sm:w-36">
+            <input type="date" aria-label="ตั้งแต่วันที่" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={FILTER_INPUT} />
+          </FilterBox>
+          <button
+            type="button"
+            aria-label="สลับวันที่เริ่ม-สิ้นสุด"
+            title="สลับวันที่เริ่ม-สิ้นสุด"
+            onClick={() => { const a = dateFrom; setDateFrom(dateTo); setDateTo(a); }}
+            className="self-center rounded-md px-1 py-2 text-base zego-text-secondary zego-hover-surface"
+          >
+            ⇄
+          </button>
+          <FilterBox icon="calendar" label="ถึงวันที่" className="flex-1 sm:w-36">
+            <input type="date" aria-label="ถึงวันที่" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={FILTER_INPUT} />
+          </FilterBox>
+        </div>
+        <FilterBox icon="plane" label="ช่วงเดินทาง" className="w-full sm:w-auto" group>
+          <span className="flex gap-1" role="group" aria-label="ช่วงเดินทาง">
+            {([['before', 'ก่อนเดินทาง'], ['after', 'หลังเดินทาง']] as const).map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={trip === v}
+                onClick={() => setTrip(v)}
+                className={cx('whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs transition', trip === v ? 'bg-emerald-600 font-semibold text-white' : 'zego-text-secondary zego-hover-surface')}
+              >
+                {label}
+              </button>
+            ))}
+          </span>
+        </FilterBox>
+        {searching && (
+          <Button variant="ghost" size="sm" className="self-center" onClick={clearSearch}>ล้างตัวกรอง</Button>
+        )}
+      </div>
 
       <Card padded={false}>
         {shown.length === 0 ? (

@@ -11,11 +11,12 @@
  *   เบี้ยเลี้ยง — ใบเบิกเบี้ยเลี้ยงหัวหน้าทัวร์ หลังจบทริป ตรวจ/อนุมัติ/บันทึกโอน (ค่าเริ่มต้น: หลังเดินทาง)
  */
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { can } from '@/lib/permissions';
 import { PageHeader, Button, cx } from '@/components/ui/Primitives';
-import { Icon, type IconName } from '@/components/ui/Icon';
+import { Icon } from '@/components/ui/Icon';
+import { FilterBox, FILTER_INPUT } from '@/components/ui/FilterBox';
 import { MultiSelectControl } from '@/components/ui/MultiSelect';
 import { GroupAdvanceDocsCard, type GroupDocs } from '@/components/expenses/GroupAdvanceDocsCard';
 import { AdvanceImportModal } from '@/components/expenses/AdvanceImportModal';
@@ -59,24 +60,6 @@ const PD_FILTERS: { key: PdFilter; label: string; hint: string; tone: string }[]
   { key: 'all', label: 'ทั้งหมด', hint: 'กรุ๊ปปัจจุบัน + กรุ๊ปที่มีหัวหน้าทัวร์/ใบเบิก', tone: '#475569' },
   ...(Object.keys(PER_DIEM_STAGE) as PerDiemStage[]).map((k) => ({ key: k, label: PER_DIEM_STAGE[k].label, hint: PD_HINT[k], tone: PD_TONE[k] })),
 ];
-
-/** ช่องในแถบค้นหา — โปร่งใส ไม่มีกรอบ (กรอบอยู่ที่ FilterBox) ค่าเป็นสีหลัก */
-const FILTER_INPUT = 'w-full bg-transparent text-sm text-sky-700 outline-none placeholder:text-[var(--zego-text-tertiary)] placeholder:text-xs';
-
-/** กล่องตัวกรอง 1 เงื่อนไข — ไอคอน + ชื่อช่องบรรทัดบน · ค่า/ช่องกรอกบรรทัดล่าง */
-function FilterBox({ icon, label, className, children, group }: { icon: IconName; label: string; className?: string; children: ReactNode; group?: boolean }) {
-  // มีหลายปุ่มในกล่อง (group) ใช้ div — label จะส่งคลิกที่ชื่อช่องไปกดปุ่มแรก
-  const Tag = group ? 'div' : 'label';
-  return (
-    <Tag className={cx('flex flex-col justify-center gap-0.5 rounded-lg border zego-border-color zego-surface-bg px-3 py-1.5 focus-within:border-[var(--zego-primary-500)]', className)}>
-      <span className="flex items-center gap-1.5 text-xs zego-text">
-        <Icon name={icon} className="h-4 w-4 zego-text-secondary" />
-        {label}
-      </span>
-      {children}
-    </Tag>
-  );
-}
 
 function matches(s: { stage: string; mismatch: boolean }, f: Filter): boolean {
   if (f === 'all') return true;
