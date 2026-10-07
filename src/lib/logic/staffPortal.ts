@@ -193,6 +193,23 @@ export function dutyShift(time: string | null): 'morning' | 'evening' | null {
   return time >= '00:01' && time <= '12:00' ? 'morning' : 'evening';
 }
 
+/**
+ * นับงานแยกสนามบิน — ใช้ทั้งหน้าหลักเจ้าหน้าที่ส่งกรุ๊ป และหน้าหลักหัวหน้าทัวร์ (สนามบินที่กรุ๊ปออกเดินทาง)
+ * สุวรรณภูมิ / ดอนเมือง แสดงเสมอ (แม้ 0) · แห่งอื่นมีงานจึงแสดง เรียงมาก→น้อย · ไม่ทราบสนามบิน (code '') ไว้ท้าย
+ */
+export function airportBreakdown(codes: (string | null | undefined)[]): AirportCount[] {
+  const m = new Map<string, number>();
+  for (const c of codes) {
+    const code = (c ?? '').trim().toUpperCase();
+    m.set(code, (m.get(code) ?? 0) + 1);
+  }
+  const counted = [...m].map(([code, count]) => ({ code, count }));
+  const main = ['BKK', 'DMK'].map((code) => ({ code, count: m.get(code) ?? 0 }));
+  const others = counted.filter((c) => c.code && c.code !== 'BKK' && c.code !== 'DMK').sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
+  const unknown = counted.filter((c) => !c.code);
+  return [...main, ...others, ...unknown];
+}
+
 const countAirports = (list: StaffDuty[]): AirportCount[] => {
   const m = new Map<string, number>();
   for (const d of list) {
@@ -208,16 +225,11 @@ const countAirports = (list: StaffDuty[]): AirportCount[] => {
  */
 export function staffHomeSummary(duties: StaffDuty[], today: string, month: string = today.slice(0, 7), day: string = today): StaffHomeSummary {
   const inMonth = duties.filter((d) => d.dutyDate.startsWith(month));
-  const counted = countAirports(inMonth);
-  // สุวรรณภูมิ / ดอนเมือง แสดงเสมอ (ผู้ใช้ถามสองแห่งนี้โดยตรง) · แห่งอื่นมีงานจึงแสดง · ไม่ทราบสนามบินไว้ท้าย
-  const main = ['BKK', 'DMK'].map((code) => ({ code, count: counted.find((c) => c.code === code)?.count ?? 0 }));
-  const others = counted.filter((c) => c.code && c.code !== 'BKK' && c.code !== 'DMK').sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
-  const unknown = counted.filter((c) => !c.code);
   const todays = duties.filter((d) => d.dutyDate === day).sort((a, b) => (a.arrivalTime ?? '99').localeCompare(b.arrivalTime ?? '99'));
   return {
     monthCount: inMonth.length,
     monthPending: inMonth.filter((d) => !d.confirmed).length,
-    monthByAirport: [...main, ...others, ...unknown],
+    monthByAirport: airportBreakdown(inMonth.map((d) => d.airport)),
     today: {
       duties: todays,
       airports: countAirports(todays).sort((a, b) => b.count - a.count || a.code.localeCompare(b.code)),

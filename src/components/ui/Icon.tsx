@@ -43,7 +43,8 @@ export type IconName =
   | 'camera'
   | 'image'
   | 'sun'
-  | 'moon';
+  | 'moon'
+  | 'mapPin';
 
 const PATHS: Record<IconName, string> = {
   dashboard: 'M3 10h7V3H3v7zm11 11h7v-7h-7v7zM3 21h7v-4H3v4zM14 3v7h7V3h-7z',
@@ -98,6 +99,7 @@ const PATHS: Record<IconName, string> = {
     'M6.8 14.8v3.4h3v-3.4z', // ป้ายชื่อ (ทวนเข็ม = รู)
   sun: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42',
   moon: 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z',
+  mapPin: 'M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0zM12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
 };
 
 /** ไอคอนที่วาดแบบทึบ (fill) แทนแบบเส้น (stroke) */

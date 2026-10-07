@@ -15,32 +15,22 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, StatusBadge, cx } from '@/components/ui/Primitives';
-import { Icon, type IconName } from '@/components/ui/Icon';
+import { Icon } from '@/components/ui/Icon';
 import { formatDate } from '@/lib/format';
-import { airportName } from '@/lib/logic/airportLabel';
 import { DUTY_STAGE, dutyShift, dutyStage, staffHomeSummary } from '@/lib/logic/staffPortal';
 import { useStaffPortal } from '../useStaffPortal';
+import { MonthPicker } from '@/components/ui/MonthPicker';
+import { MonthJobsCard, airportText, airportTone, GREEN, BROWN } from '@/components/portal/MonthJobsCard';
 import { staffEnvelopeNotice } from '../envelopeNotice';
 import { useDemo } from '@/store/DemoStore';
 
 const TH_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
 const TH_DAYS = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
-const monthTitle = (ym: string) => `${TH_MONTHS[Number(ym.slice(5, 7)) - 1]} ${Number(ym.slice(0, 4)) + 543}`;
 const dayTitle = (iso: string) => {
   const d = new Date(`${iso}T00:00:00`);
   return `วัน${TH_DAYS[d.getDay()]}ที่ ${d.getDate()} ${TH_MONTHS[d.getMonth()]} ${d.getFullYear() + 543}`;
 };
-/** ชื่อสนามบินสำหรับการ์ด — ไม่ทราบสนามบิน = "ยังไม่ระบุสนามบิน" */
-const airportText = (code: string) => (code ? (airportName(code) !== code ? airportName(code) : code) : 'ยังไม่ระบุสนามบิน');
-/** สีประจำสนามบิน — โทนเขียว/น้ำตาลของระบบ: สุวรรณภูมิ เขียว · ดอนเมือง น้ำตาล · อื่น ๆ เทา */
-const GREEN = { tile: 'bg-emerald-50', text: 'text-emerald-700', bar: 'bg-emerald-600', badge: 'bg-emerald-100 text-emerald-800' };
-const BROWN = { tile: 'bg-[#f6efe6]', text: 'text-[#8a5a2b]', bar: 'bg-[#a8763e]', badge: 'bg-[#ecdcc6] text-[#6f4520]' };
-const AIRPORT_TONE: Record<string, { tile: string; text: string; bar: string; badge: string }> = {
-  BKK: GREEN,
-  DMK: BROWN,
-};
-const OTHER_TONE = { tile: 'zego-surface-soft-bg', text: 'zego-text-secondary', bar: 'bg-slate-400', badge: 'bg-slate-100 text-slate-700' };
-const toneOf = (code: string) => AIRPORT_TONE[code] ?? OTHER_TONE;
+const toneOf = airportTone;
 
 export default function StaffHomePage() {
   const router = useRouter();
@@ -69,18 +59,18 @@ export default function StaffHomePage() {
   /** คำเรียกวันที่เลือก — "วันนี้" / "วันที่ 20/10/26" */
   const dayWord = isToday ? 'วันนี้' : `วันที่ ${formatDate(day)}`;
   // เดือนที่เลือกได้ = เดือนนี้ + เดือนที่มีงาน
-  const months = useMemo(
-    // + เดือนที่ดูอยู่ (เลื่อนสัปดาห์ไปเดือนที่ไม่มีงานก็ยังแสดงชื่อเดือนในช่องเลือก)
-    () => [...new Set([today.slice(0, 7), month, ...duties.map((d) => d.dutyDate.slice(0, 7))])].filter(Boolean).sort(),
-    [duties, today, month],
-  );
+  // จำนวนงานต่อเดือน (ตามวันที่ต้องไปสนามบิน) — ตัวเลขในตารางเลือกเดือน
+  const monthCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const d of duties) m[d.dutyDate.slice(0, 7)] = (m[d.dutyDate.slice(0, 7)] ?? 0) + 1;
+    return m;
+  }, [duties]);
   const now = new Date().toTimeString().slice(0, 5);
   // ตัวกรองรายการวันนี้ — สนามบิน / ช่วงเวลา (แตะการ์ดช่วงเช้า/เย็น)
   const [airportFilter, setAirportFilter] = useState<string>('all');
   const [shiftFilter, setShiftFilter] = useState<'morning' | 'evening' | null>(null);
   const list = s.today.duties.filter((d) => (airportFilter === 'all' || (d.airport ?? '').toUpperCase() === airportFilter)
     && (!shiftFilter || dutyShift(d.arrivalTime) === shiftFilter));
-  const total = s.monthCount || 1;
 
   return (
     <div className="space-y-4">
@@ -89,50 +79,12 @@ export default function StaffHomePage() {
           <h1 className="text-lg font-bold zego-text">หน้าหลัก</h1>
           <p className="text-xs zego-text-tertiary">สรุปงานส่งกรุ๊ป · วันนี้ {formatDate(today)}</p>
         </div>
-        <label className="flex items-center gap-1.5 rounded-lg border zego-border-color zego-surface-bg px-2.5 py-1.5 text-xs">
-          <Icon name="calendar" className="h-3.5 w-3.5 zego-text-secondary" />
-          <select aria-label="เลือกเดือน" value={month} onChange={(e) => changeMonth(e.target.value)} className="bg-transparent font-medium zego-text outline-none">
-            {months.map((m) => <option key={m} value={m}>{monthTitle(m)}</option>)}
-          </select>
-        </label>
+        {/* เลือกเดือนจากตารางปฏิทินรายเดือน (ปี ‹ › + 12 เดือน · ตัวเลข = จำนวนงานของเดือน) */}
+        <MonthPicker compact value={`${month}-01`} onChange={(iso) => changeMonth(iso.slice(0, 7))} counts={monthCounts} currentMonth={today.slice(0, 7)} />
       </div>
 
-      {/* 1) จำนวนงานของเดือน + สัดส่วนสนามบิน */}
-      <Card className="space-y-3 border-emerald-200 bg-emerald-50/40">
-        <div className="flex items-center gap-3">
-          <IconTile icon="calendar" className="bg-emerald-100 text-emerald-700" />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold zego-text">{month === today.slice(0, 7) ? 'จำนวนงานเดือนปัจจุบัน' : 'จำนวนงานของเดือน'}</p>
-            <p className="text-xs zego-text-tertiary">{monthTitle(month)}</p>
-          </div>
-          <p className="text-3xl font-bold tabular-nums text-emerald-700">{s.monthCount} <span className="text-sm font-medium">งาน</span></p>
-        </div>
-        {s.monthPending > 0 && <p className="text-[11px] zego-text-warning">รอคอนเฟิร์ม {s.monthPending} งาน</p>}
-        {/* แถบสัดส่วนตามสนามบิน */}
-        <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-200" aria-hidden>
-          {s.monthByAirport.filter((a) => a.count > 0).map((a) => (
-            <span key={a.code || 'none'} className={toneOf(a.code).bar} style={{ width: `${(a.count / total) * 100}%` }} />
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {s.monthByAirport.map((a) => {
-            const t = toneOf(a.code);
-            return (
-              <div key={a.code || 'none'} className={cx('flex items-start gap-2 rounded-lg px-3 py-2', t.tile)}>
-                <Icon name="plane" className={cx('mt-0.5 h-5 w-5 shrink-0', t.text)} />
-                <div className="min-w-0 flex-1">
-                  {/* ชื่อสนามบินแสดงเต็ม (ขึ้นบรรทัดใหม่ได้) · % อยู่แถวเดียวกับจำนวน จะได้ไม่บีบชื่อ */}
-                  <p className="text-xs leading-tight zego-text-secondary">{airportText(a.code)}{a.code && ` (${a.code})`}</p>
-                  <p className="mt-0.5 flex items-center justify-between gap-1">
-                    <span className={cx('text-lg font-bold tabular-nums', t.text)}>{a.count} <span className="text-xs font-medium">งาน</span></span>
-                    {s.monthCount > 0 && <span className={cx('rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums', t.badge)}>{Math.round((a.count / s.monthCount) * 100)}%</span>}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
+      {/* 1) จำนวนงานของเดือน + สัดส่วนสนามบิน — การ์ดกลาง ใช้ร่วมกับหน้าหลักหัวหน้าทัวร์ */}
+      <MonthJobsCard month={month} isCurrent={month === today.slice(0, 7)} count={s.monthCount} byAirport={s.monthByAirport} pending={s.monthPending} />
 
       {/* 2) งานรายวัน — แถบเลือกวันที่ในเดือน + ช่วงเช้า/เย็น + แยกสนามบิน */}
       <Card className="space-y-3">
@@ -263,14 +215,6 @@ export default function StaffHomePage() {
         )}
       </Card>
     </div>
-  );
-}
-
-function IconTile({ icon, className }: { icon: IconName; className?: string }) {
-  return (
-    <span className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', className)}>
-      <Icon name={icon} className="h-5 w-5" />
-    </span>
   );
 }
 

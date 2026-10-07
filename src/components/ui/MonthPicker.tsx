@@ -6,6 +6,9 @@
  *   • ปุ่มลูกศร = เดือนก่อนหน้า/ถัดไป (รองรับข้ามปีอัตโนมัติ)
  *   • กดชื่อเดือน/ไอคอน → popover เลือกปี (พ.ศ.) + ตารางเดือน 12 ช่อง
  * onChange คืน ISO ของ "วันแรกของเดือน" เสมอ
+ *
+ * compact (หน้าหลักพอร์ทัลมือถือ): ปุ่มเดียว [📅 ตุลาคม 2569 ▾] ไม่มีลูกศรข้าง · popover ชิดขวา
+ * counts: จำนวนงานต่อเดือน (yyyy-mm → n) — แสดงเป็นตัวเลขเล็กมุมช่องเดือน · เดือนปัจจุบันมีกรอบ
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -21,6 +24,9 @@ export function MonthPicker({
   ariaLabel = 'เลือกเดือน',
   hint,
   centerLabel = false,
+  compact = false,
+  counts,
+  currentMonth,
 }: {
   value: string; // ISO วันใดก็ได้ในเดือนที่เลือก
   onChange: (isoFirstOfMonth: string) => void;
@@ -29,6 +35,12 @@ export function MonthPicker({
   hint?: string;
   /** จัดข้อความเดือน/ปีให้อยู่กึ่งกลางกล่อง (มีตัวเว้นระยะล่องหนถ่วงน้ำหนักไอคอนปฏิทินฝั่งขวา) — ค่าเริ่มต้น false ไม่กระทบจุดใช้งานเดิม */
   centerLabel?: boolean;
+  /** ปุ่มเดียวไม่มีลูกศรข้าง · popover ชิดขวา (ใช้ที่ส่วนหัวหน้าหลักพอร์ทัล) */
+  compact?: boolean;
+  /** จำนวนงานต่อเดือน yyyy-mm → n — แสดงตัวเลขในช่องเดือน */
+  counts?: Record<string, number>;
+  /** เดือนปัจจุบัน yyyy-mm — ช่องเดือนนี้มีกรอบ */
+  currentMonth?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [panelYear, setPanelYear] = useState(() => parseDate(value).getFullYear());
@@ -65,6 +77,21 @@ export function MonthPicker({
 
   return (
     <div ref={ref} className="relative">
+      {compact ? (
+        <button
+          type="button"
+          aria-label={ariaLabel}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          title={hint}
+          onClick={toggleOpen}
+          className="flex items-center gap-1.5 rounded-lg border zego-border-color zego-surface-bg px-2.5 py-1.5 text-xs font-medium zego-text"
+        >
+          <Icon name="calendar" className="h-3.5 w-3.5 zego-text-secondary" />
+          {formatThaiMonthYear(value)}
+          <Icon name="chevronDown" className="h-3.5 w-3.5 zego-text-secondary" />
+        </button>
+      ) : (
       <div className="flex items-center gap-1">
         <button
           type="button"
@@ -99,10 +126,11 @@ export function MonthPicker({
           <Icon name="chevronRight" className="h-4 w-4" />
         </button>
       </div>
+      )}
 
       {/* z-30 = Z_MONTH_PICKER ใน @/lib/z-index (ตัวเลขคงเดิม อยู่ต่ำกว่า topbar/sidebar ของ zego แล้ว) */}
       {open && (
-        <div role="dialog" aria-label="เลือกเดือนและปี" className="zego-popover zego-is-open left-0 top-full z-30 mt-1 w-64 p-2">
+        <div role="dialog" aria-label="เลือกเดือนและปี" className={cx('zego-popover zego-is-open top-full z-30 mt-1 w-64 p-2', compact ? 'right-0' : 'left-0')}>
           {/* เลือกปี (พ.ศ.) */}
           <div className="mb-2 flex items-center justify-between px-1">
             <button type="button" aria-label="ปีก่อนหน้า" onClick={() => setPanelYear((y) => y - 1)} className="zego-text-tertiary zego-cell-hover rounded-lg p-1.5">
@@ -117,6 +145,8 @@ export function MonthPicker({
           <div className="grid grid-cols-3 gap-1">
             {TH_MONTHS_ABBR.map((m, i) => {
               const isSel = panelYear === selYear && i === selMonth;
+              const ym = `${panelYear}-${String(i + 1).padStart(2, '0')}`;
+              const n = counts?.[ym] ?? 0;
               return (
                 <button
                   key={m}
@@ -124,11 +154,16 @@ export function MonthPicker({
                   onClick={() => pick(i)}
                   aria-pressed={isSel}
                   className={cx(
-                    'rounded-lg px-2 py-2 text-xs font-medium transition-colors',
+                    'relative rounded-lg px-2 py-2 text-xs font-medium transition-colors',
                     isSel ? 'zego-button--primary text-white' : 'zego-text-secondary zego-cell-hover',
+                    !isSel && currentMonth === ym && 'ring-1 ring-inset ring-emerald-500',
                   )}
                 >
                   {m}
+                  {/* จำนวนงานของเดือนนั้น (ถ้าส่ง counts มา) */}
+                  {n > 0 && (
+                    <span className={cx('absolute right-1 top-0.5 text-[9px] font-bold tabular-nums', isSel ? 'text-white' : 'text-emerald-700')}>{n}</span>
+                  )}
                 </button>
               );
             })}

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",
+    "flag-icons": "^7.5.0",
     "libphonenumber-js": "^1.13.8",
     "next": "16.2.10",
     "pdfjs-dist": "^6.1.200",
