@@ -14,7 +14,7 @@ import { DateField } from '@/components/ui/DateInput';
 import { firstFreeSlot, SLOT_DURATIONS, slotOptions } from '@/lib/logic/appointmentSlots';
 import { useDemo } from '@/store/DemoStore';
 import { APPOINTMENT_KIND, APPOINTMENT_KIND_OPTIONS, APPOINTMENT_MODE } from '@/lib/labels';
-import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { hasTimeOverlap } from '@/lib/logic/conflicts';
 import { makeStatusEvent } from '@/lib/logic/workflow';
@@ -194,7 +194,7 @@ function AppointmentForm({
       .map(([id, leaderId]) => {
         const p = getTourPeriodById(id);
         const l = leaders.find((x) => x.id === leaderId);
-        return { id, leaderId, p, code: p?.groupCode ?? id, leaderName: l ? `${l.firstName} ${l.lastName}`.trim() : leaderId };
+        return { id, leaderId, p, code: p?.groupCode ?? periodCodeOf(id), leaderName: l ? `${l.firstName} ${l.lastName}`.trim() : leaderId };
       })
       // หลังเดินทางเท่านั้น — กรุ๊ปที่ยังไม่กลับยังไม่มีอะไรให้เคลียร์/ส่งเอกสาร
       .filter((g) => g.id === appointment?.jobId || (!!g.p && g.p.endDate <= today))

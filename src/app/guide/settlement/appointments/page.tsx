@@ -16,7 +16,7 @@ import { ownLeaderScope } from '@/lib/permissions';
 import { APPOINTMENT_KIND, APPOINTMENT_MODE, appointmentStatusMeta } from '@/lib/labels';
 import { formatCurrency, formatDate, formatDateRange, toISODate, toISODateTime } from '@/lib/format';
 import { makeStatusEvent } from '@/lib/logic/workflow';
-import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { loadGroupClears } from '@/services/groupClearStore';
 import { summarizeGroupClear } from '@/lib/logic/groupClear';
 import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
@@ -105,7 +105,7 @@ export default function GuideSettlementAppointmentsPage() {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <StatusBadge meta={APPOINTMENT_KIND[a.kind ?? 'other']} size="sm" dot={false} />
-                <p className="mt-1 text-sm font-semibold zego-text">{p?.groupCode ?? (a.jobId || 'ไม่ผูกกรุ๊ป')}</p>
+                <p className="mt-1 text-sm font-semibold zego-text">{p?.groupCode ?? (a.jobId ? periodCodeOf(a.jobId) : 'ไม่ผูกกรุ๊ป')}</p>
                 {p && <p className="truncate text-xs zego-text-secondary">{p.displayName} · {formatDateRange(p.startDate, p.endDate)}</p>}
               </div>
               <StatusBadge meta={appointmentStatusMeta(a)} size="sm" />

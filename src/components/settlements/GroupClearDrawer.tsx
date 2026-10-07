@@ -26,7 +26,7 @@ import { CLEAR_EVENT_LABEL, saveGroupClear, type ClearSettlement, type GroupClea
 import { ClearAppointmentSection } from './ClearAppointmentSection';
 import { FollowUpSection } from './FollowUpSection';
 import { clearAppointmentOf } from '@/services/appointmentStore';
-import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { EnvelopeStatusBadge, StatusPill } from '@/components/expenses/CashEnvelopeDrawer';
 import { expenseOriginalTotals, requestedAtOf } from '@/app/guide/expenses/expenseAmounts';
 import { expenseStatusMeta } from '@/lib/logic/usageReport';
@@ -333,7 +333,7 @@ export function GroupClearDrawer({
   const saveProgress = () => {
     try {
       saveGroupClear({ ...(record ?? { history: [] }), periodId: summary.periodId, ...values() });
-      pushToast('success', 'บันทึกแล้ว (ยังไม่ปิด)', `${p?.groupCode ?? summary.periodId} · ครบ ${okCount}/${counted.length}`);
+      pushToast('success', 'บันทึกแล้ว (ยังไม่ปิด)', `${p?.groupCode ?? periodCodeOf(summary.periodId)} · ครบ ${okCount}/${counted.length}`);
       onSaved(true);
     } catch (e) {
       pushToast('error', e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
@@ -363,7 +363,7 @@ export function GroupClearDrawer({
       // เคลียร์ตามนัด — นัดเคลียร์เงินที่ยังไม่ยกเลิกเปลี่ยนเป็น "เข้าพบแล้ว"
       const appt = clearAppointmentOf(appointments, summary.periodId);
       if (appt && appt.status !== 'attended') void changeAppointmentStatus(appt.id, 'attended', 'เคลียร์เงินกรุ๊ปเรียบร้อย');
-      pushToast(kind === 'complete' ? 'success' : 'info', kind === 'complete' ? 'เคลียร์ครบ — ปิดการเคลียร์แล้ว' : 'ปิดแบบมีค้างแล้ว', p?.groupCode ?? summary.periodId);
+      pushToast(kind === 'complete' ? 'success' : 'info', kind === 'complete' ? 'เคลียร์ครบ — ปิดการเคลียร์แล้ว' : 'ปิดแบบมีค้างแล้ว', p?.groupCode ?? periodCodeOf(summary.periodId));
       onSaved();
     } catch (e) {
       pushToast('error', e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
@@ -386,7 +386,7 @@ export function GroupClearDrawer({
       ...(record.noPerDiem ? { noPerDiem: true } : {}),
       history: [...record.history, { at, by: currentUser.name, action: 'reopen' }],
     });
-    pushToast('info', 'เปิดการเคลียร์เงินกรุ๊ปใหม่แล้ว', p?.groupCode ?? summary.periodId);
+    pushToast('info', 'เปิดการเคลียร์เงินกรุ๊ปใหม่แล้ว', p?.groupCode ?? periodCodeOf(summary.periodId));
     onSaved();
   };
 
@@ -408,7 +408,7 @@ export function GroupClearDrawer({
       open
       onClose={onClose}
       size="xl"
-      title={`เคลียร์เงินกรุ๊ป ${p?.groupCode ?? summary.periodId}`}
+      title={`เคลียร์เงินกรุ๊ป ${p?.groupCode ?? periodCodeOf(summary.periodId)}`}
       description={`${p?.displayName ?? ''}${p ? ` · ${formatDateRange(p.startDate, p.endDate)}` : ''} · หัวหน้าทัวร์ ${leader?.name ?? '—'}`}
       footer={closed ? (
         <div className="flex w-full items-center justify-between gap-2">
@@ -470,7 +470,7 @@ export function GroupClearDrawer({
         </section>
 
         {/* ยอดค้างติดตาม — หลังปิด: รับคืนส่วนที่ขาด / จ่ายคืนส่วนที่เกิน (ไม่หักจากเบี้ยเลี้ยง) */}
-        {closed && record && <FollowUpSection record={record} groupCode={p?.groupCode ?? summary.periodId} onSaved={onSaved} />}
+        {closed && record && <FollowUpSection record={record} groupCode={p?.groupCode ?? periodCodeOf(summary.periodId)} onSaved={onSaved} />}
 
         {/* สรุปเงินแยกสกุล */}
         <section>
@@ -596,7 +596,7 @@ export function GroupClearDrawer({
         {!closed && (
           <ClearAppointmentSection
             periodId={summary.periodId}
-            groupCode={p?.groupCode ?? summary.periodId}
+            groupCode={p?.groupCode ?? periodCodeOf(summary.periodId)}
             leader={leader}
             canAppoint={canAppoint}
             blockedReason={notEnded ? 'ยังไม่จบทริป'

@@ -13,6 +13,7 @@ import type { ClearSettlement } from '@/services/groupClearStore';
 import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import type { ExpenseRequest } from '@/types';
 import { requestedAtOf } from '@/app/guide/expenses/expenseAmounts';
+import { periodCodeOf } from '@/services/tourPeriodMaster';
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const num = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -83,7 +84,7 @@ export function printGroupClear(input: {
       <td class="r">${r.lines.filter((l) => !l.rejected).map((l) => `${num(l.amount)} ${esc(l.currency)}`).join('<br>')}</td>
     </tr>`).join('');
 
-  w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>ใบเคลียร์เงินกรุ๊ป ${esc(p?.groupCode ?? s.periodId)}</title>
+  w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>ใบเคลียร์เงินกรุ๊ป ${esc(p?.groupCode ?? periodCodeOf(s.periodId))}</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 @page{size:A4 portrait;margin:14mm}
@@ -111,10 +112,10 @@ td.cur{text-align:center;white-space:nowrap;width:14mm}
 </style></head><body>
 <div class="head">
   <h1>ใบเคลียร์เงินกรุ๊ป</h1>
-  <div class="ref">${esc(p?.groupCode ?? s.periodId)}<br>${esc(status)}</div>
+  <div class="ref">${esc(p?.groupCode ?? periodCodeOf(s.periodId))}<br>${esc(status)}</div>
 </div>
 <table class="info">
-  <tr>${cell('Code กรุ๊ป', p?.groupCode ?? s.periodId)}${cell('เดินทาง', p ? formatDateRange(p.startDate, p.endDate) : '')}</tr>
+  <tr>${cell('Code กรุ๊ป', p?.groupCode ?? periodCodeOf(s.periodId))}${cell('เดินทาง', p ? formatDateRange(p.startDate, p.endDate) : '')}</tr>
   <tr>${cell('โปรแกรม', p?.displayName ?? '', 3)}</tr>
   <tr>${cell('หัวหน้าทัวร์', input.leaderName, 3)}</tr>
 </table>

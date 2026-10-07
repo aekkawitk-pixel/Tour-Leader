@@ -6,7 +6,7 @@ import { formatDate, formatDateRange, formatThaiMonthYear } from '@/lib/format';
 import { MONEY_CATEGORY, type StatusMeta } from '@/lib/labels';
 import { leaderDisplayName } from '@/lib/logic/leaderExpertise';
 import { isHolidayFeeLine, SEND_OFF_FEE_TYPE } from '@/lib/logic/staffPortal';
-import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import type { ExpenseRequest, TourJob, TourLeader } from '@/types';
 
 /** ผู้ทำรายการ — หัวหน้าทัวร์ / เจ้าหน้าที่ส่งกรุ๊ป / พนักงานที่สร้างใบในระบบ */
@@ -68,7 +68,7 @@ export interface ExpenseRef {
 export function expenseRef(expense: ExpenseRequest, jobs: TourJob[]): ExpenseRef {
   if (expense.claimMonth) {
     const codes = [...new Set(expense.lines.map((l) => l.periodId).filter((id): id is string => Boolean(id)))]
-      .map((id) => getTourPeriodById(id)?.groupCode ?? id);
+      .map((id) => periodCodeOf(id));
     return { title: `${formatThaiMonthYear(`${expense.claimMonth}-01`)} · ${codes.length} กรุ๊ป`, codes, programName: '', dates: '' };
   }
   const job = jobs.find((j) => j.id === expense.jobId);
@@ -79,7 +79,7 @@ export function expenseRef(expense: ExpenseRequest, jobs: TourJob[]): ExpenseRef
   const period = getTourPeriodById(expense.jobId);
   return period
     ? { title: period.groupCode, codes: [period.groupCode], programName: period.displayName, dates: formatDateRange(period.startDate, period.endDate) }
-    : { title: expense.jobId, codes: [expense.jobId], programName: '', dates: '' };
+    : { title: periodCodeOf(expense.jobId), codes: [periodCodeOf(expense.jobId)], programName: '', dates: '' };
 }
 
 /** ช่อง "รายการทัวร์" ในตาราง — แสดงครบ ไม่ตัดข้อความ */

@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Card } from '@/components/ui/Primitives';
 import { formatCurrency, formatDateRange } from '@/lib/format';
-import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { LEADER_FORM_ITEMS, perDiemRateFor, tripDays, EMPTY_PER_DIEM_RATES, type PerDiemRates } from '@/lib/logic/leaderClaims';
 import { loadPerDiemRates } from '@/services/perDiemRateStore';
 import { printLeaderExpenseForm } from '@/lib/printLeaderExpenseForm';
@@ -113,7 +113,7 @@ export function GroupPerDiemCard({ rows, emptyText }: { rows: PerDiemRow[]; empt
                 return (
                   <tr key={periodId} className="zego-hover-surface">
                     <td className="px-3 py-2.5 align-top"><p className="whitespace-nowrap zego-text-secondary">{p?.countryName || '—'}</p></td>
-                    <td className="px-3 py-2.5 align-top"><p className="whitespace-nowrap font-semibold zego-text">{p?.groupCode ?? periodId}</p></td>
+                    <td className="px-3 py-2.5 align-top"><p className="whitespace-nowrap font-semibold zego-text">{p?.groupCode ?? periodCodeOf(periodId)}</p></td>
                     <td className="max-w-[18rem] px-3 py-2.5 align-top"><p className="line-clamp-2 zego-text-secondary">{p?.displayName ?? '—'}</p></td>
                     <td className="px-3 py-2.5 align-top">
                       <p className="whitespace-nowrap tabular-nums zego-text">{p ? formatDateRange(p.startDate, p.endDate) : '—'}</p>

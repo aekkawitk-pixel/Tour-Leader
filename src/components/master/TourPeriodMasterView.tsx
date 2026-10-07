@@ -252,7 +252,8 @@ function MasterDetailPanel({ period, onClose, canManage, onToggleActive }: { per
   };
   return (
     <Drawer open={!!period} onClose={onClose} size="xl" title={period ? period.groupCode : ''} description={period?.displayName}
-      footer={period && canManage && (
+      // ไม่พบใน Zego = สถานะจากการดึงข้อมูล ไม่ใช่ override — เปิด/ปิดเองไม่ได้ (กลับมาเองเมื่อ Zego ส่งกรุ๊ปนี้มาอีก)
+      footer={period && canManage && period.dataStatus !== 'MISSING_FROM_SOURCE' && (
         period.dataStatus === 'ACTIVE'
           ? <Button variant="danger" size="sm" onClick={() => onToggleActive(period)}>ปิดใช้งานพีเรียด (§10)</Button>
           : <Button variant="primary" size="sm" onClick={() => onToggleActive(period)}>เปิดใช้งานอีกครั้ง</Button>
@@ -263,7 +264,7 @@ function MasterDetailPanel({ period, onClose, canManage, onToggleActive }: { per
             <StatusBadge meta={{ label: SALE_STATUS_LABEL[period.saleStatus], tone: period.saleStatus === 'SELL' ? 'green' : period.saleStatus === 'CLOSED' ? 'red' : 'slate' }} />
             <span className={cx('rounded px-2 py-0.5 text-xs border', TONE_ZEGO_BADGE.violet)}>{period.periodStatus}</span>
             <span className={cx('rounded px-2 py-0.5 text-xs font-medium', VALIDATION_META[period.validationStatus].cls)}>{VALIDATION_META[period.validationStatus].label}</span>
-            <span className={cx('rounded px-2 py-0.5 text-xs', TONE_ZEGO_BADGE.slate)}>{period.dataStatus}</span>
+            <span className={cx('rounded px-2 py-0.5 text-xs', TONE_ZEGO_BADGE.slate)}>{period.dataStatus === 'MISSING_FROM_SOURCE' ? 'ไม่พบใน Zego รอบล่าสุด' : period.dataStatus}</span>
           </div>
 
           {period.validationMessages.length > 0 && (

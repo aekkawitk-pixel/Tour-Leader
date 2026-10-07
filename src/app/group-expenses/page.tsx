@@ -27,6 +27,7 @@ import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import { groupEnvelopeStatus, groupLines } from '@/lib/logic/cashEnvelope';
 import { getAssignablePeriods, getTourPeriodById } from '@/services/tourPeriodMaster';
 import { toISODate } from '@/lib/format';
+import { advanceDocFallback } from '@/lib/logic/advanceDocFallback';
 
 type Filter = 'all' | 'no_docs' | 'packing' | 'sealed' | 'handed_over' | 'received' | 'mismatch' | 'none';
 
@@ -181,7 +182,8 @@ export default function GroupExpensesPage() {
   // หลังเดินทาง = ออกเดินทางแล้ว → ถึงวันนี้ (ไม่ใช่วันกลับของกรุ๊ปสุดท้ายในอนาคต) · ก่อนเดินทาง = ถึงวันกลับของกรุ๊ปสุดท้าย
   const dateToEff = dateTo || (trip === 'after' ? today : lastEnd);
   const countries = useMemo(
-    () => [...new Set(base.map((g) => getTourPeriodById(g.periodId)?.countryName).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
+    // ไม่พบกรุ๊ปใน Master — ใช้ประเทศจากรหัสกรุ๊ปในเอกสารเบิก (ให้เลือกกรองได้เหมือนกรุ๊ปอื่น)
+    () => [...new Set(base.map((g) => getTourPeriodById(g.periodId)?.countryName || advanceDocFallback(g.docs[0]?.sourceDoc).countryName).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
     [base],
   );
 
@@ -191,15 +193,18 @@ export default function GroupExpensesPage() {
   const searched = base.filter((g) => {
     const p = getTourPeriodById(g.periodId);
     const src = g.docs[0]?.sourceDoc;
-    if (countrySel.length > 0 && !countrySel.includes(p?.countryName ?? '')) return false;
+    // ไม่พบกรุ๊ปใน Master — ใช้วันเดินทาง/ประเทศจากตัวเอกสารเบิก (ไม่งั้นหลุดตัวกรองช่วงเดินทาง เช่น กรุ๊ปที่ไปแล้วขึ้นใน "ก่อนเดินทาง")
+    const fb = p ? null : advanceDocFallback(src);
+    const range = p ?? (fb?.startDate && fb.endDate ? { startDate: fb.startDate, endDate: fb.endDate } : null);
+    if (countrySel.length > 0 && !countrySel.includes(p?.countryName ?? fb?.countryName ?? '')) return false;
     // รหัสกรุ๊ป — ค้นเลขที่เอกสารเบิก (Ref) ได้ด้วย
     if (!has([p?.groupCode, src?.groupCode, ...g.docs.map((d) => d.id)].join(' '), codeN)) return false;
     if (!has([p?.displayName, p?.tourName, p?.programCode, src?.programName].join(' '), tourN)) return false;
-    // ช่วงวันที่ — กรุ๊ปที่เดินทางคาบเกี่ยวช่วงที่เลือก (ไม่มีข้อมูลพีเรียด = ไม่กรองวันที่)
-    if (p && trip === 'before' && p.startDate < today) return false;
-    if (p && trip === 'after' && p.startDate >= today) return false;
-    if (p && dateFromEff && p.endDate < dateFromEff) return false;
-    if (p && dateToEff && p.startDate > dateToEff) return false;
+    // ช่วงวันที่ — กรุ๊ปที่เดินทางคาบเกี่ยวช่วงที่เลือก (ไม่มีทั้งพีเรียดและวันในเอกสารเบิก = ไม่กรองวันที่)
+    if (range && trip === 'before' && range.startDate < today) return false;
+    if (range && trip === 'after' && range.startDate >= today) return false;
+    if (range && dateFromEff && range.endDate < dateFromEff) return false;
+    if (range && dateToEff && range.startDate > dateToEff) return false;
     return true;
   });
   const pdMatches = (g: GroupDocs, f: PdFilter) => f === 'all' || perDiemRows.get(g.periodId)?.stage === f;

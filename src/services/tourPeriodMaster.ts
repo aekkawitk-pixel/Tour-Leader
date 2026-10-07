@@ -14,7 +14,7 @@ import { endOfMonth } from '@/lib/format';
 import { buildTourPeriodMaster, validateTourPeriodRecord, compositeKey, SOURCE_FILE, IMPORT_TS } from '@/data/schedule/master';
 import { loadPeriodOverrides } from '@/services/periodOverrideStore';
 import { periodVersion } from '@/services/periodCacheBus';
-import { loadZegoImport } from '@/services/zegoImportStore';
+import { loadPeriodArchive, loadZegoImport, type ArchivedPeriod } from '@/services/zegoImportStore';
 import { zegoToTourPeriodMaster } from '@/data/zego/zegoToMaster';
 import type {
   MasterHistoryEntry, SourceSystem, SyncReport, TourPeriodFilters, TourPeriodMaster, ValidationResult,
@@ -178,6 +178,32 @@ export function getTourPeriods(filters: TourPeriodFilters = {}): TourPeriodMaste
 /** ดึงพีเรียดตาม Primary Key จริง (internalId) */
 export function getTourPeriodById(periodId: string): TourPeriodMaster | null {
   return cached().byId.get(periodId) ?? null;
+}
+
+/*
+  คลังรหัสกรุ๊ปของพีเรียดที่เคยนำเข้า — แคชตามเลขรุ่นเดียวกับพีเรียด (คลังเขียนพร้อม saveZegoImport ซึ่ง bump รุ่นอยู่แล้ว)
+*/
+let archiveCache: { version: number; data: Record<string, ArchivedPeriod> } | null = null;
+function archive(): Record<string, ArchivedPeriod> {
+  if (typeof window === 'undefined') return {};
+  const v = periodVersion();
+  if (!archiveCache || archiveCache.version !== v) archiveCache = { version: v, data: loadPeriodArchive() };
+  return archiveCache.data;
+}
+
+/**
+ * ข้อมูลย่อของพีเรียดสำหรับแสดงผล — พีเรียดปัจจุบันก่อน ไม่พบจึงใช้คลังพีเรียดที่เคยนำเข้า · ไม่พบเลย = null
+ * ใช้กับงานที่ผูกพีเรียดไว้ (ซองเงิน / ใบเสร็จ / นัดหมาย ฯลฯ) ให้แสดงรหัสกรุ๊ปได้แทน id ภายใน (ZEGO-PD-…)
+ */
+export function periodBriefOf(periodId: string): ArchivedPeriod | null {
+  const p = getTourPeriodById(periodId);
+  if (p) return { groupCode: p.groupCode, programName: p.displayName, startDate: p.startDate, endDate: p.endDate };
+  return archive()[periodId] ?? null;
+}
+
+/** รหัสกรุ๊ปของพีเรียด — หาไม่เจอทั้งในปัจจุบันและคลัง = คืน id เดิม */
+export function periodCodeOf(periodId: string): string {
+  return periodBriefOf(periodId)?.groupCode || periodId;
 }
 
 /** ดึงพีเรียดตาม Group Code — คืนได้หลายรายการ (Group Code อาจซ้ำ §1) */

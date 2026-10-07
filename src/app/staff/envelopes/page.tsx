@@ -15,7 +15,7 @@ import { useDemo } from '@/store/DemoStore';
 import { Card, EmptyState } from '@/components/ui/Primitives';
 import { MonthYearSelect, MonthHeader, useMonthGroups } from '@/components/ui/MonthFilter';
 import { formatDateRange, formatDateTime, toISODate } from '@/lib/format';
-import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { loadSendOffAssignments } from '@/services/sendOffAssignmentStore';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import { envelopeName, groupEnvelopeStatus, groupLines, returnedToFinanceBy, type CashEnvelope } from '@/lib/logic/cashEnvelope';
@@ -127,7 +127,7 @@ export default function StaffEnvelopesPage() {
                           <li key={r.key}>
                             <Card className="space-y-1">
                               <div className="flex items-start justify-between gap-2">
-                                <p className="text-sm font-semibold zego-text">{p?.groupCode ?? g.periodId}</p>
+                                <p className="text-sm font-semibold zego-text">{p?.groupCode ?? periodCodeOf(g.periodId)}</p>
                                 {returned
                                   ? <StatusPill label="ส่งคืนการเงินแล้ว" tone="amber" />
                                   : <StatusPill label={g.status.stage === 'handed_over' || g.status.stage === 'received' ? 'ส่งมอบทางอื่นแล้ว' : g.status.label} tone={g.status.tone} />}
@@ -162,7 +162,7 @@ export default function StaffEnvelopesPage() {
                           <li key={r.key}>
                             <Card className="space-y-0.5 text-xs">
                               <div className="flex items-center justify-between gap-2">
-                                <p className="text-sm font-semibold zego-text">{p?.groupCode ?? env.periodId} · {envelopeName(env)}</p>
+                                <p className="text-sm font-semibold zego-text">{p?.groupCode ?? periodCodeOf(env.periodId)} · {envelopeName(env)}</p>
                                 <EnvelopeStatusBadge env={env} short />
                               </div>
                               <p className="zego-text-secondary">{env.leaderAck!.leaderName} ยืนยันรับแล้ว · {formatDateTime(env.leaderAck!.at)}</p>

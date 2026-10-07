@@ -16,7 +16,7 @@ import { useDemo } from '@/store/DemoStore';
 import { can } from '@/lib/permissions';
 import Link from 'next/link';
 import { APPOINTMENT_KIND, APPOINTMENT_KIND_OPTIONS, APPOINTMENT_MODE, APPOINTMENT_STATUS, appointmentStatusMeta } from '@/lib/labels';
-import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { buildMonthGrid, monthTitle, shiftMonth } from '@/lib/logic/calendar';
 import { hasTimeOverlap } from '@/lib/logic/conflicts';
 import { formatDate, parseDate, TH_WEEKDAYS_SHORT, toISODate } from '@/lib/format';
@@ -145,7 +145,7 @@ export default function AppointmentsPage() {
     const p = getTourPeriodById(a.jobId);
     if (p) return `${p.groupCode} · ${p.displayName}`;
     const j = jobs.find((x) => x.id === a.jobId);
-    return j ? `${j.id} — ${j.title}` : a.jobId;
+    return j ? `${j.id} — ${j.title}` : periodCodeOf(a.jobId);
   };
 
   const upcoming = scoped.filter(

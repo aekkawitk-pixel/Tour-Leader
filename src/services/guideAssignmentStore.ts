@@ -17,6 +17,12 @@ export interface PeriodSnapshot {
   bus: string | null;
   countryName: string;
   saleStatus: string;
+  /**
+   * เที่ยวบินขาไป (เลขเที่ยวบิน + เวลาออก) และสนามบินต้นทาง ณ เวลามอบหมาย — ใช้ตรวจว่า Zego เปลี่ยนเที่ยวบิน/สนามบิน
+   * ไม่มี (snapshot รุ่นก่อน) = ไม่ตรวจเรื่องนี้
+   */
+  outboundFlight?: string;
+  departureAirport?: string;
 }
 
 export interface GuidePeriodAssignment {

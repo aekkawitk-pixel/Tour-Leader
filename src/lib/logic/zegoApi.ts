@@ -186,7 +186,11 @@ function normalizePeriod(
   const deposit = toNumber(d.Deposit);
 
   return {
-    id: `ZEGO-PD-${d.PeriodID ?? `${ctx.programCode}-${ctx.seq}`}`,
+    /*
+      PeriodID ของ Zego = id ถาวร · ไม่มี PeriodID ใช้ "โปรแกรม + รหัสกรุ๊ป + วันไป" (ไม่ขึ้นกับลำดับในรายการ)
+      ลำดับ (seq) ใช้เป็นทางสุดท้ายเมื่อไม่มีรหัสกรุ๊ป — ลำดับเปลี่ยนได้ทุกครั้งที่ดึง งานที่ผูกไว้จะชี้ผิดกรุ๊ป
+    */
+    id: `ZEGO-PD-${d.PeriodID ?? (groupCode ? `${ctx.programCode}-${groupCode.toUpperCase()}-${start.date ?? ''}` : `${ctx.programCode}-${ctx.seq}`)}`,
     seq: ctx.seq,
     programId: ctx.programId,
     programCode: ctx.programCode,

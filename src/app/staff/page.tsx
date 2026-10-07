@@ -19,6 +19,7 @@ import { airportName } from '@/lib/logic/airportLabel';
 import { staffEnvelopeNotice } from './envelopeNotice';
 import { useStaffPortal } from './useStaffPortal';
 import { MonthYearSelect, MonthHeader, useMonthGroups } from '@/components/ui/MonthFilter';
+import { periodCodeOf } from '@/services/tourPeriodMaster';
 
 export default function StaffSchedulePage() {
   const { envelopes, expenses, currentUser } = useDemo();
@@ -88,7 +89,7 @@ export default function StaffSchedulePage() {
                         </div>
                         <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex items-start justify-between gap-2">
-                            <p className="text-sm font-semibold zego-text">{d.period?.groupCode ?? d.periodId}</p>
+                            <p className="text-sm font-semibold zego-text">{d.period?.groupCode ?? periodCodeOf(d.periodId)}</p>
                             <StatusBadge meta={d.confirmed ? { label: 'คอนเฟิร์มแล้ว', tone: 'green' } : { label: 'รอคอนเฟิร์ม', tone: 'amber' }} size="sm" />
                           </div>
                           <p className="line-clamp-1 text-xs zego-text-secondary">{d.period?.displayName}</p>

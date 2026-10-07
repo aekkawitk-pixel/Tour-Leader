@@ -27,7 +27,7 @@ import {
   envelopeTotals, groupEnvelopeStatus, groupLines, lineKey, newEnvelope, NO_ENVELOPE_REASONS, packingFromAllocation, sumAmounts, unassignedLines,
   type Allocation, type CashEnvelope, type EnvelopeAmount, type EnvelopeTone,
 } from '@/lib/logic/cashEnvelope';
-import { getAssignablePeriods, getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getAssignablePeriods, getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { isOutsideReceipt } from '@/lib/logic/groupBudget';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { loadSendOffAssignments } from '@/services/sendOffAssignmentStore';
@@ -169,7 +169,7 @@ export function GroupTimelineDrawer({ periodId, docs, onClose }: { periodId: str
     <Drawer
       open
       onClose={onClose}
-      title={`Timeline ${period?.groupCode ?? periodId}`}
+      title={`Timeline ${period?.groupCode ?? periodCodeOf(periodId)}`}
       description={`${period?.displayName ?? ''}${period ? ` · ${formatDateRange(period.startDate, period.endDate)}` : ''} · เอกสารเบิก ${docs.map((d) => d.id).join(', ')}`}
       footer={<Button variant="secondary" onClick={onClose}>ปิด</Button>}
     >
@@ -258,7 +258,7 @@ export function GroupEnvelopeDrawer({ periodId, docs, onClose }: { periodId: str
       open
       onClose={onClose}
       size="xl"
-      title={`ซองเงิน ${period?.groupCode ?? periodId}`}
+      title={`ซองเงิน ${period?.groupCode ?? periodCodeOf(periodId)}`}
       description={`${period?.displayName ?? ''}${period ? ` · ${formatDateRange(period.startDate, period.endDate)}` : ''} · เอกสารเบิก ${docs.map((d) => d.id).join(', ')}`}
       footer={<Button variant="secondary" onClick={onClose}>ปิด</Button>}
     >
@@ -739,7 +739,7 @@ function EnvelopePanel({
     ซองของกรุ๊ปอื่นที่ "รอฝาก" และฝากกับคนของกรุ๊ปนี้ได้ —
     รอเจ้าหน้าที่ → ต้องมีเจ้าหน้าที่ในการส่งมอบครั้งนี้ · รอหัวหน้าทัวร์ → ใช้หัวหน้าทัวร์หลักของกรุ๊ปนี้ (ต้องมี)
   */
-  const thisGroupCode = period?.groupCode ?? periodId;
+  const thisGroupCode = period?.groupCode ?? periodCodeOf(periodId);
   /*
     คนของกรุ๊ปนี้ที่จะถือซองฝาก — ยังไม่ส่งมอบ = ตามที่เลือกในฟอร์ม · ส่งมอบแล้ว = ผู้ถือซองของกรุ๊ปนี้ (ฝากเพิ่มตามไปได้)
   */
@@ -801,7 +801,7 @@ function EnvelopePanel({
   const [attachQuery, setAttachQuery] = useState('');
   const attachQ = attachQuery.trim().toUpperCase();
   const waitingShown = attachQ
-    ? waitingOthers.filter((w) => attachIds.has(w.env.id) || (w.period?.groupCode ?? w.env.periodId).toUpperCase().includes(attachQ))
+    ? waitingOthers.filter((w) => attachIds.has(w.env.id) || (w.period?.groupCode ?? periodCodeOf(w.env.periodId)).toUpperCase().includes(attachQ))
     : waitingOthers;
   const toggleAttach = (id: string) => setAttachIds((s0) => {
     const n = new Set(s0);
@@ -974,7 +974,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
   <div class="to">
     <div class="cap">ถึง หัวหน้าทัวร์</div>
     <div class="name">${esc(toName)}</div>
-    <div class="group">กรุ๊ป ${esc(period?.groupCode ?? periodId)}${period ? ` <span class="muted" style="font-weight:400;font-size:10pt">· เดินทาง ${esc(formatDateRange(period.startDate, period.endDate))}</span>` : ''}</div>
+    <div class="group">กรุ๊ป ${esc(period?.groupCode ?? periodCodeOf(periodId))}${period ? ` <span class="muted" style="font-weight:400;font-size:10pt">· เดินทาง ${esc(formatDateRange(period.startDate, period.endDate))}</span>` : ''}</div>
     <div class="prog">${esc(period?.displayName ?? '')}</div>
     ${carrier ? `<div class="muted">นำส่งโดย ${esc(carrier)}</div>` : ''}
     ${env.kind === 'land_tip' && env.forGroup ? `<div style="font-weight:700">ฝากจ่ายแลนด์ให้กรุ๊ป ${esc(env.forGroup)}</div>` : ''}
@@ -995,7 +995,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
   /** ยกเลิกฝากซองกรุ๊ปอื่น (ยังไม่มีผู้ตอบรับ) — ซองกลับไปรอฝากตามค่าเดิม แล้วติ๊กใหม่ / เลือกเส้นทางใหม่ได้ */
   const cancelDeposit = (x: CashEnvelope) => {
     const h = x.handover!;
-    if (!window.confirm(`ยกเลิกฝาก${envelopeName(x)} ของกรุ๊ป ${getTourPeriodById(x.periodId)?.groupCode ?? x.periodId}?
+    if (!window.confirm(`ยกเลิกฝาก${envelopeName(x)} ของกรุ๊ป ${getTourPeriodById(x.periodId)?.groupCode ?? periodCodeOf(x.periodId)}?
 เดิม: ${handoverReceiverText(h)}
 ซองจะกลับไปเป็น "รอฝาก" — ติ๊กฝากใหม่และเลือกเส้นทางใหม่ได้`)) return;
     const rest: CashEnvelope = { ...x, pendingDeposit: h.pendingBefore ?? { at: toISODateTime(new Date()), byName: '', staff: 'pending', leader: 'pending' } };
@@ -1025,7 +1025,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
       {waitingShown.length === 0 && <p className="px-2 py-1.5 text-xs zego-text-tertiary">ไม่พบกรุ๊ปที่ตรงกับ “{attachQuery.trim()}”</p>}
       {waitingShown.map(({ env: x, period: xp, reason, forHere }) => {
         const { owner, staffSide, leaderSide, legOptions, legKey } = attachRoute(x);
-        const ownerCode = xp?.groupCode ?? x.periodId;
+        const ownerCode = xp?.groupCode ?? periodCodeOf(x.periodId);
         // เส้นทางเต็มของซองฝาก — ให้เห็นว่าผ่านใคร และปลายทางคือหัวหน้าทัวร์ของกรุ๊ปเจ้าของซอง (ไม่ใช่ของกรุ๊ปนี้)
         const route = [
           staffSide && `${staffSide.name} (เจ้าหน้าที่ส่งกรุ๊ป)`,
@@ -1038,7 +1038,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
             <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" disabled={!!reason} checked={!reason && attachIds.has(x.id)} onChange={() => toggleAttach(x.id)} />
             <span className="min-w-0 flex-1">
               <span className="flex flex-wrap items-center gap-1.5 font-medium zego-text">
-                {xp?.groupCode ?? x.periodId} · {envelopeName(x)}
+                {xp?.groupCode ?? periodCodeOf(x.periodId)} · {envelopeName(x)}
                 {forHere && <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">ระบุให้ฝากกับกรุ๊ปนี้</span>}
               </span>
               <span className="block zego-text-secondary">
@@ -1525,7 +1525,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                 return (
                   <div key={x.id} className="space-y-1 rounded-md border zego-border-color px-2 py-1.5 text-xs">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="min-w-0 flex-1 font-medium zego-text">{getTourPeriodById(x.periodId)?.groupCode ?? x.periodId} · {envelopeName(x)}</span>
+                      <span className="min-w-0 flex-1 font-medium zego-text">{getTourPeriodById(x.periodId)?.groupCode ?? periodCodeOf(x.periodId)} · {envelopeName(x)}</span>
                       <EnvelopeStatusBadge env={x} />
                       <span className="shrink-0 font-semibold tabular-nums zego-text">{fmtTotals(x.sealed?.faceTotals ?? [])}</span>
                     </div>

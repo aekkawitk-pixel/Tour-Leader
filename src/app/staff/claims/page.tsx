@@ -34,6 +34,7 @@ import { sendOffStaffName } from '@/lib/logic/sendOffStaff';
 import { useStaffPortal } from '../useStaffPortal';
 import { MonthYearSelect, useMonthGroups } from '@/components/ui/MonthFilter';
 import { printSendOffClaim } from './printClaim';
+import { periodCodeOf } from '@/services/tourPeriodMaster';
 
 /** ค่าส่งกรุ๊ปของงานนี้ — จากวันที่ไปส่ง (วันหยุดราชการ = อัตราวันหยุด) */
 const feeOf = (d: StaffDuty, rates: SendOffFeeRates) => {
@@ -71,7 +72,7 @@ export default function StaffClaimsPage() {
   const mineGroups = useMonthGroups(mineByMonth, claimMonthOf, today);
   const mineShown = mineGroups.shown.flatMap((m) => m.items);
   const bank = staff?.bankAccounts.find((b) => b.isPrimary && b.active) ?? staff?.bankAccounts.find((b) => b.active);
-  const groupCodeOf = (periodId: string) => duties.find((d) => d.periodId === periodId)?.period?.groupCode ?? periodId;
+  const groupCodeOf = (periodId: string) => duties.find((d) => d.periodId === periodId)?.period?.groupCode ?? periodCodeOf(periodId);
 
   /** ใบที่ยังไม่อนุมัติ แก้ได้ (เฉพาะใบรายเดือน — ใบแบบเดิม 1 กรุ๊ป/ใบ ไม่มีข้อมูลกรุ๊ปที่บรรทัด) */
   const editable = (e: ExpenseRequest) => Boolean(e.claimMonth) && (e.status === 'submitted' || e.status === 'revise');
@@ -185,7 +186,7 @@ export default function StaffClaimsPage() {
                           <li key={d.assignmentId}>
                             <div className="flex items-start gap-3 px-3 py-2.5">
                               <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-semibold zego-text">{d.period?.groupCode ?? d.periodId}</span>
+                                <span className="block text-sm font-semibold zego-text">{d.period?.groupCode ?? periodCodeOf(d.periodId)}</span>
                                 <span className="line-clamp-1 block text-xs zego-text-secondary">{d.period?.displayName}</span>
                                 <span className="block text-xs zego-text-tertiary">ไปส่ง {formatDate(d.dutyDate)}{d.airport ? ` · ${d.airport}` : ''}</span>
                               </span>
@@ -343,7 +344,7 @@ function ClaimModal({
     });
     // ค่าส่งกรุ๊ป: 1 บรรทัดต่อกรุ๊ป (บอกกรุ๊ปที่ periodId) · ค่าใช้จ่ายอื่นเป็นของทั้งใบ
     const feeLines = fees.map(({ duty, fee }, i) => ({
-      ...base(i, SEND_OFF_FEE_TYPE, `ส่งกรุ๊ป ${duty.period?.groupCode ?? duty.periodId} · ${formatDate(duty.dutyDate)}${fee.holiday ? ` · วันหยุด (${fee.holiday})` : ''}`, fee.amount, duty.dutyDate),
+      ...base(i, SEND_OFF_FEE_TYPE, `ส่งกรุ๊ป ${duty.period?.groupCode ?? periodCodeOf(duty.periodId)} · ${formatDate(duty.dutyDate)}${fee.holiday ? ` · วันหยุด (${fee.holiday})` : ''}`, fee.amount, duty.dutyDate),
       periodId: duty.periodId,
       // ป้ายอัตรา — ใช้แยกอัตราวันหยุดตอนแสดง/พิมพ์ (ยอดเปลี่ยนได้ตามมาตรฐานที่ผู้ดูแลระบบตั้ง)
       note: fee.holiday ? `${SEND_OFF_HOLIDAY_NOTE} (${fee.holiday})` : 'อัตราปกติ',
@@ -392,7 +393,7 @@ function ClaimModal({
                 <label className={cx('flex cursor-pointer items-start gap-2.5 px-3 py-2', !on && 'opacity-60')}>
                 <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-emerald-600" checked={on} onChange={() => toggle(duty.periodId)} />
                 <span className="min-w-0 flex-1">
-                  <span className="block font-medium zego-text">{duty.period?.groupCode ?? duty.periodId}</span>
+                  <span className="block font-medium zego-text">{duty.period?.groupCode ?? periodCodeOf(duty.periodId)}</span>
                   <span className="block text-xs zego-text-tertiary">
                     ไปส่ง {formatDate(duty.dutyDate)}{fee.holiday ? ` · วันหยุด (${fee.holiday})` : ''}
                   </span>

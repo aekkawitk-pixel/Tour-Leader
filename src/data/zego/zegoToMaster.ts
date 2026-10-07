@@ -129,6 +129,7 @@ function toMaster(
     ประเภทกรุ๊ป INC/COL — Zego ไม่มีฟิลด์นี้
     ใช้กติกาเดิมของระบบ "ไม่ใช่ INC ก็เป็น COL" แทนการกุค่าขึ้นมาใหม่ และบันทึกไว้ให้รู้ว่าไม่ได้มาจากต้นทาง
   */
+  if (d.missingSince) messages.push(`ไม่พบพีเรียดนี้ในข้อมูลที่ดึงจาก Zego ตั้งแต่ ${d.missingSince.slice(0, 10)} — คงไว้เพื่อให้งานที่ผูกไว้ยังแสดงได้`);
   messages.push('Zego API ไม่มีข้อมูลประเภทกรุ๊ป (INC/COL) — ระบบตั้งเป็น COL ตามค่าเริ่มต้น');
 
   // ประเทศจาก Zego บางโปรแกรมระบุผิด (เช่น กรุ๊ปจีนเป็น AMERICA) — ตรวจกับปลายทางตามหัวรหัสกรุ๊ป (ดู zegoCountry)
@@ -206,8 +207,9 @@ function toMaster(
     remark: d.remark,
 
     /* ---- ระบบ ---- */
-    dataStatus: 'ACTIVE',
-    isActive: true,
+    // ไม่พบในการดึงรอบล่าสุด — เก็บไว้ให้งานที่ผูกไว้ยังแสดงได้ แต่ห้ามนำไปจัดงานใหม่ (getAssignablePeriods กรองออก)
+    dataStatus: d.missingSince ? 'MISSING_FROM_SOURCE' : 'ACTIVE',
+    isActive: !d.missingSince,
     importedAt: input.importedAt,
     updatedAt: input.importedAt,
     lastSyncedAt: input.importedAt,

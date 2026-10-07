@@ -74,4 +74,9 @@ export interface ZegoPeriod {
   rawText: string;
   sourcePage: number;
   importWarnings: string[];
+  /**
+   * ไม่พบพีเรียดนี้ในข้อมูลที่ดึงจาก Zego ตั้งแต่เวลานี้ (ISO) — ระบบเก็บไว้ไม่ลบ เพราะงานที่ผูกไว้ต้องยังแสดงได้
+   * (มักเป็นกรุ๊ปที่เดินทางจบแล้วจึงหลุดจากช่วงที่ Zego ส่งมา หรือกรุ๊ปที่ถูกยกเลิก) · ไม่มี = พบในการดึงรอบล่าสุด
+   */
+  missingSince?: string;
 }

@@ -130,9 +130,11 @@ test('ตัวกรองเส้นทางที่เชี่ยวช�
 */
 test('เคลียร์การมอบหมายที่พีเรียดหายจากต้นทางได้ และเคลียร์เฉพาะรายการที่หายจริง', () => {
   assert.ok(SRC.includes('const orphanAssignments = useMemo('), 'ต้องแยกรายการที่พีเรียดหายออกมา');
-  assert.ok(/orphanAssignments = useMemo\(\s*\(\) => affected\.filter\(\(x\) => !periodById\.has\(x\.periodId\)\)/.test(SRC),
-    'ต้องคัดจากการที่ไม่มีพีเรียดในแหล่งข้อมูลปัจจุบัน ไม่ใช่จากชนิดของปัญหา');
-  assert.ok(SRC.includes('เคลียร์รายการที่พีเรียดหายจากต้นทาง'), 'ต้องมีปุ่มบนแถบแจ้งเตือน');
+  const pick = SRC.match(/const orphanAssignments = useMemo\([\s\S]*?\n  \);/)?.[0] ?? '';
+  // กรุ๊ปที่เดินทางไปแล้วหลุดจากข้อมูล Zego เป็นเรื่องปกติ — ห้ามถูกถอด (ประวัติงาน/ค่าใช้จ่ายของหัวหน้าทัวร์จะหลุด)
+  assert.ok(pick.includes("p.dataStatus === 'MISSING_FROM_SOURCE' && p.endDate >= realToday"), 'ไม่พบใน Zego → ถอดได้เฉพาะที่ยังไม่ถึงวันกลับ');
+  assert.ok(pick.includes('snapshot?.endDate') && pick.includes('end >= realToday'), 'ไม่มีพีเรียดเลย → ดูวันกลับจาก snapshot ไม่รู้วัน = ไม่ถอด');
+  assert.ok(SRC.includes('เคลียร์กรุ๊ปที่ไม่พบใน Zego และยังไม่เดินทาง'), 'ต้องมีปุ่มบนแถบแจ้งเตือน');
 
   const fn = SRC.match(/const clearOrphanAssignments = \(\) => \{[\s\S]*?\n  \};/)?.[0] ?? '';
   assert.ok(fn, 'ต้องหาฟังก์ชันเคลียร์เจอ');

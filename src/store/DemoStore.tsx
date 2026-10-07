@@ -52,6 +52,13 @@ import { toISODate, toISODateTime } from '@/lib/format';
 
 /** ผู้ใช้ที่สลับไว้ล่าสุด (Demo ไม่มี Login จริง) */
 const CURRENT_USER_STORAGE_KEY = 'demoCurrentUserId';
+/**
+ * ผู้ใช้ชั่วคราวที่สร้างจากทะเบียน (หัวหน้าทัวร์ / เจ้าหน้าที่ส่งกรุ๊ปคนใดก็ได้) — เก็บทั้งก้อนไว้
+ * รีเฟรชแล้วคืนได้ทันทีโดยไม่ต้องรอโหลดทะเบียน (ถ้ารอ หน้าแรกจะเห็นเป็นผู้ใช้อื่นชั่วขณะแล้วถูกพาไปหน้าผิด)
+ */
+const PERSONA_STORAGE_KEY = 'demoPersonaUser';
+/** id ของผู้ใช้ชั่วคราว — ขึ้นต้นด้วยค่านี้เสมอ ไม่ชนกับ demoUsers (U-001…) */
+export const PERSONA_ID_PREFIX = 'U-P:';
 
 /** แสดงใบเบิกตัวอย่างตั้งต้นของ Demo (EXP-2026-001…010) — ปิดไว้ตามที่ตกลง ให้เห็นเฉพาะที่บันทึกจริง · เปิดกลับได้ที่นี่จุดเดียว */
 const SHOW_SEED_EXPENSES = false;
@@ -120,6 +127,8 @@ interface DemoState {
   currentUser: DemoUser;
   users: DemoUser[];
   setUserById: (id: string) => void;
+  /** สลับเป็นหัวหน้าทัวร์ / เจ้าหน้าที่ส่งกรุ๊ปคนใดก็ได้จากทะเบียน (Demo) — id ต้องขึ้นต้นด้วย PERSONA_ID_PREFIX */
+  setPersona: (user: DemoUser) => void;
   /** นับเฉพาะการสลับผู้ใช้โดยผู้ใช้กดเอง — ไม่นับการคืนผู้ใช้ที่จำไว้ตอนรีเฟรช (AppShell ใช้ตัดสินว่าจะพาไปหน้าแรกของบทบาทไหม) */
   userSwitchSeq: number;
   setRole: (role: Role) => void;
@@ -328,6 +337,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<DemoUser[]>(demoUsers);
   const [currentUserId, setCurrentUserId] = useState(DEFAULT_USER_ID);
   const [userSwitchSeq, setUserSwitchSeq] = useState(0);
+  const [persona, setPersonaUser] = useState<DemoUser | null>(null);
 
   const [leaders, setLeaders] = useState<TourLeader[]>([]);
   const [jobs, setJobs] = useState<TourJob[]>([]);
@@ -448,8 +458,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const currentUser = useMemo(
-    () => users.find((u) => u.id === currentUserId) ?? users[0],
-    [users, currentUserId],
+    () => users.find((u) => u.id === currentUserId) ?? (persona?.id === currentUserId ? persona : null) ?? users[0],
+    [users, currentUserId, persona],
   );
 
   /* --------------------------------- Toast -------------------------------- */
@@ -483,12 +493,36 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     [users, pushToast],
   );
 
+  const setPersona = useCallback(
+    (user: DemoUser) => {
+      if (!user.id.startsWith(PERSONA_ID_PREFIX)) return;
+      setPersonaUser(user);
+      setCurrentUserId(user.id);
+      setUserSwitchSeq((n) => n + 1);
+      try {
+        window.localStorage.setItem(PERSONA_STORAGE_KEY, JSON.stringify(user));
+        window.localStorage.setItem(CURRENT_USER_STORAGE_KEY, user.id);
+      } catch { /* private mode — แค่ไม่จำ */ }
+      pushToast('info', `สลับบทบาทเป็น: ${user.position}`, `กำลังใช้งานในนาม ${user.name}`);
+    },
+    [pushToast],
+  );
+
   // คืนผู้ใช้ที่จำไว้หลังโหลดฝั่ง Client (อ่าน localStorage ตอนสร้าง state ไม่ได้ — HTML ฝั่ง server จะไม่ตรง)
   useEffect(() => {
     let saved: string | null = null;
-    try { saved = window.localStorage.getItem(CURRENT_USER_STORAGE_KEY); } catch { /* ไม่มี storage */ }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จากภายนอก (localStorage) ครั้งเดียวตอน mount
+    let savedPersona: DemoUser | null = null;
+    try {
+      saved = window.localStorage.getItem(CURRENT_USER_STORAGE_KEY);
+      savedPersona = JSON.parse(window.localStorage.getItem(PERSONA_STORAGE_KEY) ?? 'null') as DemoUser | null;
+    } catch { /* ไม่มี storage / ข้อมูลเสีย */ }
+    /* eslint-disable react-hooks/set-state-in-effect -- ซิงก์จากภายนอก (localStorage) ครั้งเดียวตอน mount */
     if (saved && demoUsers.some((u) => u.id === saved && u.active)) setCurrentUserId(saved);
+    else if (saved && savedPersona?.id === saved && saved.startsWith(PERSONA_ID_PREFIX)) {
+      setPersonaUser(savedPersona);
+      setCurrentUserId(saved);
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   const setRole = useCallback(
@@ -1689,6 +1723,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     currentUser,
     users,
     setUserById,
+    setPersona,
     userSwitchSeq,
     setRole,
     leaders,

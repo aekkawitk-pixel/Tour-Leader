@@ -12,6 +12,7 @@ import type { TourPeriodMaster, TourSector } from '@/data/schedule/masterTypes';
 import type { AssignmentBoardStatus, PeriodSnapshot } from '@/services/guideAssignmentStore';
 import { parseDate, daysBetween, formatDate } from '@/lib/format';
 import { programBusyWindow, type UnavailableWindow } from './leaderAvailability';
+import { flightNoOf } from './airlines';
 
 /** 5 สถานะการจัดหัวหน้าทัวร์ (§3) */
 export type BoardStatus =
@@ -179,7 +180,26 @@ export function boardStatusFromAssignment(assignmentStatus: AssignmentBoardStatu
 
 /** Snapshot ของพีเรียด ณ เวลามอบหมาย (ใช้เทียบการเปลี่ยนแปลง) */
 export function periodSnapshotOf(p: TourPeriodMaster): PeriodSnapshot {
-  return { startDate: p.startDate, endDate: p.endDate, bus: p.bus ?? null, countryName: p.countryName, saleStatus: p.saleStatus };
+  return {
+    startDate: p.startDate, endDate: p.endDate, bus: p.bus ?? null, countryName: p.countryName, saleStatus: p.saleStatus,
+    outboundFlight: outboundFlightOf(p), departureAirport: p.departureAirportCode ?? '',
+  };
+}
+
+/** เที่ยวบินขาไป "NH806 08:00" — ไม่มี sector = '' */
+function outboundFlightOf(p: TourPeriodMaster): string {
+  const s = p.sectors?.[0];
+  if (!s) return '';
+  const time = s.departureTime ?? (s.departureDateTime ? s.departureDateTime.slice(11, 16) : '');
+  return [flightNoOf(s), time].filter(Boolean).join(' ');
+}
+
+/**
+ * พีเรียด "ไม่พบในข้อมูล Zego รอบล่าสุด" แต่เดินทางจบไปแล้ว = ปกติ (Zego ส่งมาเฉพาะกรุ๊ปที่ยังไม่เดินทาง/ยังขายอยู่)
+ * ไม่ต้องเตือน และห้ามถูกเคลียร์ทิ้ง · ยังไม่ถึงวันกลับ = อาจถูกยกเลิก ต้องตรวจสอบ
+ */
+export function isMissingButTravelled(period: TourPeriodMaster | null, today: string): boolean {
+  return !!period && period.dataStatus === 'MISSING_FROM_SOURCE' && !!period.endDate && period.endDate < today;
 }
 
 export type AssignmentIssueType = 'MISSING' | 'INACTIVE' | 'INVALID' | 'CHANGED' | 'NO_SELL';
@@ -198,9 +218,11 @@ export function isNoSellPeriod(period: TourPeriodMaster | null): boolean {
  *   period == null / MISSING_FROM_SOURCE → หายจากต้นทาง · ปิดใช้งาน/Archive · INVALID · snapshot ต่างจากปัจจุบัน → เปลี่ยน
  *   saleStatus = NO_SELL → ต้องถอดหัวหน้าทัวร์ออก (ขึ้นก่อนเพื่อน เพราะเป็นเรื่องที่ต้องลงมือทำ)
  */
-export function detectAssignmentIssues(snapshot: PeriodSnapshot | undefined, period: TourPeriodMaster | null): AssignmentIssue[] {
+export function detectAssignmentIssues(snapshot: PeriodSnapshot | undefined, period: TourPeriodMaster | null, today?: string): AssignmentIssue[] {
   const issues: AssignmentIssue[] = [];
   if (!period) return [{ type: 'MISSING', label: 'พีเรียดหายจากต้นทาง' }];
+  // เดินทางจบแล้วจึงหลุดจากข้อมูล Zego — เป็นเรื่องปกติ ไม่ใช่ปัญหาของการจัดงาน
+  if (today && isMissingButTravelled(period, today)) return [];
   if (isNoSellPeriod(period)) {
     issues.push({
       type: 'NO_SELL',
@@ -210,7 +232,7 @@ export function detectAssignmentIssues(snapshot: PeriodSnapshot | undefined, per
         : 'โปรแกรมนี้มีสถานะขายเป็น NO SELL',
     });
   }
-  if (period.dataStatus === 'MISSING_FROM_SOURCE') issues.push({ type: 'MISSING', label: 'พีเรียดหายจากต้นทาง' });
+  if (period.dataStatus === 'MISSING_FROM_SOURCE') issues.push({ type: 'MISSING', label: 'ไม่พบในข้อมูล Zego รอบล่าสุด', detail: 'ไม่พบกรุ๊ปนี้ในข้อมูล Zego รอบล่าสุด (อาจถูกยกเลิก) — ตรวจสอบกับฝ่ายขาย' });
   else if (period.dataStatus !== 'ACTIVE' || !period.isActive) issues.push({ type: 'INACTIVE', label: period.dataStatus === 'ARCHIVED' ? 'พีเรียดถูก Archive' : 'พีเรียดถูกปิดใช้งาน' });
   if (period.validationStatus === 'INVALID') issues.push({ type: 'INVALID', label: 'ข้อมูลพีเรียดไม่ถูกต้อง' });
   if (snapshot) {
@@ -219,6 +241,14 @@ export function detectAssignmentIssues(snapshot: PeriodSnapshot | undefined, per
     if ((snapshot.bus ?? '') !== (period.bus ?? '')) ch.push(`บัสเปลี่ยนจาก ${snapshot.bus ?? '-'} เป็น ${period.bus ?? '-'}`);
     if (snapshot.countryName !== period.countryName) ch.push(`ประเทศเปลี่ยนจาก ${snapshot.countryName} เป็น ${period.countryName}`);
     if (snapshot.saleStatus !== period.saleStatus) ch.push(`สถานะขายเปลี่ยนจาก ${snapshot.saleStatus} เป็น ${period.saleStatus}`);
+    // snapshot รุ่นก่อนไม่มีสองช่องนี้ — ไม่เทียบ (ไม่งั้นทุกงานเก่าจะขึ้นว่าเปลี่ยน)
+    if (snapshot.outboundFlight !== undefined) {
+      const now = outboundFlightOf(period);
+      if (snapshot.outboundFlight !== now) ch.push(`เที่ยวบินขาไปเปลี่ยนจาก ${snapshot.outboundFlight || '-'} เป็น ${now || '-'}`);
+    }
+    if (snapshot.departureAirport !== undefined && snapshot.departureAirport !== (period.departureAirportCode ?? '')) {
+      ch.push(`สนามบินต้นทางเปลี่ยนจาก ${snapshot.departureAirport || '-'} เป็น ${period.departureAirportCode || '-'}`);
+    }
     if (ch.length) issues.push({ type: 'CHANGED', label: 'ข้อมูลต้นทางเปลี่ยน', detail: ch.join(' · ') });
   }
   return issues;

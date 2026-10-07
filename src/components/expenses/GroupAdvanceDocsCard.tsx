@@ -16,7 +16,8 @@ import { sendOffStaffName } from '@/lib/logic/sendOffStaff';
 import { useDemo } from '@/store/DemoStore';
 import { Button, Card } from '@/components/ui/Primitives';
 import { formatCurrency, formatDateRange } from '@/lib/format';
-import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
+import { advanceDocFallback } from '@/lib/logic/advanceDocFallback';
 import { envelopeName, groupEnvelopeStatus, groupLines, groupManageable, sumAmounts } from '@/lib/logic/cashEnvelope';
 import { GroupEnvelopeDrawer, GroupTimelineDrawer, StatusPill } from './CashEnvelopeDrawer';
 import type { ExpenseRequest } from '@/types';
@@ -82,6 +83,8 @@ export function GroupAdvanceDocsCard({
             <tbody className="divide-y divide-[var(--zego-border-soft)]">
               {groups.map(({ periodId, docs }) => {
                 const period = getTourPeriodById(periodId);
+                // ไม่พบกรุ๊ปใน Master (เช่น เดินทางไปแล้ว ไม่อยู่ในข้อมูล Zego รอบใหม่) — ใช้ข้อมูลจากตัวเอกสารเบิกแทน
+                const fb = period ? null : advanceDocFallback(docs[0]?.sourceDoc);
                 const lines = groupLines(docs);
                 const envs = envelopes.filter((e) => e.periodId === periodId);
                 const noEnv = noEnvelopeMarks.find((m) => m.periodId === periodId);
@@ -95,16 +98,19 @@ export function GroupAdvanceDocsCard({
                 return (
                   <tr key={periodId} className="zego-hover-surface">
                     <td className="px-3 py-2.5 align-top">
-                      <p className="whitespace-nowrap zego-text-secondary">{period?.countryName || '—'}</p>
+                      <p className="whitespace-nowrap zego-text-secondary">{period?.countryName || fb?.countryName || '—'}</p>
                     </td>
                     <td className="px-3 py-2.5 align-top">
-                      <p className="whitespace-nowrap font-semibold zego-text">{period?.groupCode ?? docs[0]?.sourceDoc?.groupCode ?? periodId}</p>
+                      <p className="whitespace-nowrap font-semibold zego-text">{period?.groupCode ?? docs[0]?.sourceDoc?.groupCode ?? periodCodeOf(periodId)}</p>
                     </td>
                     <td className="max-w-[20rem] px-3 py-2.5 align-top">
-                      <p className="line-clamp-2 zego-text-secondary">{period?.displayName ?? docs[0]?.sourceDoc?.programName ?? '—'}</p>
+                      <p className="line-clamp-2 zego-text-secondary">{period?.displayName ?? (fb?.programName || '—')}</p>
+                      {fb && <p className="mt-0.5 text-[11px] zego-text-warning">ไม่พบกรุ๊ปนี้ในรายการทัวร์ — แสดงตามเอกสารเบิก</p>}
                     </td>
                     <td className="px-3 py-2.5 align-top">
-                      <p className="whitespace-nowrap tabular-nums zego-text">{period ? formatDateRange(period.startDate, period.endDate) : '—'}</p>
+                      <p className="whitespace-nowrap tabular-nums zego-text">
+                        {period ? formatDateRange(period.startDate, period.endDate) : fb?.startDate && fb.endDate ? formatDateRange(fb.startDate, fb.endDate) : '—'}
+                      </p>
                     </td>
                     <td className="px-3 py-2.5 text-center align-top">
                       {noDocs

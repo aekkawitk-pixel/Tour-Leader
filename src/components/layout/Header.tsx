@@ -12,6 +12,7 @@ import { ROLE_SCOPE, can } from '@/lib/permissions';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar, cx, StatusBadge } from '@/components/ui/Primitives';
 import { ThemeDensitySwitcher } from '@/components/theme/ThemeDensitySwitcher';
+import { PersonaPicker } from './PersonaPicker';
 import { formatDateTime } from '@/lib/format';
 import { leaderDisplayName } from '@/lib/logic/leaderExpertise';
 import { listNoSellAlerts, noSellAlertMessage } from '@/lib/logic/noSellAlerts';
@@ -151,7 +152,7 @@ export function Header({ onOpenMenu }: { onOpenMenu: () => void }) {
           </button>
 
           {openPanel === 'user' && (
-            <div className="zego-popover zego-is-open zego-popover--wide right-0 mt-2 overflow-hidden">
+            <div className="zego-popover zego-is-open zego-popover--wide right-0 mt-2 max-h-[calc(100vh-4.5rem)] overflow-y-auto">
               <div className="zego-divider-bottom zego-surface-soft-bg px-4 py-3">
                 <p className="zego-text text-sm font-semibold">{currentUser.name}</p>
                 <p className="zego-text-secondary text-xs">{currentUser.position}</p>
@@ -192,8 +193,21 @@ export function Header({ onOpenMenu }: { onOpenMenu: () => void }) {
                       </li>
                     );
                   })}
+                  {/* กำลังใช้งานในนามคนที่เลือกจากทะเบียน — แสดงไว้ในรายการด้วย ให้รู้ว่ากำลังเป็นใคร */}
+                  {!users.some((u) => u.id === currentUser.id) && (
+                    <li>
+                      <div className="zego-menu-item zego-menu-item--selected w-full justify-between">
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">{currentUser.name}</span>
+                          <span className="zego-text-tertiary block truncate text-xs">{currentUser.position}</span>
+                        </span>
+                        <Icon name="check" className="zego-text-info h-4 w-4 shrink-0" />
+                      </div>
+                    </li>
+                  )}
                 </ul>
               </div>
+              <PersonaPicker onPicked={() => setOpenPanel('none')} />
             </div>
           )}
         </div>

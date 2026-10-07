@@ -12,7 +12,7 @@
 import { useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { loadSendOffStaff } from '@/services/sendOffStaffStore';
-import { getTourPeriods } from '@/services/tourPeriodMaster';
+import { getTourPeriods, periodCodeOf } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { formatDateRange, formatDate } from '@/lib/format';
 import { Button, Card, cx, EmptyState, PageHeader } from '@/components/ui/Primitives';
@@ -266,7 +266,7 @@ export default function CustodyLedgerPage() {
                       <li key={a.id} className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm">
                         <div className="min-w-0">
                           <p className="truncate font-medium zego-text-secondary">
-                            {period?.groupCode ?? a.periodId} · {leader ? `${leader.firstName} ${leader.lastName}` : a.leaderId}
+                            {period?.groupCode ?? periodCodeOf(a.periodId)} · {leader ? `${leader.firstName} ${leader.lastName}` : a.leaderId}
                           </p>
                           <p className="text-xs zego-text-tertiary">
                             {a.amount.toLocaleString('th-TH')} {batch.currency}

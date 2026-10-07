@@ -23,6 +23,7 @@ import { MonthPicker } from '@/components/ui/MonthPicker';
 import { MonthJobsCard, airportText, airportTone, GREEN, BROWN } from '@/components/portal/MonthJobsCard';
 import { staffEnvelopeNotice } from '../envelopeNotice';
 import { useDemo } from '@/store/DemoStore';
+import { periodCodeOf } from '@/services/tourPeriodMaster';
 
 const TH_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
 const TH_DAYS = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
@@ -192,7 +193,7 @@ export default function StaffHomePage() {
                         <span className={cx('rounded px-1.5 py-0.5 text-[11px] font-semibold', toneOf(code).badge)}>{code || '—'}</span>
                       </td>
                       <td className="py-2 pr-2">
-                        <span className="block font-medium zego-text">{d.period?.groupCode ?? d.periodId}</span>
+                        <span className="block font-medium zego-text">{d.period?.groupCode ?? periodCodeOf(d.periodId)}</span>
                         {/* ซองเงินของกรุ๊ปนี้ — ข้อความเดียวกับหน้าตารางงาน · ต้องทำอะไรต่อ = สีเหลือง */}
                         {(() => {
                           const n = staffEnvelopeNotice({ envelopes, expenses, staffId, staffName: currentUser.name, periodId: d.periodId });

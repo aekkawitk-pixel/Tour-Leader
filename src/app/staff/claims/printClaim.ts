@@ -8,7 +8,7 @@ import { EXPENSE_STATUS } from '@/lib/labels';
 import { formatCurrency, formatDate, formatDateTime, formatThaiMonthYear } from '@/lib/format';
 import { isHolidayFeeLine, SEND_OFF_FEE_TYPE } from '@/lib/logic/staffPortal';
 import { holidayOf } from '@/services/holidayService';
-import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import type { ExpenseRequest } from '@/types';
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -26,7 +26,7 @@ export function printSendOffClaim(expense: ExpenseRequest, staffName: string): v
     const isFee = l.expenseType === SEND_OFF_FEE_TYPE;
     const period = getTourPeriodById(l.periodId ?? (isFee ? expense.jobId : '')) ?? null;
     const item = isFee
-      ? `<b>${esc(period?.groupCode ?? l.periodId ?? '')}</b><div class="sub">${esc(period?.displayName ?? '')}</div>`
+      ? `<b>${esc(period?.groupCode ?? (l.periodId ? periodCodeOf(l.periodId) : ''))}</b><div class="sub">${esc(period?.displayName ?? '')}</div>`
       : `<b>${esc(l.expenseType)}</b>${l.evidenceFileName ? '<div class="sub">แนบใบเสร็จ</div>' : ''}`;
     const holiday = isFee && l.receiptDate ? holidayOf(l.receiptDate)?.name : undefined;
     const rate = !isFee ? '' : l.note ? l.note : isHolidayFeeLine(l) ? `อัตราวันหยุด${holiday ? ` (${holiday})` : ''}` : 'อัตราปกติ';

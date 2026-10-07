@@ -28,6 +28,7 @@ import { ExpensesBackHeader } from '../../expenses/ExpensesBackHeader';
 import { CarrierLeaderSection } from '../../CarrierLeaderSection';
 import { leaderEnvelopeGroups } from '../envelopeGroups';
 import { MonthYearFilter, matchesPeriodFilter, validPeriodFilter } from '../../MonthYearFilter';
+import { periodCodeOf } from '@/services/tourPeriodMaster';
 
 /** มีกรุ๊ปเกินจำนวนนี้ → แสดงช่องค้นหา */
 const SEARCH_FROM = 5;
@@ -64,7 +65,7 @@ export default function GuideEnvelopesPage() {
   const [pickedPeriod, setPickedPeriod] = useState<string | null>(null);
 
   const q = query.trim().toLowerCase();
-  const match = (g: (typeof groups)[number]) => !q || `${g.period?.groupCode ?? g.periodId} ${g.period?.displayName ?? ''}`.toLowerCase().includes(q);
+  const match = (g: (typeof groups)[number]) => !q || `${g.period?.groupCode ?? periodCodeOf(g.periodId)} ${g.period?.displayName ?? ''}`.toLowerCase().includes(q);
   const list = listOf(view).filter(match);
   // ค้นหาแล้วไม่เจอในกลุ่มนี้ → กลุ่มแรกที่เจอ (พาไปได้ในคลิกเดียว)
   const otherView = q ? (['waiting', 'received', 'forwarded'] as View[]).find((v) => v !== view && listOf(v).some(match)) : undefined;
@@ -90,7 +91,7 @@ export default function GuideEnvelopesPage() {
   );
 
   const labelOf = (g: (typeof groups)[number]) => ({
-    code: g.period?.groupCode ?? g.periodId,
+    code: g.period?.groupCode ?? periodCodeOf(g.periodId),
     detail: g.period?.displayName,
     dates: g.period ? formatDateRange(g.period.startDate, g.period.endDate) : undefined,
   });
@@ -190,7 +191,7 @@ export default function GuideEnvelopesPage() {
                           >
                             <Icon name={view === 'forwarded' ? 'chevronRight' : 'check'} className={cx('h-4 w-4 shrink-0', view === 'forwarded' ? 'text-sky-600' : 'zego-text-success')} />
                             <span className="min-w-0 flex-1">
-                              <span className="block text-sm font-medium zego-text">{g.period?.groupCode ?? g.periodId}</span>
+                              <span className="block text-sm font-medium zego-text">{g.period?.groupCode ?? periodCodeOf(g.periodId)}</span>
                               <span className="block text-xs zego-text-tertiary">
                                 {g.period ? `ออก ${formatDateRange(g.period.startDate, g.period.endDate)} · ` : ''}{envs.length} ซอง · {total.map((t) => formatCurrency(t.amount, t.currency)).join(' · ')}
                               </span>

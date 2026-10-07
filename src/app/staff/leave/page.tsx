@@ -29,6 +29,7 @@ import {
 } from '@/lib/logic/sendOffStaffLeave';
 import { useStaffPortal } from '../useStaffPortal';
 import type { StaffDuty } from '@/lib/logic/staffPortal';
+import { periodCodeOf } from '@/services/tourPeriodMaster';
 
 export default function StaffLeavePage() {
   const { currentUser, pushToast } = useDemo();
@@ -380,7 +381,7 @@ function LeaveCalendar({
             <div key={d.assignmentId} className="text-xs">
               <p className="flex flex-wrap items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
-                <span className="font-semibold zego-text">งานส่งกรุ๊ป {d.period?.groupCode ?? d.periodId}</span>
+                <span className="font-semibold zego-text">งานส่งกรุ๊ป {d.period?.groupCode ?? periodCodeOf(d.periodId)}</span>
                 {!d.confirmed && <span className="rounded bg-amber-50 px-1 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200">รอคอนเฟิร์ม</span>}
               </p>
               {d.period?.displayName && <p className="ml-3 zego-text-secondary">{d.period.displayName}</p>}

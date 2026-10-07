@@ -13,6 +13,7 @@ import { formatCurrency, formatDate, formatDateRange } from '@/lib/format';
 import { LEADER_FORM_ITEMS } from '@/lib/logic/leaderClaims';
 import type { ExpenseRequest } from '@/types';
 import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
+import { periodCodeOf } from '@/services/tourPeriodMaster';
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const num = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -66,7 +67,7 @@ export function printLeaderExpenseForm(claim: ExpenseRequest, period: TourPeriod
   const leaderCount = f?.leaderCount ?? 1;
   const paidNote = claim.status === 'paid' ? `โอนแล้ว${claim.paidAt ? ` ${formatDate(claim.paidAt)}` : ''}${claim.paidRef ? ` · อ้างอิง ${claim.paidRef}` : ''}` : '';
 
-  w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>เอกสารค่าใช้จ่ายหัวหน้าทัวร์ ${esc(period?.groupCode ?? claim.jobId)}</title>
+  w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>เอกสารค่าใช้จ่ายหัวหน้าทัวร์ ${esc(period?.groupCode ?? periodCodeOf(claim.jobId))}</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 @page{size:A4 portrait;margin:14mm}
@@ -98,7 +99,7 @@ h2{font-size:12pt;margin:0 0 2mm}
   <div class="ref">เลขที่ ${esc(claim.id)}${paidNote ? `<br>${esc(paidNote)}` : ''}</div>
 </div>
 <table class="info">
-  <tr>${cell('จ่ายเงินให้', claim.requesterName)}${cell('Code กรุ๊ป', period?.groupCode ?? claim.jobId)}</tr>
+  <tr>${cell('จ่ายเงินให้', claim.requesterName)}${cell('Code กรุ๊ป', period?.groupCode ?? periodCodeOf(claim.jobId))}</tr>
   <tr>${cell('โปรแกรมทัวร์', period?.programCode ?? '')}${cell('เดินทาง', period ? formatDateRange(period.startDate, period.endDate) : '')}</tr>
   <tr>${cell('โปรแกรม', period?.displayName ?? '', 3)}</tr>
   <tr>${cell('จำนวน', f?.paxCount != null ? `${f.paxCount} ท่าน${leaderCount > 0 ? ` + ${leaderCount}` : ''}` : '')}${cell('ลูกค้ายกเลิก', f?.cancelledPax != null ? `${f.cancelledPax} คน` : '-')}</tr>

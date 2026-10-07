@@ -22,6 +22,9 @@ import {
 } from '@/services/zegoConfigStore';
 import { ZegoSetupPanel, type ZegoStatus } from './ZegoSetupPanel';
 import type { ZegoPeriod, ZegoProgram } from '@/data/zego/types';
+import { ConfirmDialog } from '@/components/ui/Modal';
+import { mergeZegoImport } from '@/lib/logic/zegoMerge';
+import { ImportSummaryCard } from './ImportSummaryCard';
 
 interface FetchResult {
   programs: ZegoProgram[];
@@ -57,6 +60,7 @@ export function ZegoProgramsView() {
   const [search, setSearch] = useState('');
   const [countries, setCountries] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [confirmClear, setConfirmClear] = useState(false);
 
   /* อ่าน localStorage ได้เฉพาะฝั่ง client → โหลดใน effect เพื่อไม่ให้ HTML ฝั่ง server ต่างกัน */
   useEffect(() => {
@@ -102,6 +106,8 @@ export function ZegoProgramsView() {
       return [p.programCode, p.programName ?? '', p.country, codes, flights].join(' ').toLowerCase().includes(q);
     });
   }, [programs, countries, search, periodsByProgram]);
+
+  const missingCount = useMemo(() => periods.filter((p) => p.missingSince).length, [periods]);
 
   /** จำนวนพีเรียดที่มีคำเตือนตอนแปลงข้อมูล — บอกไว้ ไม่ซ่อน */
   const warnedPeriods = useMemo(() => periods.filter((p) => p.importWarnings.length > 0), [periods]);
@@ -152,13 +158,22 @@ export function ZegoProgramsView() {
         if (up.ok) sourceUpdatedAt = (await up.json())?.updatedAt ?? null;
       } catch { /* ข้ามไป — ไม่ใช่ข้อมูลที่จำเป็นต่อการนำเข้า */ }
 
+      /*
+        รวมกับชุดเดิม ไม่เขียนทับ — กรุ๊ปที่ไม่ได้มารอบนี้ (เช่น เดินทางจบแล้ว) ยังอยู่ งานที่ผูกไว้จึงไม่หลุด
+        ดึงเฉพาะขอบเขต: กรุ๊ปนอกขอบเขตคงไว้ตามเดิม (ดู lib/logic/zegoMerge.ts)
+      */
+      const now = new Date().toISOString();
+      const fullScope = scopeQuery(config) === '';
+      const prev = loadZegoImport();
+      const merged = mergeZegoImport(prev, { programs: data.programs ?? [], periods: data.periods ?? [] }, { fullScope, now });
       const next: ZegoImportSnapshot = {
-        importedAt: new Date().toISOString(),
+        importedAt: now,
         sourceUpdatedAt,
-        scope: scopeLabel(config),
-        programs: data.programs ?? [],
-        periods: data.periods ?? [],
+        scope: fullScope || !prev ? scopeLabel(config) : `${scopeLabel(config)} (รวมกับข้อมูลเดิม)`,
+        programs: merged.programs,
+        periods: merged.periods,
         skipped: data.skipped ?? [],
+        lastMerge: merged.summary,
       };
       saveZegoImport(next);
       setSnapshot(next);
@@ -176,6 +191,7 @@ export function ZegoProgramsView() {
       clearZegoImport();
       setSnapshot(null);
       setError(null);
+      setConfirmClear(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'ล้างข้อมูลไม่สำเร็จ');
     }
@@ -191,12 +207,22 @@ export function ZegoProgramsView() {
             <Button variant="ghost" size="sm" onClick={() => setSetupOpen((v) => !v)} aria-expanded={setupOpen}>
               {setupOpen ? 'ซ่อนการตั้งค่า' : 'ตั้งค่าการเชื่อมต่อ'}
             </Button>
-            {snapshot && <Button variant="ghost" size="sm" onClick={clearNow}>ล้างข้อมูลที่นำเข้า</Button>}
+            {snapshot && <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)}>ล้างข้อมูลที่นำเข้า</Button>}
             <Button variant="primary" size="sm" onClick={importNow} disabled={loading}>
               {loading ? 'กำลังดึงข้อมูล…' : 'ดึงข้อมูลล่าสุด'}
             </Button>
           </>
         }
+      />
+
+      <ConfirmDialog
+        open={confirmClear}
+        onClose={() => setConfirmClear(false)}
+        onConfirm={clearNow}
+        title="ล้างข้อมูลที่นำเข้าจาก Zego"
+        message="ระบบจะกลับไปใช้ข้อมูลตัวอย่าง (CSV) — งานที่ผูกกับกรุ๊ปจาก Zego (จัดหัวหน้าทัวร์ / ส่งกรุ๊ป / ซองเงิน / ใบเสร็จ / เบี้ยเลี้ยง / เคลียร์เงิน / นัดหมาย) จะหากรุ๊ปไม่เจอและหายจากหลายหน้าจอจนกว่าจะดึงข้อมูลใหม่ · ถ้าต้องการอัปเดตข้อมูล ให้กด “ดึงข้อมูลล่าสุด” แทน (ระบบรวมกับข้อมูลเดิมให้ ไม่ลบกรุ๊ปเก่า)"
+        confirmLabel="ล้างข้อมูล"
+        tone="danger"
       />
 
       {setupOpen && (
@@ -223,6 +249,7 @@ export function ZegoProgramsView() {
               <Icon name="check" className="zego-text-success h-4 w-4" />
               นำเข้าแล้ว {snapshot.programs.length} โปรแกรม · {snapshot.periods.length} พีเรียด
             </span>
+            {missingCount > 0 && <span className="zego-text-tertiary">(ไม่พบในต้นทางรอบล่าสุด {missingCount} พีเรียด — เก็บไว้ให้งานเดิมยังแสดงได้)</span>}
             <span>นำเข้าเมื่อ {formatDateTime(snapshot.importedAt)}</span>
             {snapshot.sourceUpdatedAt && <span>ข้อมูลต้นทางอัปเดต {snapshot.sourceUpdatedAt}</span>}
             <span>ขอบเขต: {snapshot.scope}</span>
@@ -230,9 +257,17 @@ export function ZegoProgramsView() {
           {/* ข้อมูลชุดนี้เป็นข้อมูลกลางของทั้งระบบ ไม่ได้ใช้แค่ในหน้านี้ — บอกให้ผู้ใช้รู้ว่ากระทบที่ไหนบ้าง */}
           <p className="zego-divider-top zego-text-tertiary mt-1.5 pt-1.5 text-xs">
             ข้อมูลชุดนี้ถูกใช้เป็นข้อมูลกลางของทุกเมนูที่เกี่ยวข้องแล้ว — การจัดสเก็ต · ปฏิทินงาน · Master รายการทัวร์ · รายงาน
+            · กด “ดึงข้อมูลล่าสุด” = รวมกับข้อมูลเดิม (กรุ๊ปที่ไม่ได้มารอบนั้นไม่ถูกลบ)
           </p>
+          {scopeQuery(config) !== '' && (
+            <p className="mt-1 text-xs text-amber-700">
+              ตั้งค่าดึงเฉพาะ {scopeLabel(config)} — กรุ๊ปนอกขอบเขตนี้จะคงไว้ตามข้อมูลเดิม ไม่ถูกอัปเดต (เปลี่ยนเป็น “ทั้งหมด” ที่ตั้งค่าการเชื่อมต่อ เพื่ออัปเดตทุกกรุ๊ป)
+            </p>
+          )}
         </Card>
       )}
+
+      {snapshot?.lastMerge && <ImportSummaryCard summary={snapshot.lastMerge} periods={periods} />}
 
       {snapshot && snapshot.skipped.length > 0 && (
         <Callout tone="amber" title={`ข้ามไป ${snapshot.skipped.length} รายการเพราะไม่มีรหัสโปรแกรม`}>
@@ -362,10 +397,15 @@ export function ZegoProgramsView() {
                             </thead>
                             <tbody>
                               {list.map((d) => (
-                                <tr key={d.id}>
+                                <tr key={d.id} className={cx(d.missingSince && 'opacity-60')}>
                                   <td className="px-3 py-1.5 font-mono font-medium">
                                     <span className="zego-text">{d.groupCode || '—'}</span>
                                     {d.bus && <span className="zego-text-tertiary ml-1 text-xs">({d.bus})</span>}
+                                    {d.missingSince && (
+                                      <span className="ml-1.5 inline-block font-sans" title={`ไม่พบในข้อมูล Zego ตั้งแต่ ${formatDateTime(d.missingSince)}`}>
+                                        <Pill tone="slate">ไม่พบในต้นทาง</Pill>
+                                      </span>
+                                    )}
                                   </td>
                                   <td className="px-3 py-1.5">{d.startDate && d.endDate ? formatDateRange(d.startDate, d.endDate) : '—'}</td>
                                   <td className="px-3 py-1.5 text-xs" title={d.airlineName}>

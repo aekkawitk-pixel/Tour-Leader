@@ -17,7 +17,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useDemo } from '@/store/DemoStore';
 import {
   addDays, addMonths, daysBetween, diffDays, endOfMonth, formatDate, formatDateRange, formatDateTime,
-  formatThaiMonthYear, parseDate, startOfMonth, TH_WEEKDAYS_SHORT, toISODateTime,
+  formatThaiMonthYear, parseDate, startOfMonth, TH_WEEKDAYS_SHORT, toISODate, toISODateTime,
 } from '@/lib/format';
 import { Button, Callout, Card, cx, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { DateInputBase } from '@/components/ui/DateInput';
@@ -42,7 +42,7 @@ import { useFavoriteGuides } from '@/lib/useFavoriteGuides';
 import { GUIDE_PREFS_CHANGED_EVENT, readAllFavoriteGuideIds } from '@/services/favoriteGuidesStore';
 import { remindersInWindow, compensationProgress, cancelledSpansForLeader, cancellationsForLeader } from '@/lib/logic/guideCancellations';
 import { getPassportExpiry } from '@/services/tourLeaderMaster';
-import { getTourPeriods, getAssignablePeriods, getTourPeriodById, getSaleStatusChange } from '@/services/tourPeriodMaster';
+import { getTourPeriods, getAssignablePeriods, getTourPeriodById, getSaleStatusChange, periodCodeOf } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments, assignPeriod, reassignPeriod, unassignPeriod, acknowledgeChange, setAssignmentStatus, type GuidePeriodAssignment } from '@/services/guideAssignmentStore';
 import { effectiveBoard } from '@/lib/logic/reassignNeed';
 import { passportStatus, passportRemainingText, passportBlocksScheduling, PASSPORT_STATUS_META, PASSPORT_TONE_CLASS } from '@/lib/logic/tourLeaderMaster';
@@ -363,6 +363,12 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
   const monthEnd = endOfMonth(cursor);
   const dayCount = daysBetween(monthStart, monthEnd); // จำนวนวันจริงของเดือน (28/29/30/31)
 
+  /*
+    วันที่จริงของเครื่อง — ใช้ตัดสินว่ากรุ๊ปที่ "ไม่พบใน Zego" เดินทางจบแล้วหรือยัง
+    (today ของ Demo ตรึงไว้ที่ 2026-07-13 — ถ้าใช้ตัวนั้น กรุ๊ปที่จบไปแล้วจริงจะถูกนับว่ายังไม่เดินทาง และถูกเสนอให้ถอดทิ้ง)
+  */
+  const realToday = useMemo(() => toISODate(new Date()), []);
+
   // Tour Period Master (Source of Truth §1) — อ่านผ่าน Service · Join ด้วย periodId (§7)
   const allPeriods = useMemo(() => getTourPeriods(), []);
   // พีเรียดที่จัดหัวหน้าทัวร์ได้ (ตัด NO SELL ฯลฯ) — ใช้นับ "ยังไม่ระบุ"
@@ -417,7 +423,7 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
           // สถานะที่แสดง = ที่บันทึก + “ต้องเปลี่ยนหัวหน้าทัวร์” ที่ระบบตั้งให้เอง (วันลาทับ / ระงับการใช้งาน)
           ...(() => { const eb = effectiveBoard(a, p, leader, availabilityRecords); return { board: eb.board, reassignReason: eb.reason }; })(),
           disp: periodScheduleDisplay(p),
-          periodId: a.periodId, assignmentId: a.assignmentId, issues: detectAssignmentIssues(a.snapshot, p),
+          periodId: a.periodId, assignmentId: a.assignmentId, issues: detectAssignmentIssues(a.snapshot, p, realToday),
           compensatesFor: compensatesForByGroupCode.get(p.groupCode),
         }));
       const recEvents: RowEvent[] = availabilityRecords
@@ -438,41 +444,50 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
       map.set(leader.id, [...jobEvents, ...recEvents, ...cancelledEvents]);
     }
     return map;
-  }, [leaders, assignments, periodById, availabilityRecords, guideCancellations, winStart, winEnd]);
+  }, [leaders, assignments, periodById, availabilityRecords, guideCancellations, winStart, winEnd, realToday]);
 
   // §9 การมอบหมายที่ได้รับผลกระทบจาก Master (ทุกเดือน) — พีเรียดเปลี่ยน/ปิดใช้งาน/หาย
   const affected = useMemo(() => {
     const out: { leaderName: string; code: string; assignmentId: string; periodId: string; issues: AssignmentIssue[] }[] = [];
     for (const a of assignments) {
       const p = periodById.get(a.periodId) ?? null;
-      const issues = detectAssignmentIssues(a.snapshot, p);
+      const issues = detectAssignmentIssues(a.snapshot, p, realToday);
       if (issues.length) {
         const leader = leaders.find((l) => l.id === a.tourLeaderId);
-        out.push({ leaderName: leader ? leaderDisplayName(leader) : a.tourLeaderId, code: p?.groupCode ?? a.periodId, assignmentId: a.assignmentId, periodId: a.periodId, issues });
+        out.push({ leaderName: leader ? leaderDisplayName(leader) : a.tourLeaderId, code: p?.groupCode ?? periodCodeOf(a.periodId), assignmentId: a.assignmentId, periodId: a.periodId, issues });
       }
     }
     return out;
-  }, [assignments, periodById, leaders]);
+  }, [assignments, periodById, leaders, realToday]);
 
   /**
    * §9 การมอบหมายที่ "พีเรียดหายจากต้นทางไปแล้ว" — ต่างจากรายการอื่นตรงที่ทำอะไรกับมันไม่ได้เลย
    * (กดดูรายละเอียดก็ไม่มีพีเรียดให้เปิด · ถอดทีละรายการก็ไม่มีปุ่มในแถวเพราะไม่มีแถวงานให้กด)
    * เกิดได้เมื่อสลับแหล่งข้อมูลพีเรียด แล้วรหัสพีเรียดชุดเดิมไม่มีอยู่ในแหล่งใหม่
    * จึงเปิดทางให้เคลียร์ทั้งชุดในครั้งเดียว — ยังบันทึกเป็นการ "ถอด" ตามปกติ ไม่ลบประวัติทิ้ง
+   *
+   * ห้ามรวมงานที่เดินทางไปแล้ว — กรุ๊ปเก่าหลุดจากข้อมูล Zego เป็นเรื่องปกติ ถ้าถอดทิ้ง ประวัติงาน/ค่าใช้จ่าย/เบี้ยเลี้ยงจะหลุดจากหัวหน้าทัวร์
+   *   ไม่มีพีเรียดเลย → ดูวันกลับจาก snapshot ตอนมอบหมาย (ไม่มี snapshot = ไม่รู้ ไม่ถอดให้)
+   *   ไม่พบใน Zego รอบล่าสุด → ถอดได้เฉพาะกรุ๊ปที่ยังไม่ถึงวันกลับ (น่าจะถูกยกเลิก)
    */
   const orphanAssignments = useMemo(
-    () => affected.filter((x) => !periodById.has(x.periodId)),
-    [affected, periodById],
+    () => affected.filter((x) => {
+      const p = periodById.get(x.periodId);
+      if (p) return p.dataStatus === 'MISSING_FROM_SOURCE' && p.endDate >= realToday;
+      const end = assignments.find((a) => a.assignmentId === x.assignmentId)?.snapshot?.endDate;
+      return !!end && end >= realToday;
+    }),
+    [affected, periodById, assignments, realToday],
   );
   const [confirmClearOrphans, setConfirmClearOrphans] = useState(false);
 
   const clearOrphanAssignments = () => {
     for (const x of orphanAssignments) {
-      unassignPeriod(x.assignmentId, currentUser.name, nowStamp, 'พีเรียดไม่มีอยู่ในแหล่งข้อมูลปัจจุบันแล้ว — เคลียร์รายการค้าง');
+      unassignPeriod(x.assignmentId, currentUser.name, nowStamp, 'ไม่พบกรุ๊ปในข้อมูล Zego (ยังไม่ถึงวันเดินทางกลับ) — เคลียร์รายการค้าง');
     }
     setAssignments(loadActiveGuideAssignments());
     setConfirmClearOrphans(false);
-    pushToast('success', `เคลียร์การมอบหมายที่พีเรียดหายจากต้นทางแล้ว ${orphanAssignments.length} รายการ — ประวัติเดิมยังตรวจสอบย้อนหลังได้`);
+    pushToast('success', `เคลียร์กรุ๊ปที่ไม่พบใน Zego แล้ว ${orphanAssignments.length} รายการ — ประวัติเดิมยังตรวจสอบย้อนหลังได้`);
   };
 
   /**
@@ -998,7 +1013,7 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
     const reason = [removeAssign.cause, note.trim()].filter(Boolean).join(' — ');
     unassignPeriod(assignment.assignmentId, currentUser.name, nowStamp, reason, period?.saleStatus);
     setAssignments(loadActiveGuideAssignments());
-    pushToast('success', `ถอด ${removeAssign.leaderName} ออกจาก ${period?.groupCode ?? assignment.periodId} แล้ว — ประวัติการจัดเดิมยังตรวจสอบย้อนหลังได้`);
+    pushToast('success', `ถอด ${removeAssign.leaderName} ออกจาก ${period?.groupCode ?? periodCodeOf(assignment.periodId)} แล้ว — ประวัติการจัดเดิมยังตรวจสอบย้อนหลังได้`);
     setRemoveAssign(null);
     setDetailPeriodId(null);
   };
@@ -1027,7 +1042,7 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
     setAssignments(loadActiveGuideAssignments());
     void recordGuideGroupCancellation({
       leaderId: assignment.tourLeaderId,
-      groupCode: period?.groupCode ?? assignment.periodId,
+      groupCode: period?.groupCode ?? periodCodeOf(assignment.periodId),
       periodTitle: period?.displayName ?? assignment.periodId,
       route: period?.route ?? null,
       travelDate: period?.startDate ?? today,
@@ -1281,7 +1296,7 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
           {canAssign && orphanAssignments.length > 0 && (
             <div className="mt-2">
               <Button size="sm" variant="secondary" onClick={() => setConfirmClearOrphans(true)}>
-                เคลียร์รายการที่พีเรียดหายจากต้นทาง ({orphanAssignments.length})
+                เคลียร์กรุ๊ปที่ไม่พบใน Zego และยังไม่เดินทาง ({orphanAssignments.length})
               </Button>
             </div>
           )}
@@ -1573,8 +1588,8 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
         open={confirmClearOrphans}
         onClose={() => setConfirmClearOrphans(false)}
         onConfirm={clearOrphanAssignments}
-        title="เคลียร์การมอบหมายที่พีเรียดหายจากต้นทาง"
-        message={`จะถอดหัวหน้าทัวร์ออกจาก ${orphanAssignments.length} รายการที่อ้างถึงพีเรียดซึ่งไม่มีอยู่ในแหล่งข้อมูลปัจจุบันแล้ว · ประวัติการจัดเดิมยังตรวจสอบย้อนหลังได้ ไม่ได้ลบทิ้ง`}
+        title="เคลียร์กรุ๊ปที่ไม่พบในข้อมูล Zego"
+        message={`จะถอดหัวหน้าทัวร์ออกจาก ${orphanAssignments.length} กรุ๊ปที่ไม่พบในข้อมูล Zego และยังไม่ถึงวันเดินทางกลับ (น่าจะถูกยกเลิก) · กรุ๊ปที่เดินทางไปแล้วไม่ถูกถอด · ประวัติการจัดเดิมยังตรวจสอบย้อนหลังได้ ไม่ได้ลบทิ้ง`}
         confirmLabel={`เคลียร์ ${orphanAssignments.length} รายการ`}
         tone="danger"
       />
@@ -1814,7 +1829,7 @@ function RemoveLeaderDialog({ data, actor, at, onCancel, onConfirm }: {
     >
       <dl className="zego-border-color divide-y divide-[var(--zego-border-soft)] rounded-xl border">
         {[
-          ['Group Code', p?.groupCode ?? data.assignment.periodId],
+          ['Group Code', p?.groupCode ?? periodCodeOf(data.assignment.periodId)],
           ['ชื่อโปรแกรม', p?.displayName ?? '—'],
           ['วันเดินทาง', p ? formatDateRange(p.startDate, p.endDate) : '—'],
           ['หัวหน้าทัวร์ปัจจุบัน', data.leaderName],
@@ -1876,7 +1891,7 @@ function CancelGroupDialog({ data, actor, at, onCancel, onConfirm }: {
       </div>
       <dl className="zego-border-color mt-3 divide-y divide-[var(--zego-border-soft)] rounded-xl border">
         {[
-          ['Group Code', p?.groupCode ?? data.assignment.periodId],
+          ['Group Code', p?.groupCode ?? periodCodeOf(data.assignment.periodId)],
           ['ชื่อโปรแกรม', p?.displayName ?? '—'],
           ['วันเดินทาง', p ? formatDateRange(p.startDate, p.endDate) : '—'],
           ['หัวหน้าทัวร์ปัจจุบัน', data.leaderName],
@@ -2593,7 +2608,8 @@ function PeriodDetailPanel({ period, assignment, leaders, records, onClose, onUn
   const disp = period ? periodScheduleDisplay(period) : null;
   // ผู้จัดตั้ง “ต้องเปลี่ยนหัวหน้าทัวร์” — กรอกเหตุผลก่อนบันทึก
   const [reassignDraft, setReassignDraft] = useState<string | null>(null);
-  const issues = period && assignment ? detectAssignmentIssues(assignment.snapshot, period) : [];
+  const realToday = toISODate(new Date());
+  const issues = period && assignment ? detectAssignmentIssues(assignment.snapshot, period, realToday) : [];
   const num = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('th-TH'));
   return (
     <Drawer open={!!period} onClose={onClose} title={period ? period.groupCode : ''} description={period?.displayName}
