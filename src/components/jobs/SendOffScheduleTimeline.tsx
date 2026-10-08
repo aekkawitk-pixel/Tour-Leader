@@ -108,6 +108,8 @@ export function SendOffScheduleTimeline() {
    * ช่องวันบนตารางกว้าง 55px ใส่ได้แค่เวลา จึงต้องมีอีกทางให้ดูของครบ
    */
   const [pickedView, setView] = useState<'board' | 'agenda'>('board');
+  /** จอเล็ก: ปุ่มจัดการ 5 ปุ่ม (ยืนยัน / ยกเลิกคอนเฟิร์ม / เพดาน) พับไว้หลังปุ่ม "จัดการ" — กางอยู่กิน 3 แถว */
+  const [actionsOpen, setActionsOpen] = useState(false);
   /** คนที่ไม่มีสิทธิ์จัดเจ้าหน้าที่ส่งกรุ๊ป ดูได้เฉพาะมุมมองตาราง (ไม่มีปุ่มสลับเป็นรายการ) */
   const view = canAssign ? pickedView : 'board';
   const [staff, setStaff] = useState<SendOffStaff[]>([]);
@@ -319,7 +321,8 @@ export function SendOffScheduleTimeline() {
   }, [staff]);
 
   // เห็นแค่ VISIBLE_DAYS วันพอดีจอเสมอ ไม่มีคอลัมน์ไหนกว้างเกิน จึงไม่ต้องมี Horizontal Scroll เลย
-  const gridCols = `${NAME_W}px repeat(${visibleDays.length}, 1fr)`;
+  // คอลัมน์ชื่อกว้างตามตัวแปร CSS (--sos-name-w ตั้งที่กล่องตาราง) — จอเล็กแคบลงเหลือที่ให้ช่องวันพอวางวงกลมจำนวนกรุ๊ป
+  const gridCols = `var(--sos-name-w, ${NAME_W}px) repeat(${visibleDays.length}, minmax(0, 1fr))`;
 
   /**
    * จำนวนกรุ๊ปมากสุดที่ไปกองอยู่ในช่องเดียว (คนใดคนหนึ่ง วันใดวันหนึ่ง) ทั้งเดือน (ไม่ใช่แค่หน้าต่าง 7 วันที่เห็นอยู่)
@@ -738,6 +741,10 @@ export function SendOffScheduleTimeline() {
       : inDay;
     const visibleInDay = sortedInDay.slice(0, MAX_CHIPS_PER_DAY);
     const hiddenInDayCount = sortedInDay.length - visibleInDay.length;
+    // จอเล็ก: วงกลมจำนวนกรุ๊ปแทนป้าย — สีตามสถานะ (คอนเฟิร์มครบ = เขียว · มีรอคอนเฟิร์ม = เหลือง) · มีเรื่องต้องตรวจ/ทับซ้อน = วงแหวนแดง/ส้ม
+    const dayStatus = inDay.every((j) => jobStatus(j) === 'CONFIRMED') ? 'CONFIRMED' : 'PENDING_CONFIRMATION';
+    const dayIssue = inDay.some((j) => jobIssue(j));
+    const dayOverlap = !dayIssue && inDay.some((j) => jobOverlapWarning(j));
     return (
       <div
         key={iso}
@@ -762,6 +769,19 @@ export function SendOffScheduleTimeline() {
             {leaveConflict ? '! ลา แต่มีงาน' : 'ลา'}
           </span>
         )}
+        {inDay.length > 0 && (
+          <span className="flex justify-center pt-1 sm:hidden">
+            <span className={cx(
+              'flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold tabular-nums ring-1',
+              dayStatus === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-800 ring-emerald-300' : 'bg-amber-100 text-amber-800 ring-amber-300',
+              dayIssue ? 'ring-2 ring-rose-500' : dayOverlap && 'ring-2 ring-orange-400',
+            )}>
+              {inDay.length}
+            </span>
+          </span>
+        )}
+        {/* จอใหญ่: ป้ายกรุ๊ป */}
+        <div className="space-y-0.5 max-sm:hidden">
         {visibleInDay.map((j) => {
           const issue = jobIssue(j);
           const overlap = !issue ? jobOverlapWarning(j) : null;
@@ -797,6 +817,7 @@ export function SendOffScheduleTimeline() {
             +{hiddenInDayCount} เพิ่มเติม
           </span>
         )}
+        </div>
       </div>
     );
   };
@@ -819,14 +840,17 @@ export function SendOffScheduleTimeline() {
           กับสรุปสถานะจับคู่กันเองอีกแถวหนึ่งด้วย justify-between (ทั้งสองฝั่งความสูงใกล้เคียงกัน จึงไม่มีช่องว่างแปลก ๆ)
         */}
         <div className="flex flex-col gap-2">
+          {/* จอเล็ก: เดือนเต็มแถว → ค้นหาเต็มแถว → มุมมอง + ประเภท แถวเดียวกัน */}
           <div className="flex flex-wrap items-center gap-2">
-            <MonthPicker value={cursor} onChange={setCursor} hint="เลือกเดือนที่กรุ๊ปออกเดินทาง" />
+            <div className="w-full md:w-auto">
+              <MonthPicker value={cursor} onChange={setCursor} hint="เลือกเดือนที่กรุ๊ปออกเดินทาง" />
+            </div>
             <SearchBox
               value={search}
               onChange={setSearch}
               label="ค้นหาเจ้าหน้าที่"
               placeholder="ค้นหาชื่อ นามสกุล หรือชื่อเล่น"
-              className="min-w-[22rem] flex-1"
+              className="min-w-0 flex-1 basis-40 md:min-w-[22rem] md:basis-auto"
               onClear={() => setSearch('')}
             />
             {canAssign && (
@@ -840,7 +864,7 @@ export function SendOffScheduleTimeline() {
                 ]}
               />
             )}
-            <div className="flex items-center gap-1">
+            <div className="relative flex flex-wrap items-center gap-1 max-sm:w-full">
               {SEND_OFF_STAFF_TYPE_ORDER.map((t) => (
                 <button
                   key={t}
@@ -848,18 +872,43 @@ export function SendOffScheduleTimeline() {
                   aria-pressed={typeFilter === t}
                   onClick={() => setTypeFilter((prev) => (prev === t ? null : t))}
                   className={cx(
-                    'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                    'rounded-full border px-3 py-1 text-xs font-medium transition-colors max-sm:px-2.5 max-sm:text-[13px]!',
                     typeFilter === t ? 'zego-badge--info' : 'zego-surface-bg zego-border-color zego-text-secondary zego-hover-surface',
                   )}
                 >
                   {SEND_OFF_STAFF_TYPE[t].label} ({typeCounts.get(t) ?? 0})
                 </button>
               ))}
+              {/* ต่อท้ายปุ่มประเภท · จอเล็กยึดตำแหน่ง popover กับทั้งแถว (static) ไม่งั้นกล่องกว้าง 20rem ล้นขอบจอ — ย้ายคำอธิบายวิธีใช้/เกณฑ์การจัดมาไว้ใน popover แทนขึ้นเป็นข้อความค้างตลอด — กินพื้นที่แถวน้อยลง กดดูเมื่อจำเป็นเท่านั้น */}
+              <InfoPopover label={<Icon name="info" className="h-3.5 w-3.5" />} title="วิธีใช้ตาราง & เกณฑ์การจัด" align="right" className="max-sm:static">
+                <p>คลิกช่องที่มีงานเพื่อดูรายชื่อกรุ๊ปทั้งวัน · คลิกช่องว่างเพื่อจัดกรุ๊ปใหม่ให้วันนั้น</p>
+                <p className="mt-1.5">ป้ายบนตาราง: <b>นัด</b> = เวลาที่ต้องถึงสนามบิน (เลขหลักที่ต้องดู) · <b>บิน</b> = เวลาเครื่องออกจริง</p>
+                <p className="mt-1.5">เกณฑ์ที่ใช้อยู่: {rulesSummary(rules)}</p>
+                <p className="mt-1.5">วันหยุด (เสาร์-อาทิตย์ และวันหยุดที่ตั้งไว้) พนักงานจัดได้ทุกช่วงเวลาเท่าประเภทประจำ</p>
+              </InfoPopover>
+              {/* จอเล็ก: ปุ่มกาง/พับชุดปุ่มจัดการ — อยู่ท้ายแถวเดียวกับปุ่มประเภท */}
+              {canAssign && (
+                <Button
+                  variant={actionsOpen ? 'primary' : 'secondary'}
+                  size="sm"
+                  icon="settings"
+                  className="ml-auto sm:hidden!"
+                  aria-expanded={actionsOpen}
+                  onClick={() => setActionsOpen((v) => !v)}
+                >
+                  จัดการ
+                </Button>
+              )}
             </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
+            {/*
+              จอเล็ก: ปุ่มเรียงเป็นตาราง 2 คอลัมน์ เต็มความกว้าง — ยืนยัน (ทั้งหมด | รายบุคคล) · ยกเลิกคอนเฟิร์ม (ทั้งหมด | รายบุคคล) · เพดาน
+              ข้อความยาวขึ้นบรรทัดได้ ไม่ล้นปุ่ม · จอใหญ่เรียงแถวเดียวเหมือนเดิม
+            */}
+            {/* จอเล็ก: ซ่อนไว้จนกดปุ่ม "จัดการ" (hidden! ชนะ max-sm:grid) */}
+            <div className={cx('flex flex-wrap items-center gap-2 empty:hidden max-sm:w-full max-sm:grid max-sm:grid-cols-2 max-sm:gap-2 max-sm:[&_.zego-button]:h-auto max-sm:[&_.zego-button]:min-h-9 max-sm:[&_.zego-button]:w-full max-sm:[&_.zego-button]:justify-center max-sm:[&_.zego-button]:whitespace-normal max-sm:[&_.zego-button]:text-center', !actionsOpen && 'max-sm:hidden!')}>
               {/* ยืนยันงานที่รอคอนเฟิร์มทั้งเดือนพร้อมกันทีเดียว — ใช้เมื่อคุยกับเจ้าหน้าที่ทุกคนครบแล้วเท่านั้น ไม่ต้องไล่กดทีละกรุ๊ป */}
               {canAssign && (
                 <Button
@@ -924,17 +973,10 @@ export function SendOffScheduleTimeline() {
                   ตั้งเพดานเดือนนี้
                 </Button>
               )}
-              {/* ย้ายคำอธิบายวิธีใช้/เกณฑ์การจัดมาไว้ใน popover แทนขึ้นเป็นข้อความค้างตลอด — กินพื้นที่แถวน้อยลง กดดูเมื่อจำเป็นเท่านั้น */}
-              <InfoPopover label={<Icon name="info" className="h-3.5 w-3.5" />} title="วิธีใช้ตาราง & เกณฑ์การจัด" align="right">
-                <p>คลิกช่องที่มีงานเพื่อดูรายชื่อกรุ๊ปทั้งวัน · คลิกช่องว่างเพื่อจัดกรุ๊ปใหม่ให้วันนั้น</p>
-                <p className="mt-1.5">ป้ายบนตาราง: <b>นัด</b> = เวลาที่ต้องถึงสนามบิน (เลขหลักที่ต้องดู) · <b>บิน</b> = เวลาเครื่องออกจริง</p>
-                <p className="mt-1.5">เกณฑ์ที่ใช้อยู่: {rulesSummary(rules)}</p>
-                <p className="mt-1.5">วันหยุด (เสาร์-อาทิตย์ และวันหยุดที่ตั้งไว้) พนักงานจัดได้ทุกช่วงเวลาเท่าประเภทประจำ</p>
-              </InfoPopover>
             </div>
 
             {/* สรุปสถานะของเดือน — ตัวเลขที่ต้องเห็นก่อนลงมือจัด */}
-            <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs zego-text-secondary">
+            <div className="flex w-full flex-wrap items-center justify-start gap-x-3 gap-y-1.5 text-xs zego-text-secondary sm:w-auto sm:justify-end">
               <span title="นับตามวันที่ต้องไปส่ง — เที่ยวบินดึกที่ต้องไปตั้งแต่คืนก่อนจะนับเข้าวันที่ไปจริง">
                 งานไปส่งเดือนนี้ <b className="zego-text">{jobs.length}</b>
               </span>
@@ -1003,7 +1045,7 @@ export function SendOffScheduleTimeline() {
 
       {/* ---------------- ตาราง ---------------- */}
       {view === 'board' && (
-      <div className="w-full max-w-full">
+      <div className="w-full max-w-full [--sos-name-w:112px] sm:[--sos-name-w:180px]">
         {/*
           เลื่อนดูวันอื่นทีละ VISIBLE_DAYS วัน — เดิมทำเป็นตารางกว้างเกินจอ + สกอลบาร์ + sticky คอลัมน์ชื่อ
           แต่ position:sticky ผิดเพี้ยนไม่เกาะซ้ายเมื่อสกอลไกลเกินราวความกว้าง 1 หน้าจอ (เจอทั้งใน demo และ
@@ -1131,9 +1173,16 @@ export function SendOffScheduleTimeline() {
                         type="button"
                         onClick={() => setStaffSummary(s)}
                         title={`ดูงานของ ${sendOffStaffName(s)} เดือนนี้`}
-                        className="truncate text-left text-sm font-semibold zego-text hover:underline"
+                        className="min-w-0 text-left text-sm font-semibold zego-text hover:underline"
                       >
-                        {sendOffStaffName(s)}
+                        {/* จอใหญ่: ชื่อ นามสกุล (ชื่อเล่น) บรรทัดเดียว · จอเล็ก (คอลัมน์แคบ): ชื่อบรรทัดแรก นามสกุล (ชื่อเล่น) ตัวเล็กบรรทัดสอง — แบบเดียวกับตารางหัวหน้าทัวร์ */}
+                        <span className="block truncate max-sm:hidden">{sendOffStaffName(s)}</span>
+                        <span className="block truncate text-[13px] sm:hidden">{s.idCard.firstName || sendOffStaffName(s)}</span>
+                        {(s.idCard.lastName || s.nickname) && s.idCard.firstName && (
+                          <span className="block truncate text-[11px] font-medium zego-text-secondary sm:hidden">
+                            {[s.idCard.lastName, s.nickname ? `(${s.nickname})` : ''].filter(Boolean).join(' ')}
+                          </span>
+                        )}
                       </button>
                       {canAssign ? (
                         <button

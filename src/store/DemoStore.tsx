@@ -41,7 +41,7 @@ import {
   loadAudit,
   upsertAssignments,
 } from '@/services/assignment-storage';
-import { loadImportedAdvanceDocs, sampleAdvanceDocs, upsertImportedAdvanceDocs } from '@/services/advanceImportStore';
+import { loadImportedAdvanceDocs, sampleAdvanceDocs, uniqueAdvanceDocs, upsertImportedAdvanceDocs } from '@/services/advanceImportStore';
 import { clearSavedExpenses, discardSavedExpenses, evidenceKey, loadEvidenceImages, loadSavedExpenses, persistExpense } from '@/services/expenseStore';
 import { isUsageReport } from '@/lib/logic/usageReport';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
@@ -211,7 +211,7 @@ interface DemoState {
   /** กรุ๊ปที่การเงินระบุว่าไม่มีซองเงินให้รับ */
   noEnvelopeMarks: NoEnvelopeMark[];
   /** ระบุว่ากรุ๊ปนี้ไม่มีซอง (reason) หรือยกเลิกการระบุ (null) — ใช้ชื่อผู้ใช้ปัจจุบันและเวลาจริง */
-  setNoEnvelope: (periodId: string, mark: { reason: string; note?: string } | null) => void;
+  setNoEnvelope: (periodId: string, mark: { reason: string; note?: string; beforeDocs?: boolean } | null) => void;
   /**
    * อนุมัติใบเบิก — ทั้งใบ หรือบางรายการ: rejected = บรรทัดที่ไม่อนุมัติ (line id → เหตุผล)
    * ว่าง = อนุมัติเต็มจำนวน · ยอดบาท (totalTHB) คิดใหม่จากบรรทัดที่อนุมัติเท่านั้น
@@ -1180,9 +1180,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   }, [pushToast]);
 
   const setNoEnvelope = useCallback(
-    (periodId: string, mark: { reason: string; note?: string } | null) => {
+    (periodId: string, mark: { reason: string; note?: string; beforeDocs?: boolean } | null) => {
       const full: NoEnvelopeMark | null = mark
-        ? { periodId, reason: mark.reason, ...(mark.note ? { note: mark.note } : {}), at: toISODateTime(new Date()), byName: currentUser.name }
+        ? { periodId, reason: mark.reason, ...(mark.note ? { note: mark.note } : {}), ...(mark.beforeDocs ? { beforeDocs: true } : {}), at: toISODateTime(new Date()), byName: currentUser.name }
         : null;
       try {
         persistNoEnvelopeMark(periodId, full);
@@ -1197,7 +1197,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   );
 
   const importAdvanceDocs = useCallback(
-    (docs: ExpenseRequest[]) => {
+    (input: ExpenseRequest[]) => {
+      const docs = uniqueAdvanceDocs(input);
       try {
         upsertImportedAdvanceDocs(docs);
       } catch (err) {

@@ -164,7 +164,7 @@ function HolidayRateList({ rates }: { rates: SendOffFeeRates }) {
       {list.length === 0 ? (
         <p className="px-3 py-4 text-center text-xs zego-text-tertiary">ยังไม่มีวันหยุดของปีนี้</p>
       ) : (
-        <ul className="grid max-h-64 gap-x-4 overflow-y-auto px-3 py-2 text-sm sm:grid-cols-2">
+        <ul className="grid max-h-64 grid-cols-1 gap-x-4 overflow-y-auto px-3 py-2 text-sm sm:grid-cols-2">
           {list.map((h) => (
             <li key={h.date} className="flex gap-2 py-0.5">
               <span className="w-20 shrink-0 tabular-nums zego-text-tertiary">{formatDate(h.date)}</span>

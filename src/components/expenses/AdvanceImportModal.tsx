@@ -71,7 +71,9 @@ export function AdvanceImportModal({ open, onClose }: { open: boolean; onClose: 
         });
       }
     }
-    setEntries((prev) => [...prev.filter((p) => !next.some((n) => n.key === p.key)), ...next]);
+    // ไฟล์เดิม หรือไฟล์อื่นที่เป็นเลข Ref เดียวกัน → แทนที่ใบก่อนหน้า (1 Ref = 1 ใบ)
+    const sameDoc = (a: Entry, b: Entry) => a.key === b.key || (!!a.doc && a.doc.ref === b.doc?.ref);
+    setEntries((prev) => [...prev, ...next].filter((en, i, all) => !all.slice(i + 1).some((later) => sameDoc(en, later))));
     setReading(false);
   };
 

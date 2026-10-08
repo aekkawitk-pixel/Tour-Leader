@@ -98,7 +98,8 @@ function JobsScheduleContent() {
       {mode !== 'leader' && (
         <div className="flex flex-wrap items-end justify-between gap-3">
           {title}
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {/* จอเล็ก: ปุ่มสลับโหมดยืดเต็มแถว (เหมือนโหมดจัดหัวหน้าทัวร์) */}
+          <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto max-sm:[&_.zego-segmented]:flex! max-sm:[&_.zego-segmented]:flex-1 max-sm:[&_.zego-segmented__button]:flex-1">
             {modeSwitch}
             {/* “กำหนดรายชื่อ” ใช้กับตารางหัวหน้าทัวร์เท่านั้น — แสดงไว้ตำแหน่งเดิมแต่กดไม่ได้ ปุ่มจึงไม่กระโดดตอนสลับโหมด */}
             <Button size="sm" variant="secondary" disabled title="ใช้ได้เฉพาะโหมดจัดหัวหน้าทัวร์">กำหนดรายชื่อ</Button>

@@ -19,17 +19,24 @@ function canUseStorage(): boolean {
   try { return typeof window !== 'undefined' && !!window.localStorage; } catch { return false; }
 }
 
+/** เลข Ref ซ้ำในชุดเดียวกัน (เช่น เลือก 2 ไฟล์ที่เป็น Ref เดียวกัน) → เหลือใบเดียว ฉบับหลังสุดชนะ */
+export function uniqueAdvanceDocs(docs: ExpenseRequest[]): ExpenseRequest[] {
+  return [...new Map(docs.map((d) => [d.id, d])).values()];
+}
+
 export function loadImportedAdvanceDocs(): ExpenseRequest[] {
   if (!canUseStorage()) return [];
   try {
     const raw = window.localStorage.getItem(ADVANCE_IMPORT_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? (parsed as ExpenseRequest[]) : [];
+    // ข้อมูลเก่าอาจมี Ref ซ้ำค้างอยู่ (ก่อนแก้) — ตัดตอนอ่าน
+    return Array.isArray(parsed) ? uniqueAdvanceDocs(parsed as ExpenseRequest[]) : [];
   } catch { return []; }
 }
 
 /** บันทึกแบบ upsert ตาม id (เลข Ref) — นำเข้าไฟล์เดิมซ้ำ = แทนที่ของเดิม ไม่เกิดใบซ้ำ */
-export function upsertImportedAdvanceDocs(docs: ExpenseRequest[]): ExpenseRequest[] {
+export function upsertImportedAdvanceDocs(input: ExpenseRequest[]): ExpenseRequest[] {
+  const docs = uniqueAdvanceDocs(input);
   const ids = new Set(docs.map((d) => d.id));
   const next = [...docs, ...loadImportedAdvanceDocs().filter((d) => !ids.has(d.id))];
   if (canUseStorage()) {

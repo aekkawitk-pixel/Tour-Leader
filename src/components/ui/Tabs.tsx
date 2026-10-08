@@ -14,6 +14,9 @@ export interface TabItem {
   done?: boolean;
 }
 
+/** จอเล็ก: แท็บเกินจำนวนนี้ใช้ช่องเลือกแทนแถบแท็บ */
+const MAX_WRAPPED_TABS = 6;
+
 export function Tabs({
   items,
   value,
@@ -40,8 +43,27 @@ export function Tabs({
     buttons?.[next]?.focus();
   };
 
+  /*
+    จอเล็ก:
+      แท็บไม่เกิน 6 → ขึ้นบรรทัดใหม่ เห็นครบทุกแท็บ (เดิมเลื่อนข้าง แท็บท้าย ๆ ถูกซ่อน + มีแถบเลื่อน)
+      แท็บมากกว่า 6 (เช่น ตั้งค่าระบบ 15 แท็บ) → เปลี่ยนเป็นช่องเลือก — ขึ้นบรรทัดใหม่แล้วกินเกินครึ่งจอ
+    ! — .zego-product-tabs (นอก layer) กำหนด overflow/padding เอง คลาส Tailwind ปกติไม่ชนะ
+  */
+  const asSelect = items.length > MAX_WRAPPED_TABS;
+  const label = (item: TabItem) => `${item.label}${item.badge ? ` (${item.badge})` : ''}`;
   return (
-    <div ref={listRef} role="tablist" onKeyDown={onKeyDown} className={cx('zego-product-tabs', className)}>
+    <>
+    {asSelect && (
+      <select
+        aria-label="เลือกหัวข้อ"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={cx('zego-border-color zego-surface-bg h-11 w-full rounded-lg border px-3 text-sm font-semibold zego-text sm:hidden', className)}
+      >
+        {items.map((item) => <option key={item.key} value={item.key}>{label(item)}</option>)}
+      </select>
+    )}
+    <div ref={listRef} role="tablist" onKeyDown={onKeyDown} className={cx('zego-product-tabs', asSelect ? 'max-sm:hidden!' : 'max-sm:flex-wrap max-sm:overflow-visible! max-sm:px-1!', className)}>
       {items.map((item) => {
         const active = item.key === value;
         return (
@@ -70,6 +92,7 @@ export function Tabs({
         );
       })}
     </div>
+    </>
   );
 }
 

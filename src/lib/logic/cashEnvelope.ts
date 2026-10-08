@@ -209,6 +209,7 @@ export function pendingDepositLabel(pd: PendingDeposit): string {
 /**
  * กรุ๊ปที่ไม่มีซองเงินให้รับ (การเงินระบุ) — เช่น โอนจ่ายแลนด์ตรง / ไม่มีค่าใช้จ่ายเงินสด
  * ระบุได้เฉพาะกรุ๊ปที่ยังไม่มีรายการในซองใดเลย · ยกเลิกได้ (กลับไปเป็นรอจัดซอง)
+ * ระบุได้ตั้งแต่ยังไม่มีเอกสารเบิก (beforeDocs) — ถ้าภายหลังมีใบเบิกเข้ามา ยังคงไม่มีซอง แต่เตือนการเงินให้ตรวจซ้ำ
  */
 export interface NoEnvelopeMark {
   periodId: string;
@@ -216,6 +217,13 @@ export interface NoEnvelopeMark {
   note?: string;
   at: string;
   byName: string;
+  /** ระบุตอนกรุ๊ปยังไม่มีเอกสารเบิก */
+  beforeDocs?: boolean;
+}
+
+/** ระบุไม่มีซองไว้ก่อนมีใบเบิก แล้วใบเบิกเข้ามาภายหลัง → การเงินควรตรวจว่ายังไม่ต้องจัดซองจริงไหม */
+export function noEnvelopeNeedsRecheck(lines: GroupLine[], mark?: NoEnvelopeMark): boolean {
+  return !!mark?.beforeDocs && lines.length > 0;
 }
 export const NO_ENVELOPE_REASONS = ['โอนจ่ายแลนด์/ซัพพลายเออร์โดยตรง', 'ไม่มีค่าใช้จ่ายที่ต้องถือเงินสด', 'หัวหน้าทัวร์สำรองจ่ายแล้วเบิกคืน', 'อื่น ๆ'] as const;
 export type EnvelopeTone = 'slate' | 'amber' | 'blue' | 'violet' | 'green' | 'red';
@@ -571,10 +579,11 @@ export function groupEnvelopeStatus(
   lines: GroupLine[],
   envs: CashEnvelope[],
   noEnvelope?: NoEnvelopeMark,
-): { stage: EnvelopeStage | 'none'; label: string; tone: EnvelopeTone; mismatch: boolean; envelopeCount: number; unassigned: number; awaiting?: string } {
+): { stage: EnvelopeStage | 'none'; label: string; tone: EnvelopeTone; mismatch: boolean; envelopeCount: number; unassigned: number; awaiting?: string; recheck?: boolean } {
   const used = envs.filter((e) => e.packedLineIds.length > 0);
   if (noEnvelope && used.length === 0) {
-    return { stage: 'none', label: 'ไม่มีซอง', tone: 'slate', mismatch: false, envelopeCount: 0, unassigned: 0, awaiting: noEnvelope.reason };
+    const recheck = noEnvelopeNeedsRecheck(lines, noEnvelope);
+    return { stage: 'none', label: 'ไม่มีซอง', tone: recheck ? 'amber' : 'slate', mismatch: false, envelopeCount: 0, unassigned: 0, awaiting: noEnvelope.reason, ...(recheck ? { recheck } : {}) };
   }
   // รายการที่ซองปิดแล้วรวมกันครบยอด (แบ่งหลายซองได้)
   const sealedDone = allocatedTotals(lines, used.filter((e) => e.sealed));

@@ -253,13 +253,50 @@ export function GroupEnvelopeDrawer({ periodId, docs, onClose }: { periodId: str
     setActiveId(env.id);
   };
 
+  /** ฟอร์มระบุไม่มีซอง — ใช้ทั้งกรุ๊ปที่มีใบเบิกแล้ว และกรุ๊ปที่ยังไม่มีใบเบิก (ระบุไว้ล่วงหน้า) */
+  const noEnvFormEl = noEnvForm && (
+    <div className="mt-4 space-y-2 rounded-lg zego-surface-soft-bg p-3 text-left">
+      <p className="text-sm font-medium zego-text">ระบุว่ากรุ๊ปนี้ไม่มีซองเงินให้รับ</p>
+      <div className="grid gap-1.5 sm:grid-cols-2" role="radiogroup" aria-label="เหตุผลที่ไม่มีซอง">
+        {NO_ENVELOPE_REASONS.map((r) => (
+          <label key={r} className="flex cursor-pointer items-center gap-2 text-sm zego-text">
+            <input type="radio" name={`noenv-${periodId}`} className="accent-emerald-600" checked={noEnvReason === r} onChange={() => setNoEnvReason(r)} />
+            {r}
+          </label>
+        ))}
+      </div>
+      <TextInput
+        label="รายละเอียด"
+        required={noEnvNeedsNote}
+        optional={!noEnvNeedsNote}
+        value={noEnvNote}
+        onChange={(e) => setNoEnvNote(e.target.value)}
+        placeholder="เช่น โอนค่าแลนด์ให้บริษัทแลนด์แล้ว 01/10/26"
+      />
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" size="sm" onClick={() => setNoEnvForm(false)}>ยกเลิก</Button>
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={noEnvNeedsNote && !noEnvNote.trim()}
+          onClick={() => {
+            setNoEnvelope(periodId, { reason: noEnvReason, ...(noEnvNote.trim() ? { note: noEnvNote.trim() } : {}), ...(docs.length === 0 ? { beforeDocs: true } : {}) });
+            setNoEnvForm(false);
+          }}
+        >
+          ยืนยัน — ไม่มีซอง
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <Drawer
       open
       onClose={onClose}
       size="xl"
       title={`ซองเงิน ${period?.groupCode ?? periodCodeOf(periodId)}`}
-      description={`${period?.displayName ?? ''}${period ? ` · ${formatDateRange(period.startDate, period.endDate)}` : ''} · เอกสารเบิก ${docs.map((d) => d.id).join(', ')}`}
+      description={`${period?.displayName ?? ''}${period ? ` · ${formatDateRange(period.startDate, period.endDate)}` : ''} · ${docs.length ? `เอกสารเบิก ${docs.map((d) => d.id).join(', ')}` : 'ยังไม่มีเอกสารเบิก'}`}
       footer={<Button variant="secondary" onClick={onClose}>ปิด</Button>}
     >
       <div className="space-y-5">
@@ -274,10 +311,32 @@ export function GroupEnvelopeDrawer({ periodId, docs, onClose }: { periodId: str
             <div className="space-y-2 rounded-lg border zego-border-color px-4 py-4 text-sm">
               <p className="font-semibold zego-text">กรุ๊ปนี้ไม่มีซองเงินให้รับ</p>
               <p className="zego-text-secondary">เหตุผล: {noEnv.reason}{noEnv.note ? ` · ${noEnv.note}` : ''}</p>
-              <p className="text-xs zego-text-tertiary">ระบุโดย {noEnv.byName} · {formatDateTime(noEnv.at)}</p>
-              <div className="flex justify-end">
-                <Button variant="secondary" size="sm" onClick={() => setNoEnvelope(periodId, null)}>ยกเลิก — กลับไปจัดซอง</Button>
+              <p className="text-xs zego-text-tertiary">ระบุโดย {noEnv.byName} · {formatDateTime(noEnv.at)}{noEnv.beforeDocs ? ' · ระบุไว้ก่อนมีเอกสารเบิก' : ''}</p>
+              {status.recheck && (
+                <p className="rounded-md bg-amber-50 px-3 py-2 text-xs zego-text-warning">
+                  มีใบเบิกเข้ามาแล้ว ({docs.map((d) => d.id).join(', ')}) — ตรวจว่ายังไม่ต้องจัดซองจริงไหม ถ้าต้องถือเงินสดไป ให้ยกเลิกแล้วจัดซอง
+                </p>
+              )}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setNoEnvelope(periodId, null)}>
+                  {docs.length ? 'ยกเลิก — กลับไปจัดซอง' : 'ยกเลิกการระบุ'}
+                </Button>
+                {status.recheck && (
+                  <Button variant="primary" size="sm" onClick={() => setNoEnvelope(periodId, { reason: noEnv.reason, ...(noEnv.note ? { note: noEnv.note } : {}) })}>
+                    ตรวจแล้ว — ยังไม่มีซอง
+                  </Button>
+                )}
               </div>
+            </div>
+          ) : envs.length === 0 && docs.length === 0 ? (
+            // ยังไม่มีเอกสารเบิก — จัดซองยังไม่ได้ แต่ระบุล่วงหน้าได้ว่ากรุ๊ปนี้ไม่มีซอง
+            <div className="rounded-lg border border-dashed zego-border-color px-4 py-5 text-center text-sm">
+              <p className="zego-text-secondary">ยังไม่มีเอกสารเบิก — จัดซองได้เมื่อนำเข้าเอกสารเบิกแล้ว</p>
+              <p className="mt-1 text-xs zego-text-tertiary">ถ้ารู้อยู่แล้วว่ากรุ๊ปนี้ไม่ต้องถือเงินสดไป ระบุว่าไม่มีซองไว้ได้เลย</p>
+              <div className="mt-3 flex justify-center">
+                <Button variant="secondary" size="sm" onClick={() => setNoEnvForm((v) => !v)}>กรุ๊ปนี้ไม่มีซอง</Button>
+              </div>
+              {noEnvFormEl}
             </div>
           ) : envs.length === 0 ? (
             <div className="rounded-lg border border-dashed zego-border-color px-4 py-5 text-center text-sm">
@@ -287,41 +346,7 @@ export function GroupEnvelopeDrawer({ periodId, docs, onClose }: { periodId: str
                 <Button variant="secondary" size="sm" icon="plus" onClick={() => void addEnvelope()}>แยกเป็นหลายซอง (เลือกรายการเอง)</Button>
                 <Button variant="ghost" size="sm" onClick={() => setNoEnvForm((v) => !v)}>กรุ๊ปนี้ไม่มีซอง</Button>
               </div>
-              {noEnvForm && (
-                <div className="mt-4 space-y-2 rounded-lg zego-surface-soft-bg p-3 text-left">
-                  <p className="text-sm font-medium zego-text">ระบุว่ากรุ๊ปนี้ไม่มีซองเงินให้รับ</p>
-                  <div className="grid gap-1.5 sm:grid-cols-2" role="radiogroup" aria-label="เหตุผลที่ไม่มีซอง">
-                    {NO_ENVELOPE_REASONS.map((r) => (
-                      <label key={r} className="flex cursor-pointer items-center gap-2 text-sm zego-text">
-                        <input type="radio" name={`noenv-${periodId}`} className="accent-emerald-600" checked={noEnvReason === r} onChange={() => setNoEnvReason(r)} />
-                        {r}
-                      </label>
-                    ))}
-                  </div>
-                  <TextInput
-                    label="รายละเอียด"
-                    required={noEnvNeedsNote}
-                    optional={!noEnvNeedsNote}
-                    value={noEnvNote}
-                    onChange={(e) => setNoEnvNote(e.target.value)}
-                    placeholder="เช่น โอนค่าแลนด์ให้บริษัทแลนด์แล้ว 01/10/26"
-                  />
-                  <div className="flex justify-end gap-2">
-                    <Button variant="secondary" size="sm" onClick={() => setNoEnvForm(false)}>ยกเลิก</Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      disabled={noEnvNeedsNote && !noEnvNote.trim()}
-                      onClick={() => {
-                        setNoEnvelope(periodId, { reason: noEnvReason, ...(noEnvNote.trim() ? { note: noEnvNote.trim() } : {}) });
-                        setNoEnvForm(false);
-                      }}
-                    >
-                      ยืนยัน — ไม่มีซอง
-                    </Button>
-                  </div>
-                </div>
-              )}
+              {noEnvFormEl}
             </div>
           ) : (
             <>
@@ -1205,7 +1230,8 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                       const over = packing && on && (!(alloc[key] > 0) || alloc[key] > max);
                       return (
                         <li key={key} className={cx('flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 text-sm', on && packing && 'bg-emerald-50/40', full && 'opacity-55')}>
-                          <label className={cx('flex min-w-0 flex-1 items-center gap-3', !disabled && 'cursor-pointer')}>
+                          {/* จอเล็ก: ชื่อรายการเต็มบรรทัด ยอดลงบรรทัดถัดไป — ไม่งั้นช่องกรอกยอดเบียดชื่อจนหายไปทั้งคำ */}
+                          <label className={cx('flex min-w-0 flex-1 items-center gap-3 max-sm:basis-full', !disabled && 'cursor-pointer')}>
                             <input
                               type="checkbox"
                               className="h-4 w-4 accent-emerald-600"
@@ -1230,7 +1256,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                           </label>
                           {packing && on ? (
                             // แบ่งรายการ: แก้ยอดที่ใส่ซองนี้ได้ (ค่าเริ่มต้น = ยอดที่ยังเหลือทั้งหมด) ส่วนที่เหลือไปใส่ซองอื่น
-                            <span className="flex shrink-0 items-center gap-1.5">
+                            <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 max-sm:ml-auto">
                               <input
                                 type="number"
                                 inputMode="decimal"
@@ -1251,7 +1277,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                               </span>
                             </span>
                           ) : (
-                            <span className="shrink-0 text-right">
+                            <span className="shrink-0 text-right max-sm:ml-auto">
                               <span className="block font-semibold tabular-nums zego-text">{formatCurrency(mineAmt ?? line.amount, line.currency)}</span>
                               {split && <span className="block text-[11px] tabular-nums zego-text-tertiary">แบ่งจาก {formatCurrency(line.amount, line.currency)}</span>}
                               {packing && !full && parts.length > 0 && <span className="block text-[11px] tabular-nums zego-text-warning">เหลือ {formatCurrency(max, line.currency)}</span>}

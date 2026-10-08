@@ -50,6 +50,7 @@ export function DataTable<T>({
   defaultSortDir = 'desc',
   minWidthClass = 'min-w-[640px]',
   layout = 'auto',
+  mobileCards = false,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -75,6 +76,11 @@ export function DataTable<T>({
    * ใช้กับตารางที่ต้องพอดีกรอบเสมอ (เช่นตารางคะแนนที่มี 11 คอลัมน์)
    */
   layout?: 'auto' | 'fixed';
+  /**
+   * true = จอเล็ก (< md) แสดงเป็นการ์ดแทนตาราง: คอลัมน์แรกเป็นหัวการ์ด คอลัมน์ที่เหลือเป็นบรรทัด "หัวคอลัมน์: ค่า"
+   * (ข้ามคอลัมน์ hideOnMobile · คอลัมน์ไม่มีหัว เช่นปุ่มจัดการ วางเต็มบรรทัดท้ายการ์ด) — จอ md ขึ้นไปเป็นตารางเหมือนเดิม
+   */
+  mobileCards?: boolean;
 }) {
   const [sort, setSort] = useState<{ key: string; dir: SortDir } | null>(
     defaultSortKey ? { key: defaultSortKey, dir: defaultSortDir } : null,
@@ -115,9 +121,47 @@ export function DataTable<T>({
     );
   }
 
+  const [first, ...rest] = columns.filter((c) => !c.hideOnMobile);
+  const cards = mobileCards && first && (
+    <ul className="divide-y divide-[var(--zego-border-soft)] md:hidden">
+      {sortedRows.length === 0 && (
+        <li className="py-6">
+          <EmptyState icon={emptyIcon} title={emptyTitle} description={emptyDescription} action={emptyAction} />
+        </li>
+      )}
+      {sortedRows.map((row) => (
+        <li
+          key={rowKey(row)}
+          tabIndex={onRowClick ? 0 : undefined}
+          role={onRowClick ? 'button' : undefined}
+          onClick={onRowClick ? () => onRowClick(row) : undefined}
+          onKeyDown={onRowClick ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRowClick(row); } } : undefined}
+          className={cx('space-y-1.5 px-1 py-3', onRowClick && 'cursor-pointer', rowClassName?.(row))}
+        >
+          <div className="text-sm font-medium zego-text">{first.render(row)}</div>
+          {rest.some((c) => c.header) && (
+            <dl className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+              {rest.filter((c) => c.header).map((col) => (
+                <div key={col.key} className="contents">
+                  <dt className="text-xs leading-5 zego-text-tertiary">{col.header}</dt>
+                  <dd className="min-w-0 zego-text-secondary">{col.render(row)}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {rest.filter((c) => !c.header).map((col) => (
+            <div key={col.key} className="flex flex-wrap justify-end gap-2">{col.render(row)}</div>
+          ))}
+        </li>
+      ))}
+    </ul>
+  );
+
   return (
-    // ตารางกว้างกว่าจอเล็ก → เลื่อนแนวนอนภายในกล่องนี้เท่านั้น หน้าเว็บต้องไม่เลื่อนตาม
-    <div className="w-full max-w-full overflow-x-auto">
+    <>
+    {cards}
+    {/* ตารางกว้างกว่าจอเล็ก → เลื่อนแนวนอนภายในกล่องนี้เท่านั้น หน้าเว็บต้องไม่เลื่อนตาม */}
+    <div className={cx('w-full max-w-full overflow-x-auto', cards && 'max-md:hidden')}>
       <table className={cx('zego-table text-sm', layout === 'fixed' && 'table-fixed', minWidthClass)}>
         <thead>
           <tr className="text-left">
@@ -220,5 +264,6 @@ export function DataTable<T>({
         </tbody>
       </table>
     </div>
+    </>
   );
 }

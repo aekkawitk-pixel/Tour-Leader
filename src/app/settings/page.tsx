@@ -618,6 +618,7 @@ export default function SettingsPage() {
               description="Demo ไม่มีระบบ Login จริง — สลับบทบาทได้จากเมนูผู้ใช้มุมขวาบน"
             />
             <DataTable
+              mobileCards
               columns={userColumns}
               rows={users}
               rowKey={(u) => u.id}
@@ -632,6 +633,7 @@ export default function SettingsPage() {
               description={`ทั้งหมด ${countries.length} ประเทศ · ใช้งาน ${countries.filter((c) => c.isActive).length}`}
             />
             <DataTable
+              mobileCards
               columns={countryColumns}
               rows={countryList}
               rowKey={(c) => c.id}
@@ -647,6 +649,7 @@ export default function SettingsPage() {
               description="ภูมิภาค / เมือง / สนามบิน / เส้นทางทัวร์ — ใช้ในการระบุความเชี่ยวชาญของหัวหน้าทัวร์"
             />
             <DataTable
+              mobileCards
               columns={routeColumns}
               rows={routeList}
               rowKey={(r) => r.id}
@@ -664,6 +667,7 @@ export default function SettingsPage() {
               } รายการ`}
             />
             <DataTable
+              mobileCards
               columns={masterColumns}
               rows={masterList}
               rowKey={(item) => item.id}

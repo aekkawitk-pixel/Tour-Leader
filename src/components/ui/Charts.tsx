@@ -122,12 +122,15 @@ export function StatCard({
   hint,
   tone = 'slate',
   onClick,
+  dense = false,
 }: {
   label: string;
   value: string | number;
   hint?: string;
   tone?: 'slate' | 'blue' | 'green' | 'amber' | 'red' | 'violet';
   onClick?: () => void;
+  /** จอเล็ก: การ์ดย่อ (ชื่อ + ตัวเลข ไม่มีคำอธิบาย) สำหรับวางหลายใบต่อแถว — จอ sm ขึ้นไปเหมือนเดิม */
+  dense?: boolean;
 }) {
   // เส้นสีคำ (border-left) ต่อโทน — ใช้ TONE_ZEGO_COLOR (currentColor-friendly) เหมือน Timeline dot
   // แทน border-l-{color} ของ Tailwind เดิม เพราะไม่มี class สำเร็จรูปสำหรับกรอบซ้ายที่ไล่สีตามโทนนี้
@@ -149,19 +152,20 @@ export function StatCard({
     <Wrapper
       {...(onClick ? { type: 'button' as const, onClick } : {})}
       className={cx(
-        'w-full rounded-xl border border-l-4 zego-border-color zego-surface-bg p-4 text-left shadow-sm',
+        'w-full rounded-xl border border-l-4 zego-border-color zego-surface-bg text-left shadow-sm',
+        dense ? 'px-2.5 py-2 sm:p-4' : 'p-4',
         onClick && 'transition-shadow hover:shadow-md',
       )}
       style={{ borderLeftColor: accentColor }}
     >
-      <p className="zego-text-tertiary text-xs font-medium">{label}</p>
+      <p className={cx('zego-text-tertiary font-medium', dense ? 'line-clamp-2 text-[11px] leading-tight sm:text-xs' : 'text-xs')}>{label}</p>
       <p
-        className={cx('mt-1.5 text-2xl font-bold tabular-nums', valueColor)}
+        className={cx('font-bold tabular-nums', dense ? 'mt-0.5 text-lg sm:mt-1.5 sm:text-2xl' : 'mt-1.5 text-2xl', valueColor)}
         style={tone === 'violet' ? { color: accentColor } : undefined}
       >
         {value}
       </p>
-      {hint && <p className="zego-text-tertiary mt-1 text-xs">{hint}</p>}
+      {hint && <p className={cx('zego-text-tertiary mt-1 text-xs', dense && 'hidden sm:block')}>{hint}</p>}
     </Wrapper>
   );
 }

@@ -51,6 +51,8 @@ export default function AppointmentsPage() {
   const today = toISODate(new Date());
 
   const todayDate = parseDate(today);
+  /** จอเล็ก: ตัวกรอง 3 ช่องพับไว้ — เหลือปุ่มสลับมุมมอง */
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [view, setView] = useState<'list' | 'calendar'>('calendar');
   const [kindFilter, setKindFilter] = useState<'all' | AppointmentKind>('all');
   const [presetDate, setPresetDate] = useState<string | undefined>(undefined);
@@ -212,9 +214,11 @@ export default function AppointmentsPage() {
         }
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="นัดหมายที่จะถึง" value={upcoming.length} tone="blue" hint="ตั้งแต่วันนี้เป็นต้นไป" />
+      {/* จอเล็ก: การ์ดย่อ 3 ต่อแถว (dense) — การ์ดเต็ม 5 ใบกินที่ทั้งจอ */}
+      <div className="mb-5 grid grid-cols-3 gap-1.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-5">
+        <StatCard dense label="นัดหมายที่จะถึง" value={upcoming.length} tone="blue" hint="ตั้งแต่วันนี้เป็นต้นไป" />
         <StatCard
+          dense
           label="รอยืนยัน"
           value={pending.length}
           tone={pending.length > 0 ? 'amber' : 'slate'}
@@ -224,18 +228,20 @@ export default function AppointmentsPage() {
             : 'รอหัวหน้าทัวร์ตอบรับ'}
         />
         <StatCard
+          dense
           label="ขอเลื่อนนัด"
           value={askReschedule.length}
           tone={askReschedule.length > 0 ? 'violet' : 'slate'}
           hint="หัวหน้าทัวร์ขอเลื่อน รอนัดใหม่"
         />
         <StatCard
+          dense
           label="เวลาซ้อน"
           value={overlapIds.size}
           tone={overlapIds.size > 0 ? 'red' : 'green'}
           hint="นัดหมายที่ชนกัน"
         />
-        <StatCard label="เข้าพบแล้ว" value={attended.length} tone="green" hint="เสร็จสิ้นแล้ว" />
+        <StatCard dense label="เข้าพบแล้ว" value={attended.length} tone="green" hint="เสร็จสิ้นแล้ว" />
       </div>
 
       {/* กรุ๊ปพร้อมนัดเคลียร์เงิน — หัวหน้าทัวร์ทำครบแล้ว ยังไม่มีนัด */}
@@ -290,6 +296,21 @@ export default function AppointmentsPage() {
 
       <Card className="mb-5">
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+          {/* จอเล็ก: แถวบน = สลับมุมมอง (เต็มแถว) + ปุ่มตัวกรอง · ตัวกรองกางลงมาด้านล่าง */}
+          <div className="flex items-center gap-2 sm:hidden">
+            <div className="min-w-0 flex-1 [&_.zego-segmented]:flex! [&_.zego-segmented__button]:flex-1">
+              <SegmentedControl label="เลือกมุมมอง" value={view} onChange={setView} options={[{ value: 'list', label: 'รายการ' }, { value: 'calendar', label: 'ปฏิทิน' }]} />
+            </div>
+            {(() => {
+              const n = [kindFilter !== 'all', status !== 'all', leaderFilter !== 'all'].filter(Boolean).length;
+              return (
+                <Button className="shrink-0" variant={n > 0 ? 'primary' : 'secondary'} icon="filter" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((v) => !v)}>
+                  ตัวกรอง{n > 0 ? ` (${n})` : ''}
+                </Button>
+              );
+            })()}
+          </div>
+          <div className={cx('contents', !filtersOpen && 'max-sm:hidden')}>
           <SelectInput
             label="ประเภทนัด"
             value={kindFilter}
@@ -319,7 +340,8 @@ export default function AppointmentsPage() {
               ...leaders.map((l) => ({ value: l.id, label: `${l.firstName} ${l.lastName}` })),
             ]}
           />
-          <div className="flex justify-end">
+          </div>
+          <div className="flex justify-end max-sm:hidden">
             <SegmentedControl
               label="เลือกมุมมอง"
               value={view}
@@ -355,14 +377,15 @@ export default function AppointmentsPage() {
                         : 'zego-border-color zego-hover-surface',
                     )}
                   >
-                    <div className="w-24 shrink-0 text-center">
+                    {/* จอเล็ก: คอลัมน์วันที่แคบลง · ข้อมูลนัดกินเต็มที่เหลือ ป้ายทั้งหมดลงบรรทัดถัดไป */}
+                    <div className="w-24 shrink-0 text-center max-sm:w-16">
                       <p className="zego-text text-sm font-bold">
                         {formatDate(appointment.date)}
                       </p>
                       <p className="zego-text-tertiary text-xs">{appointment.time}</p>
                     </div>
 
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 max-sm:basis-[calc(100%-5rem)]">
                       <p className="zego-text flex items-center gap-1.5 font-medium">
                         {leaderName(appointment.leaderId)}
                         {overlapIds.has(appointment.id) && (
@@ -371,7 +394,7 @@ export default function AppointmentsPage() {
                           </span>
                         )}
                       </p>
-                      <p className="zego-text-tertiary truncate text-xs">
+                      <p className="zego-text-tertiary text-xs max-sm:line-clamp-2 sm:truncate">
                         {appointment.id} · {groupOf(appointment)} · {appointment.location}
                       </p>
                     </div>
@@ -410,13 +433,14 @@ export default function AppointmentsPage() {
             </h2>
           </div>
 
+          {/* จอเล็ก: 7 คอลัมน์พอดีจอ (ไม่ตั้งความกว้างขั้นต่ำ) · ช่องวันเหลือตัวเลขสรุป แตะดูรายละเอียดของวัน */}
           <div className="overflow-x-auto">
-            <div className="min-w-[42rem]">
+            <div className="md:min-w-[42rem]">
               <div className="zego-border-color zego-surface-soft-bg grid grid-cols-7 border-b">
                 {TH_WEEKDAYS_SHORT.map((d) => (
                   <div
                     key={d}
-                    className="zego-border-color zego-text-tertiary border-r px-2 py-2 text-center text-xs font-semibold last:border-r-0"
+                    className="zego-border-color zego-text-tertiary border-r px-0.5 py-2 text-center text-[11px] font-semibold last:border-r-0 sm:px-2 sm:text-xs"
                   >
                     {d}
                   </div>
@@ -429,7 +453,7 @@ export default function AppointmentsPage() {
                     <div
                       key={cell.date}
                       className={cx(
-                        'zego-border-color flex min-h-24 flex-col gap-1 border-b border-r p-1.5',
+                        'zego-border-color flex min-h-16 min-w-0 flex-col gap-1 border-b border-r p-1 sm:min-h-24 sm:p-1.5',
                         cell.inMonth ? 'zego-surface-bg' : 'zego-surface-soft-bg',
                       )}
                     >
@@ -448,7 +472,7 @@ export default function AppointmentsPage() {
                             title="สร้างนัดวันนี้"
                             aria-label={`สร้างนัดวันที่ ${formatDate(cell.date)}`}
                             onClick={() => { setEditingId(null); setPresetDate(cell.date); setFormOpen(true); }}
-                            className="rounded p-0.5 zego-text-tertiary opacity-0 transition hover:text-emerald-700 focus:opacity-100 group-hover:opacity-100"
+                            className="rounded p-0.5 zego-text-tertiary opacity-0 transition hover:text-emerald-700 focus:opacity-100 group-hover:opacity-100 max-sm:hidden"
                           >
                             <Icon name="plus" className="h-3.5 w-3.5" />
                           </button>
@@ -465,14 +489,15 @@ export default function AppointmentsPage() {
                             type="button"
                             onClick={() => setDayOpen(cell.date)}
                             title={`ดูการนัด ${list.length} รายการ`}
-                            className="flex w-full flex-1 flex-col items-start justify-center gap-0.5 rounded-lg bg-emerald-50 px-2 py-1.5 text-left transition hover:bg-emerald-100"
+                            className={cx('flex w-full flex-1 flex-col items-start justify-center gap-0.5 rounded-lg px-2 py-1.5 text-left transition max-sm:items-center max-sm:px-0.5', waiting > 0 || asking > 0 ? 'bg-amber-50 hover:bg-amber-100 sm:bg-emerald-50 sm:hover:bg-emerald-100' : 'bg-emerald-50 hover:bg-emerald-100')}
                           >
                             <span className="text-base font-bold leading-none text-emerald-800">
-                              {groups > 0 ? groups : list.length} <span className="text-[11px] font-medium">{groups > 0 ? 'กรุ๊ป' : 'นัด'}</span>
+                              {groups > 0 ? groups : list.length} <span className="text-[11px] font-medium max-sm:hidden">{groups > 0 ? 'กรุ๊ป' : 'นัด'}</span>
                             </span>
-                            {groups > 0 && noGroup > 0 && <span className="text-[10px] text-emerald-700">+ นัดอื่น {noGroup}</span>}
+                            {groups > 0 && noGroup > 0 && <span className="text-[10px] text-emerald-700 max-sm:hidden">+ นัดอื่น {noGroup}</span>}
+                            {/* จอเล็ก: พื้นส้ม = มีรอยืนยัน/ขอเลื่อน (รายละเอียดดูในหน้าต่างของวัน) */}
                             {(waiting > 0 || asking > 0) && (
-                              <span className="flex flex-wrap gap-x-1.5 text-[10px] font-medium">
+                              <span className="flex flex-wrap gap-x-1.5 text-[10px] font-medium max-sm:hidden">
                                 {waiting > 0 && <span className="text-amber-700">รอยืนยัน {waiting}</span>}
                                 {asking > 0 && <span className="text-violet-700">ขอเลื่อน {asking}</span>}
                               </span>

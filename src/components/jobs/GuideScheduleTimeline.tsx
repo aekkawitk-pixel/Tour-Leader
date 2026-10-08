@@ -25,7 +25,7 @@ import { useWideContent } from '@/components/layout/AppShell';
 import { Icon } from '@/components/ui/Icon';
 import { Drawer, Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { SearchBox, TextArea } from '@/components/ui/FormField';
-import { nextMonthStart, nextMonthStartFromNow } from '@/components/ui/MonthPicker';
+import { MonthPicker, nextMonthStart, nextMonthStartFromNow } from '@/components/ui/MonthPicker';
 import { LEADER_STATUS } from '@/lib/labels';
 import { recordTypeLabel, formatRecordSchedule } from '@/lib/logic/availabilityStatus';
 import { leaderUnavailability } from '@/lib/logic/leaderAvailability';
@@ -77,6 +77,9 @@ const DENSITY: Record<Density, { guideW: number; evH: number; laneGap: number; r
   normal: { guideW: 240, evH: 34, laneGap: 3, rowPad: 5, rowMin: 90, dayNum: 'text-[14px]', dow: 'text-[10px]', bar: 'text-[10px]', sub: 'text-[9px]', tags: 2 },
 };
 const HEAD_H = 48; // §5 เพิ่ม spacing หัววันที่ให้อ่านง่ายขึ้น
+/** จอเล็ก: จำนวนวันต่อหน้า และความกว้างคอลัมน์ชื่อ (เหลือที่ให้ช่องวันราว 33px ที่จอ 375px) */
+const MOBILE_DAYS = 7;
+const MOBILE_NAME_W = 112;
 
 /** เดือนย่อไทย — ใช้กำกับคอลัมน์วันที่ต่อจากเดือนถัดไป (ตอนกรุ๊ปคาบเดือน) */
 const TH_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -393,6 +396,18 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
   const winStart = days[0];
   const winEnd = days[days.length - 1];
   const gridCols = `${cfg.guideW}px repeat(${days.length}, minmax(0, 1fr))`; // §2 ทุกวันย่อได้ → เห็นครบทั้งเดือน (+ วันคาบเดือนถัดไปถ้ามี) ไม่มี h-scroll
+
+  /*
+    จอเล็ก: ปฏิทินทีละ 7 วัน (แบบเดียวกับตารางเจ้าหน้าที่ส่งกรุ๊ป) — ทั้งเดือนในจอ 375px แคบเกินจนอ่านไม่ได้
+    เปิดเดือนใหม่ → เริ่มที่สัปดาห์ที่มีวันนี้ (ถ้าอยู่ในเดือน) ไม่งั้นวันที่ 1 · เก็บคู่กับเดือนที่ใช้ จึงรีเซ็ตเองเมื่อเปลี่ยนเดือน
+  */
+  const [mobileWin, setMobileWin] = useState<{ month: string; offset: number } | null>(null);
+  const mobileOffset = mobileWin?.month === monthStart
+    ? mobileWin.offset
+    : today >= monthStart && today <= monthEnd ? Math.floor(diffDays(monthStart, today) / MOBILE_DAYS) * MOBILE_DAYS : 0;
+  const mobileDays = days.slice(mobileOffset, mobileOffset + MOBILE_DAYS);
+  const mobileGridCols = `${MOBILE_NAME_W}px repeat(${mobileDays.length}, minmax(0, 1fr))`;
+  const stepMobile = (dir: -1 | 1) => setMobileWin({ month: monthStart, offset: Math.max(0, Math.min(mobileOffset + dir * MOBILE_DAYS, days.length - 1)) });
 
   // วันหยุดของบริษัท — อ่านผ่าน holidayService จุดเดียว (§14) · เดือนที่คาบปีจึงต้องดึงทั้งสองปี
   const holidays = useMemo(
@@ -856,7 +871,6 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
     };
   }), [leaders, countries, routes, leaderInfo]);
 
-  const step = (dir: -1 | 1) => setCursor(addMonths(cursor, dir));
   const rangeLabel = formatThaiMonthYear(cursor);
   const toggleGroup = (id: string) => setCollapsed((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -1053,12 +1067,38 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
     setDetailPeriodId(null);
   };
 
+  /** หัวคอลัมน์วันที่ 1 ช่อง — ใช้ร่วมกันทั้งตารางจอใหญ่ (ทั้งเดือน) และจอเล็ก (ทีละ 7 วัน) */
+  const dayHead = (iso: string) => {
+    const d = parseDate(iso);
+    const weekend = d.getDay() === 0 || d.getDay() === 6;
+    const holiday = holidays.get(iso);
+    const isToday = iso === today;
+    const isOverflow = iso > monthEnd; // วันที่ต่อจากกรุ๊ปคาบเดือน — จริงๆ อยู่เดือนถัดไป
+    return (
+      <div
+        key={iso}
+        // วันหยุดใช้พื้นชมพูอ่อน แยกจากเสาร์-อาทิตย์ที่เป็นพื้นเทา — ไม่งั้นแดงเหมือนกันจนแยกไม่ออกว่าหยุดเพราะอะไร
+        // วันคาบเดือนถัดไปใช้พื้นม่วงอ่อน + เส้นซ้ายหนาที่วันแรก ให้รู้ทันทีว่าข้ามเดือนแล้ว
+        title={holiday ? `${formatDate(iso)} — ${holiday.name}` : isOverflow ? `${formatDate(iso)} — เดือนถัดไป` : undefined}
+        className={cx('zego-border-color flex min-w-0 flex-col items-center justify-center gap-0.5 border-r last:border-r-0', holiday ? 'bg-rose-50' : isOverflow ? 'bg-indigo-50/60' : weekend && 'zego-surface-soft-bg', isOverflow && iso === addDays(monthEnd, 1) && 'border-l-2 border-l-indigo-300')}
+        style={{ padding: '5px 0' }}
+      >
+        <span className={cx(cfg.dayNum, 'font-semibold leading-none', isToday ? 'zego-today-badge inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full px-0.5' : holiday ? 'zego-text-danger' : isOverflow ? 'text-indigo-500' : weekend ? 'zego-text-danger' : 'zego-text-secondary')}>{d.getDate()}</span>
+        <span className={cx(cfg.dow, 'max-w-full truncate leading-tight', holiday ? 'font-semibold zego-text-danger' : isOverflow ? 'font-semibold text-indigo-400' : weekend ? 'zego-text-danger' : 'zego-text-tertiary')}>
+          {isOverflow ? TH_MONTHS_SHORT[d.getMonth()] : TH_WEEKDAYS_SHORT[d.getDay()]}
+        </span>
+        {holiday && <span className="sr-only">วันหยุด: {holiday.name}</span>}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-3">
       {/* หัวหน้า (header — ชื่อหน้า) ซ้าย · ปุ่มสลับโหมด (toolbarStart) + กำหนดรายชื่อ ขวา — แถวเดียวกัน */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         {header}
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+        {/* จอเล็ก: ปุ่มสลับโหมดยืดเต็มแถว (แตะง่าย) · ปุ่มกำหนดรายชื่ออยู่ท้ายแถวเดียวกัน */}
+        <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto max-sm:[&_.zego-segmented]:flex! max-sm:[&_.zego-segmented]:flex-1 max-sm:[&_.zego-segmented__button]:flex-1">
           {toolbarStart}
           <Button size="sm" variant="secondary" onClick={() => setRosterOpen(true)}>
             {rosterDefined ? 'แก้ไขรายชื่อเดือนนี้' : 'กำหนดรายชื่อ'}
@@ -1077,21 +1117,20 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
           ช่องค้นหาเป็นตัวเดียวที่ยืด/หดได้ (flex-1) ตัวอื่น shrink-0 จึงไม่ถูกบีบจนข้อความขาด
           ทุก control สูงเท่ากันที่ 38px ผ่าน [&_select]/[&_input] เพื่อไม่ต้องไล่ใส่ทีละอัน
         */}
-        <div className="flex flex-wrap items-center gap-2 px-3 py-2 2xl:flex-nowrap [&_input[type=search]]:h-[38px] [&_select]:h-[38px]">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 max-md:px-[19px] max-md:pt-[19px] 2xl:flex-nowrap [&_input[type=search]]:h-[38px] [&_select]:h-[38px]">
           {/* 1-3 เลือกเดือน */}
-          <div className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap">
-            <button type="button" onClick={() => step(-1)} aria-label="ก่อนหน้า" className="zego-icon-btn zego-hover-surface rounded-md p-1.5"><Icon name="chevronLeft" className="h-4 w-4" /></button>
-            <span className="min-w-[6.5rem] text-center text-sm font-semibold zego-text-secondary">{rangeLabel}</span>
-            <button type="button" onClick={() => step(1)} aria-label="ถัดไป" className="zego-icon-btn zego-hover-surface rounded-md p-1.5"><Icon name="chevronRight" className="h-4 w-4" /></button>
+          {/* ตัวเลือกเดือนแบบเดียวกับโหมดจัดเจ้าหน้าที่ส่งกรุ๊ป · จอเล็กเต็มแถว */}
+          <div className="w-full shrink-0 md:w-auto">
+            <MonthPicker value={cursor} onChange={setCursor} hint="เลือกเดือนที่กรุ๊ปออกเดินทาง" />
           </div>
 
           {/* 5 ค้นหา — ยืดหยุ่นมากที่สุด หดก่อนเพื่อนเมื่อพื้นที่ไม่พอ */}
-          <div className="min-w-[9rem] flex-1 basis-[11rem]">
+          <div className="min-w-[9rem] flex-1 basis-full md:basis-[11rem]">
             <SearchBox value={search} onChange={setSearch} placeholder="ค้นหาชื่อ นามสกุล หรือชื่อเล่น" label="ค้นหาหัวหน้าทัวร์" />
           </div>
 
           {/* 6 สลับว่าจะกรองด้วยอะไร — เลือกได้ทีละอย่าง จึงไม่กินที่ทั้งสองชุดพร้อมกัน */}
-          <div className="shrink-0">
+          <div className="w-full shrink-0 md:w-auto max-md:[&_.zego-segmented]:flex! max-md:[&_.zego-segmented__button]:flex-1">
             <SegmentedControl
               label="กรองด้วย"
               value={filterMode}
@@ -1104,7 +1143,7 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
           </div>
 
           {filterMode === 'type' && (
-          <div className="w-[13rem] shrink-0">
+          <div className="w-full shrink-0 md:w-[13rem]">
             <TagMultiSelect
               ariaLabel="รูปแบบการร่วมงาน"
               showTags={false}
@@ -1129,7 +1168,7 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
           */}
           {filterMode === 'expertise' && (
           <>
-          <div className="w-[9rem] shrink-0">
+          <div className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] md:w-[9rem] md:flex-none md:shrink-0 md:basis-auto">
             <TagMultiSelect
               ariaLabel="ประเทศที่เชี่ยวชาญ"
               showTags={false}
@@ -1146,7 +1185,7 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
             />
           </div>
 
-          <div className="w-[8.5rem] shrink-0">
+          <div className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] md:w-[8.5rem] md:flex-none md:shrink-0 md:basis-auto">
             <TagMultiSelect
               ariaLabel="เส้นทางที่เชี่ยวชาญ"
               showTags={false}
@@ -1170,7 +1209,7 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
             8-9 คนว่าง / คนมีงาน — เลือกได้ทีละตัว · ข้อความสั้นลง อธิบายเต็มใน tooltip
             ซ้อนสองบรรทัดในคอลัมน์เดียว ประหยัดความกว้างของแถบไปได้ราวครึ่งหนึ่ง
           */}
-          <div className="flex shrink-0 flex-col gap-0.5">
+          <div className="flex shrink-0 flex-row items-center gap-4 py-1 md:flex-col md:items-start md:gap-0.5 md:py-0">
             <label title="แสดงเฉพาะหัวหน้าทัวร์ที่ไม่มีงานในช่วงที่เลือก"
               className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm zego-text-secondary">
               <input type="checkbox" checked={onlyFree} onChange={(e) => { setOnlyFree(e.target.checked); if (e.target.checked) setOnlyWithJobs(false); }} className="zego-border-color h-4 w-4 rounded border" />
@@ -1183,15 +1222,15 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
             </label>
           </div>
 
-          {hasFilter && <Button className="shrink-0 whitespace-nowrap" variant="ghost" size="sm" onClick={resetFilters}>ล้างค่า</Button>}
+          {hasFilter && <Button className="ml-auto shrink-0 whitespace-nowrap md:ml-0" variant="ghost" size="sm" onClick={resetFilters}>ล้างค่า</Button>}
         </div>
         {/*
           แถบสรุปสถานะการจัด (คลิกเพื่อกรอง) + คำอธิบายสีความพร้อม คั่นด้วยเส้นแนวตั้ง
           • จำนวนนับจากงานจริงในเดือนที่เปิด ตามตัวกรอง/คำค้นปัจจุบัน — ไม่ Hardcode
           • สีจุดใช้ Mapping กลางชุดเดียวกับสีแถบงานบนตาราง (BOARD_STATUS)
-          • Mobile เลื่อนแนวนอนได้เฉพาะแถบนี้ (overflow-x-auto) ไม่ทำให้ทั้งหน้าเลื่อน
+          • Mobile ขึ้นบรรทัดใหม่ (wrap) — เห็นครบทุกชิปโดยไม่ต้องเลื่อนแนวนอน
         */}
-        <div className="zego-divider-top flex items-center gap-x-3 gap-y-1 overflow-x-auto px-3 py-1 md:flex-wrap md:overflow-visible">
+        <div className="zego-divider-top flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2 max-md:px-[19px] max-md:pb-3 md:gap-x-3 md:gap-y-1 md:py-1">
           <span className="shrink-0 whitespace-nowrap text-[11px] font-medium zego-text-tertiary">สถานะการจัด:</span>
           {/* “ปฏิเสธ” ไม่เกิดในขั้นตอนปัจจุบัน (จัดแล้วคอนเฟิร์มทันที) — ซ่อนชิป เว้นแต่มีข้อมูลเก่าที่ปฏิเสธค้างอยู่ */}
           {BOARD_STATUS_ORDER.filter((s) => s !== 'DECLINED' || boardCounts.DECLINED > 0).map((s) => {
@@ -1216,7 +1255,8 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
             );
           })}
 
-          <span className="mx-0.5 h-3.5 w-px shrink-0 bg-[var(--zego-border-strong)]" />
+          {/* จอเล็ก = ขึ้นบรรทัดใหม่ (แยกสถานะการจัดกับคำอธิบายสีวันลา) · จอใหญ่ = เส้นคั่นแนวตั้ง */}
+          <span className="h-0 basis-full md:mx-0.5 md:h-3.5 md:w-px md:shrink-0 md:basis-auto md:bg-[var(--zego-border-strong)]" />
 
           {(['leave', 'company', 'unavailable', 'cancelled'] as const).map((k) => (
             <span key={k} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] zego-text-tertiary"><span className="h-2 w-2 rounded-sm" style={{ background: LEAVE_BG[k] }} />{LEAVE_STYLE[k].legend}</span>
@@ -1312,29 +1352,7 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
             title={`หัวหน้าทัวร์ที่ผ่านตัวกรองทั้งหมด ${shownLeaders.length} คน`}>
             <span className="truncate">{`${shownLeaders.length} คน`}</span>
           </div>
-          {days.map((iso) => {
-            const d = parseDate(iso);
-            const weekend = d.getDay() === 0 || d.getDay() === 6;
-            const holiday = holidays.get(iso);
-            const isToday = iso === today;
-            const isOverflow = iso > monthEnd; // วันที่ต่อจากกรุ๊ปคาบเดือน — จริงๆ อยู่เดือนถัดไป
-            return (
-              <div
-                key={iso}
-                // วันหยุดใช้พื้นชมพูอ่อน แยกจากเสาร์-อาทิตย์ที่เป็นพื้นเทา — ไม่งั้นแดงเหมือนกันจนแยกไม่ออกว่าหยุดเพราะอะไร
-                // วันคาบเดือนถัดไปใช้พื้นม่วงอ่อน + เส้นซ้ายหนาที่วันแรก ให้รู้ทันทีว่าข้ามเดือนแล้ว
-                title={holiday ? `${formatDate(iso)} — ${holiday.name}` : isOverflow ? `${formatDate(iso)} — เดือนถัดไป` : undefined}
-                className={cx('zego-border-color flex min-w-0 flex-col items-center justify-center gap-0.5 border-r last:border-r-0', holiday ? 'bg-rose-50' : isOverflow ? 'bg-indigo-50/60' : weekend && 'zego-surface-soft-bg', isOverflow && iso === addDays(monthEnd, 1) && 'border-l-2 border-l-indigo-300')}
-                style={{ padding: '5px 0' }}
-              >
-                <span className={cx(cfg.dayNum, 'font-semibold leading-none', isToday ? 'zego-today-badge inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full px-0.5' : holiday ? 'zego-text-danger' : isOverflow ? 'text-indigo-500' : weekend ? 'zego-text-danger' : 'zego-text-secondary')}>{d.getDate()}</span>
-                <span className={cx(cfg.dow, 'max-w-full truncate leading-tight', holiday ? 'font-semibold zego-text-danger' : isOverflow ? 'font-semibold text-indigo-400' : weekend ? 'zego-text-danger' : 'zego-text-tertiary')}>
-                  {isOverflow ? TH_MONTHS_SHORT[d.getMonth()] : TH_WEEKDAYS_SHORT[d.getDay()]}
-                </span>
-                {holiday && <span className="sr-only">วันหยุด: {holiday.name}</span>}
-              </div>
-            );
-          })}
+          {days.map((iso) => dayHead(iso))}
         </div>
 
         {/*
@@ -1438,12 +1456,65 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
         })}
       </div>
 
-      {/* ---------------- Mobile: รายชื่อ → Agenda (§14) ---------------- */}
-      <div className="space-y-2 md:hidden">
-        {visibleLeaders.length === 0 && <EmptyState title="ไม่พบหัวหน้าทัวร์" description="ลองปรับตัวกรอง" />}
-        {visibleLeaders.map((leader) => (
-          <MobileLeaderCard key={leader.id} leader={leader} events={rowsByLeader.get(leader.id) ?? []} monthLabel={formatThaiMonthYear(cursor)} onSelectPeriod={setDetailPeriodId} />
-        ))}
+      {/* ---------------- Mobile: ปฏิทินทีละ 7 วัน — แถวเดียวกับจอใหญ่ (แตะช่องว่าง = จัดงาน · แตะแถบงาน = รายละเอียด · แตะชื่อ = ข้อมูล) ---------------- */}
+      <div className="md:hidden">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-sm font-medium zego-text-secondary">
+            {mobileDays.length > 0 && `${formatDate(mobileDays[0])} – ${formatDate(mobileDays[mobileDays.length - 1])}`}
+          </span>
+          <div className="flex items-center gap-1">
+            <button type="button" aria-label="7 วันก่อนหน้า" disabled={mobileOffset === 0} onClick={() => stepMobile(-1)}
+              className="zego-button zego-button--icon disabled:opacity-40"><Icon name="chevronLeft" className="h-4 w-4" /></button>
+            <button type="button" aria-label="7 วันถัดไป" disabled={mobileOffset + MOBILE_DAYS >= days.length} onClick={() => stepMobile(1)}
+              className="zego-button zego-button--icon disabled:opacity-40"><Icon name="chevronRight" className="h-4 w-4" /></button>
+          </div>
+        </div>
+        {visibleLeaders.length === 0 ? (
+          <EmptyState title="ไม่พบหัวหน้าทัวร์" description="ลองปรับตัวกรอง" />
+        ) : mobileDays.length > 0 && (
+          <div className="zego-card-surface w-full max-w-full overflow-hidden">
+            <div className="zego-border-color zego-surface-soft-bg border-b" style={{ display: 'grid', gridTemplateColumns: mobileGridCols, height: HEAD_H }}>
+              <div className="zego-border-color flex items-center truncate border-r px-2 text-xs font-semibold zego-text-tertiary">{`${shownLeaders.length} คน`}</div>
+              {mobileDays.map((iso) => dayHead(iso))}
+            </div>
+            {typeSections.map((section) => {
+              const isCollapsed = typeSections.length > 1 && collapsed.has(section.id);
+              return (
+                <Fragment key={section.id}>
+                  <button type="button" onClick={() => toggleGroup(section.id)} aria-expanded={!isCollapsed}
+                    className="zego-border-color flex w-full items-center gap-1.5 border-y bg-[var(--zego-surface-inset)] px-2 py-1 text-left">
+                    <Icon name="chevronDown" className={cx('h-3.5 w-3.5 zego-text-tertiary transition-transform', isCollapsed && '-rotate-90')} />
+                    <span className="text-xs font-bold zego-text-secondary">{section.label} ({section.members.length} คน)</span>
+                  </button>
+                  {!isCollapsed && section.members.map((leader) => (
+                    <LeaderRow
+                      key={leader.id}
+                      leader={leader}
+                      // เฉพาะงาน/วันลาที่คาบ 7 วันที่ดูอยู่ — lane จะได้ไม่เว้นช่องให้งานนอกหน้าต่าง
+                      events={(rowsByLeader.get(leader.id) ?? []).filter((e) => e.end >= mobileDays[0] && e.start <= mobileDays[mobileDays.length - 1])}
+                      days={mobileDays} holidays={holidays} winStart={mobileDays[0]} winEnd={mobileDays[mobileDays.length - 1]} monthEnd={monthEnd} today={today}
+                      cfg={{ ...cfg, guideW: MOBILE_NAME_W }} gridCols={mobileGridCols} viewMode="week"
+                      countries={countries} routes={routes}
+                      expertise={expertiseByLeader.get(leader.id)?.summary}
+                      compensationProgress={compensationProgress(guideCancellations, leader.id, monthKey)}
+                      onOpenReminder={() => setReminderDetailLeader(leader)}
+                      rosterAction={rosterDefined ? (rosterSet.has(leader.id) ? 'remove' : 'add') : null}
+                      onRosterAction={() => rosterSet.has(leader.id) ? requestRemoveFromRoster(leader) : addLeaderToRoster(leader, 'manual')}
+                      onSelectPeriod={setDetailPeriodId}
+                      onOpenInfo={() => setInfoLeader(leader)}
+                      onEmptyClick={(date) => setAddTarget({ leader, date })}
+                      pickedDate={addTarget?.leader.id === leader.id ? addTarget.date : null}
+                      // ลากย้ายงานใช้ได้เฉพาะจอใหญ่ (จอสัมผัสไม่มี drag & drop)
+                      onDragAssignment={() => {}}
+                      onDropHere={() => {}}
+                      dragging={false}
+                    />
+                  ))}
+                </Fragment>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ---------------- Side Panels ---------------- */}
@@ -1632,6 +1703,8 @@ function LeaderRow({ leader, events, days, holidays, winStart, winEnd, monthEnd,
   const passWarn = passSt === 'EXPIRED' || passSt === 'EXPIRING_WITHIN_30_DAYS' || passSt === 'EXPIRING_WITHIN_90_DAYS';
   /** หมดอายุ/เหลืออายุไม่ถึง 6 เดือน — ปิดช่องจัดงานทั้งแถว (เทา คลิกไม่ได้) แทนการเปิดแล้วเด้ง Toast ปฏิเสธ */
   const passBlocked = passportBlocksScheduling(passSt);
+  /** คอลัมน์ชื่อแคบ (ปฏิทิน 7 วันบนจอเล็ก) — ชื่อขึ้น 2 บรรทัดแทนตัดทิ้ง · ซ่อนบรรทัดโซนให้แถวไม่สูงเกิน */
+  const narrow = cfg.guideW < 160;
 
   return (
     <div
@@ -1648,8 +1721,14 @@ function LeaderRow({ leader, events, days, holidays, winStart, winEnd, monthEnd,
       <div data-testid="leader-name-cell" data-leader={leader.id} className={cx('zego-border-color sticky left-0 z-[3] flex min-w-0 flex-col justify-center gap-0.5 border-r px-2 py-0.5', dragging ? 'zego-selected-tint' : 'zego-surface-bg')} style={{ gridColumn: '1 / 2', gridRow: '1 / -1' }}>
         {/* บรรทัด 1: ชื่อ–นามสกุล + ปุ่มเพิ่ม/นำออกจากรายชื่อเดือนนี้ (§6/§9) */}
         <div className="flex min-w-0 items-center gap-1">
-          <button type="button" onClick={onOpenInfo} title={exp.fullName} className="block min-w-0 flex-1 truncate text-left text-sm font-semibold zego-text hover:text-[var(--zego-primary-700)] hover:underline">
-            {exp.fullName}
+          <button type="button" onClick={onOpenInfo} title={exp.fullName} className={cx('block min-w-0 flex-1 text-left font-semibold zego-text hover:text-[var(--zego-primary-700)] hover:underline', narrow ? 'leading-tight' : 'truncate text-sm')}>
+            {narrow ? (
+              // คอลัมน์แคบ: ชื่อบรรทัดแรก · นามสกุลบรรทัดสองตัวเล็กลง — ไม่ตัดกลางคำ
+              <>
+                <span className="block truncate text-[13px]">{leader.firstName || exp.fullName}</span>
+                {leader.lastName && <span className="block truncate text-[11px] font-medium zego-text-secondary">{leader.lastName}</span>}
+              </>
+            ) : exp.fullName}
           </button>
           {rosterAction && (
             <button
@@ -1664,14 +1743,22 @@ function LeaderRow({ leader, events, days, holidays, winStart, winEnd, monthEnd,
           )}
         </div>
         {/* บรรทัด 2: ชื่อเล่น · รูปแบบการร่วมงาน (บรรทัดเดียว · Ellipsis + Tooltip เมื่อยาวเกิน) */}
-        <span className="truncate text-[11px] zego-text-secondary" title={nicknameLine(leader)}>
-          {nicknameLine(leader)}
-        </span>
+        {narrow ? (
+          // คอลัมน์แคบ: ชื่อเล่น กับ รูปแบบการร่วมงาน แยกบรรทัด — บรรทัดเดียวถูกตัดจนไม่เห็นประเภท
+          <>
+            <span className="truncate text-[11px] zego-text-secondary" title={nicknameLine(leader)}>ชื่อเล่น: {leader.nickname?.trim() || 'ยังไม่ระบุ'}</span>
+            {LEADER_TYPE[leader.leaderType] && <span className="truncate text-[10px] zego-text-tertiary">{LEADER_TYPE[leader.leaderType].label}</span>}
+          </>
+        ) : (
+          <span className="truncate text-[11px] zego-text-secondary" title={nicknameLine(leader)}>
+            {nicknameLine(leader)}
+          </span>
+        )}
 
         {/* โซน (§2) — ซ่อนเมื่อไม่มีโซน · ประเทศ (เส้นทาง) (§3) · Ellipsis + Tooltip */}
         {expertise?.hasData ? (
           <>
-            {expertise.zoneLine && (
+            {expertise.zoneLine && !narrow && (
               <span className="truncate text-[11px] zego-text-tertiary" title={expertise.zoneTooltip}>{expertise.zoneLine}</span>
             )}
             <span className="truncate text-[11px] zego-text-secondary" title={expertise.countryTooltip}>{expertise.countryLine}</span>
@@ -1966,47 +2053,6 @@ function CompensateAssignmentDialog({ data, onSkip, onConfirm }: {
         </label>
       </div>
     </Modal>
-  );
-}
-
-/* ================================ Mobile card ================================ */
-
-function MobileLeaderCard({ leader, events, monthLabel, onSelectPeriod }: { leader: TourLeader; events: RowEvent[]; monthLabel: string; onSelectPeriod: (periodId: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const sorted = [...events].sort((a, b) => a.start.localeCompare(b.start));
-  const jobCount = events.filter((e) => e.kind === 'job').length;
-  return (
-    <div className="zego-border-color zego-surface-bg rounded-xl border p-3">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between gap-2 text-left">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5"><span className="font-semibold zego-text">{leaderDisplayName(leader)}</span><StatusBadge meta={LEADER_STATUS[leader.status]} size="sm" dot /></div>
-          <span className="text-xs zego-text-tertiary">{monthLabel} · {jobCount} งาน</span>
-        </div>
-        <Icon name="chevronDown" className={cx('h-4 w-4 shrink-0 zego-text-tertiary transition-transform', open && 'rotate-180')} />
-      </button>
-      {open && (
-        <ul className="zego-divider-top mt-2 space-y-1.5 pt-2">
-          {sorted.length === 0 && <li className="py-3 text-center text-xs zego-text-tertiary">ไม่มีงาน/วันลาในเดือนนี้</li>}
-          {sorted.map((e) => {
-            const lk = e.kind === 'job' ? 'unavailable' : e.kind;
-            return (
-            <li key={e.id}>
-              <button type="button" disabled={e.kind !== 'job'} onClick={() => e.periodId && onSelectPeriod(e.periodId)}
-                className={cx('flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left text-xs border', e.kind === 'job' ? boardStatusMeta(e.board).bar : `zego-status-bar ${LEAVE_STYLE[lk].bar}`)}
-                style={{ background: e.kind === 'job' ? undefined : LEAVE_BG[lk] }}>
-                <span className="flex items-center gap-2">
-                  {e.compensatesFor && <Icon name="check" className="h-3 w-3 shrink-0 zego-text-success" />}
-                  <span className="font-bold">{e.code}{e.disp && e.disp.bus && e.disp.bus !== '-' ? ` (${e.disp.bus})` : ''}</span>
-                  {e.compensatesFor && <span className="shrink-0 rounded bg-[var(--zego-success)] px-1 text-[9px] font-bold leading-4 text-white">ชดเชย</span>}
-                  <span className="ml-auto shrink-0 opacity-70">{e.scheduleText}</span>
-                </span>
-                {e.disp && <span className="text-[11px] opacity-70">{e.disp.country} · {e.disp.depAirport} · {e.disp.airlineCode}</span>}
-              </button>
-            </li>
-          );})}
-        </ul>
-      )}
-    </div>
   );
 }
 

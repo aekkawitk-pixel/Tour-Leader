@@ -110,9 +110,11 @@ export default function GroupExpensesPage() {
   const statuses = useMemo(() => {
     const m = new Map<string, { stage: string; mismatch: boolean }>();
     for (const g of groups) {
-      m.set(g.periodId, g.docs.length === 0
+      const mark = noEnvelopeMarks.find((x) => x.periodId === g.periodId);
+      // ยังไม่มีเอกสารเบิก = รอการทำเบิก — เว้นแต่การเงินระบุไว้แล้วว่ากรุ๊ปนี้ไม่มีซอง
+      m.set(g.periodId, g.docs.length === 0 && !mark
         ? { stage: 'no_docs', mismatch: false }
-        : groupEnvelopeStatus(groupLines(g.docs), envelopes.filter((e) => e.periodId === g.periodId), noEnvelopeMarks.find((x) => x.periodId === g.periodId)));
+        : groupEnvelopeStatus(groupLines(g.docs), envelopes.filter((e) => e.periodId === g.periodId), mark));
     }
     return m;
   }, [groups, envelopes, noEnvelopeMarks]);
@@ -174,6 +176,8 @@ export default function GroupExpensesPage() {
     หลังเดินทาง = ออกเดินทางไปแล้ว (รวมกรุ๊ปที่กำลังเดินทาง) · ค่าเริ่มต้น = ก่อนเดินทาง
   */
   const [trip, setTrip] = useState<'before' | 'after'>('before');
+  /** จอเล็ก: ประเทศ / รายการทัวร์ / ช่วงวันที่ พับไว้ — เหลือรหัสกรุ๊ปกับช่วงเดินทางที่ใช้บ่อย */
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const today = toISODate(new Date());
   // ไม่ได้ตั้งวันเริ่มเอง = อัตโนมัติ: ดูย้อนหลังได้เมื่อเลือกหลังเดินทาง ไม่งั้นเริ่มวันนี้
   const [dateFrom, setDateFrom] = useState('');
@@ -276,7 +280,7 @@ export default function GroupExpensesPage() {
 
       {/* สรุปสถานะเบี้ยเลี้ยง — แตะเพื่อกรอง */}
       {tab === 'per_diem' && (
-        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-9">
+        <div className="mb-4 grid grid-cols-3 gap-1.5 sm:gap-2 xl:grid-cols-9">
           {PD_FILTERS.map((f) => {
             const count = searched.filter((g) => pdMatches(g, f.key)).length;
             const active = pdFilter === f.key;
@@ -286,20 +290,20 @@ export default function GroupExpensesPage() {
                 type="button"
                 onClick={() => setPdFilter(f.key)}
                 aria-pressed={active}
-                className={cx('zego-card-surface rounded-xl px-3 py-2.5 text-left transition', active ? 'ring-2 ring-emerald-500' : 'hover:ring-1 hover:ring-emerald-200')}
+                className={cx('zego-card-surface rounded-xl px-2 py-1.5 text-left transition sm:px-3 sm:py-2.5', active ? 'ring-2 ring-emerald-500' : 'hover:ring-1 hover:ring-emerald-200')}
               >
-                <p className="text-xs zego-text-tertiary">{f.label}</p>
-                <p className="text-2xl font-bold tabular-nums" style={{ color: count > 0 && f.key !== 'all' ? f.tone : undefined }}>{count}</p>
-                <p className="text-[11px] zego-text-tertiary">{f.hint}</p>
+                <p className="line-clamp-2 text-[11px] leading-tight zego-text-tertiary sm:text-xs">{f.label}</p>
+                <p className="text-lg font-bold tabular-nums sm:text-2xl" style={{ color: count > 0 && f.key !== 'all' ? f.tone : undefined }}>{count}</p>
+                <p className="hidden text-[11px] zego-text-tertiary sm:block">{f.hint}</p>
               </button>
             );
           })}
         </div>
       )}
 
-      {/* สรุปสถานะซอง — แตะเพื่อกรอง */}
+      {/* สรุปสถานะซอง — แตะเพื่อกรอง · จอเล็ก: การ์ดย่อ 4 ต่อแถว (ชื่อ + ตัวเลข ไม่มีคำอธิบาย) — การ์ดเต็ม 8 ใบกินที่เกินหนึ่งจอ */}
       {tab === 'envelope' && (
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+      <div className="mb-4 grid grid-cols-4 gap-1.5 sm:gap-2 xl:grid-cols-8">
         {FILTERS.map((f) => {
           const count = searched.filter((g) => matches(statusOf(g), f.key)).length;
           const active = filter === f.key;
@@ -309,11 +313,11 @@ export default function GroupExpensesPage() {
               type="button"
               onClick={() => setFilter(f.key)}
               aria-pressed={active}
-              className={cx('zego-card-surface rounded-xl px-3 py-2.5 text-left transition', active ? 'ring-2 ring-emerald-500' : 'hover:ring-1 hover:ring-emerald-200')}
+              className={cx('zego-card-surface rounded-xl px-2 py-1.5 text-left transition sm:px-3 sm:py-2.5', active ? 'ring-2 ring-emerald-500' : 'hover:ring-1 hover:ring-emerald-200')}
             >
-              <p className="text-xs zego-text-tertiary">{f.label}</p>
-              <p className="text-2xl font-bold tabular-nums" style={{ color: count > 0 && f.key !== 'all' ? f.tone : undefined }}>{count}</p>
-              <p className="text-[11px] zego-text-tertiary">{f.hint}</p>
+              <p className="line-clamp-2 text-[11px] leading-tight zego-text-tertiary sm:text-xs">{f.label}</p>
+              <p className="text-lg font-bold tabular-nums sm:text-2xl" style={{ color: count > 0 && f.key !== 'all' ? f.tone : undefined }}>{count}</p>
+              <p className="hidden text-[11px] zego-text-tertiary sm:block">{f.hint}</p>
             </button>
           );
         })}
@@ -322,7 +326,7 @@ export default function GroupExpensesPage() {
 
       {/* แถบค้นหา — กล่องละ 1 เงื่อนไข: ไอคอน + ชื่อช่องด้านบน ค่าที่เลือกด้านล่าง */}
       <div className="mb-4 flex flex-wrap items-stretch gap-2 2xl:flex-nowrap">
-        <FilterBox icon="plane" label="เลือกประเทศ" className="w-full sm:w-44" group>
+        <FilterBox icon="plane" label="เลือกประเทศ" className={cx('w-full sm:w-44', !filtersOpen && 'max-md:hidden')} group>
           <MultiSelectControl
             ariaLabel="เลือกประเทศ"
             value={countrySel}
@@ -335,13 +339,19 @@ export default function GroupExpensesPage() {
             panelClassName="w-max min-w-full"
           />
         </FilterBox>
-        <FilterBox icon="briefcase" label="รหัสกรุ๊ป" className="w-full sm:w-44">
-          <input aria-label="รหัสกรุ๊ป" value={codeQ} onChange={(e) => setCodeQ(e.target.value)} placeholder="กรองข้อมูล..." className={FILTER_INPUT} />
-        </FilterBox>
-        <FilterBox icon="list" label="รายการทัวร์" className="min-w-[10rem] flex-1">
+        <div className="flex w-full items-stretch gap-2 sm:w-44 max-md:order-first">
+          <FilterBox icon="briefcase" label="รหัสกรุ๊ป" className="min-w-0 flex-1">
+            <input aria-label="รหัสกรุ๊ป" value={codeQ} onChange={(e) => setCodeQ(e.target.value)} placeholder="กรองข้อมูล..." className={FILTER_INPUT} />
+          </FilterBox>
+          {/* ตัวเลข = ตัวกรองที่พับไว้แต่ตั้งค่าอยู่ (ประเทศ / รายการทัวร์ / วันที่) */}
+          <Button className="shrink-0 self-stretch md:hidden!" variant={countrySel.length > 0 || tourN || dateFrom || dateTo ? 'primary' : 'secondary'} icon="filter" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((v) => !v)}>
+            ตัวกรอง{(() => { const n = [countrySel.length > 0, !!tourN, !!(dateFrom || dateTo)].filter(Boolean).length; return n > 0 ? ` (${n})` : ''; })()}
+          </Button>
+        </div>
+        <FilterBox icon="list" label="รายการทัวร์" className={cx('min-w-[10rem] flex-1', !filtersOpen && 'max-md:hidden')}>
           <input aria-label="รายการทัวร์" value={tourQ} onChange={(e) => setTourQ(e.target.value)} placeholder="กรองข้อมูล..." className={FILTER_INPUT} />
         </FilterBox>
-        <div className="flex w-full shrink-0 items-stretch gap-1 sm:w-auto">
+        <div className={cx('flex w-full shrink-0 items-stretch gap-1 sm:w-auto', !filtersOpen && 'max-md:hidden')}>
           <FilterBox icon="calendar" label="วันที่" className="flex-1 sm:w-36">
             <input type="date" aria-label="ตั้งแต่วันที่" value={dateFromEff} onChange={(e) => setDateFrom(e.target.value)} className={FILTER_INPUT} />
           </FilterBox>

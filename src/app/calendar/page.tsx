@@ -142,6 +142,17 @@ export default function CalendarPage() {
   // ตัวกรองการจัดเจ้าหน้าที่ส่งกรุ๊ป — คู่ขนานกับหัวหน้าทัวร์ด้านบน กรองอิสระจากกัน
   const [sendOffState, setSendOffState] = useState<'all' | 'assigned' | 'unassigned'>('all');
   const [staffPick, setStaffPick] = useState<string[]>([]); // [] = ทุกคนที่ถูกจัดแล้ว
+  /** จอเล็ก: ตัวกรองทั้ง 7 ช่องพับไว้ (เหลือช่องค้นหา) — ไม่งั้นปฏิทินถูกดันลงไปเกินหนึ่งจอ */
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilterCount = [
+    country.length > 0,
+    !(sale.length === 2 && sale.includes('SELL') && sale.includes('CLOSED')),
+    period !== 'all',
+    assignState !== 'all',
+    leaderPick.length > 0,
+    sendOffState !== 'all',
+    staffPick.length > 0,
+  ].filter(Boolean).length;
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dayOpen, setDayOpen] = useState<string | null>(null); // วันที่ ISO ที่กางรายการกรุ๊ปทั้งวันอยู่
@@ -425,6 +436,18 @@ export default function CalendarPage() {
     กลับเด้งไปสัปดาห์ของสิงหาคม (ค่าตั้งต้นที่ไม่เคยขยับ) — ดูเหมือนตัวกรองไม่ตรงเดือนที่เลือก
   */
   const monthStartISO = `${cursor.year}-${String(cursor.month + 1).padStart(2, '0')}-01`;
+  /* จอเล็กไม่มีมุมมอง "ตาราง" — ถ้ากำลังเปิดอยู่แล้วจอแคบลง (หมุนจอ/ย่อหน้าต่าง) สลับกลับไปมุมมองเดือน */
+  useEffect(() => {
+    if (view !== 'timeline') return;
+    const mq = window.matchMedia('(max-width: 767px)');
+    const fallback = () => { if (mq.matches) setView('month'); };
+    fallback();
+    // ฟังทั้ง change ของ media query และ resize — บางเบราว์เซอร์/โหมดจำลองขนาดจอไม่ยิง change
+    mq.addEventListener('change', fallback);
+    window.addEventListener('resize', fallback);
+    return () => { mq.removeEventListener('change', fallback); window.removeEventListener('resize', fallback); };
+  }, [view]);
+
   const changeView = (next: View) => {
     if (next === 'week' && weekAnchor.slice(0, 7) !== monthStartISO.slice(0, 7)) {
       setWeekAnchor(monthStartISO);
@@ -436,7 +459,7 @@ export default function CalendarPage() {
   };
 
 
-  const renderChip = (p: TourPeriodMaster) => {
+  const renderChip = (p: TourPeriodMaster, large = false) => {
     const leader = leaderOf(p);
     const status = boardStatusFromAssignment(assignmentByPeriod.get(p.internalId)?.assignmentStatus);
     const assignedLabel = leader
@@ -455,7 +478,10 @@ export default function CalendarPage() {
         title={[`${groupCodeLabel(p)} — ${p.displayName}`, complete ? 'จัดครบแล้ว (หัวหน้าทัวร์ + เจ้าหน้าที่ส่งกรุ๊ป)' : null, assignedLabel, sendOffLabel, `ขาย: ${SALE_STATUS_LABEL[p.saleStatus]}`].filter(Boolean).join(' · ')}
         className={cx(
           // 8.5px + ระยะขอบแคบ — ป้ายยาวขึ้นเพราะมี (บัส) ต่อท้าย ตัวใหญ่กว่านี้ถูกตัดตั้งแต่จอ 1280 · ผู้ใช้ขอให้เล็กลงจาก 9px
-          'flex w-full items-center gap-0.5 rounded border px-1 py-0.5 text-left text-[8.5px] font-medium transition hover:brightness-95',
+          'flex w-full items-center gap-0.5 rounded border text-left font-medium transition hover:brightness-95',
+          // large = รายการรายวันบนจอเล็ก (2 ป้ายต่อแถว) — มีที่พอให้อ่าน Group Code เต็ม
+          // ! — กฎ global `button { font-size: inherit }` (นอก layer) ชนะคลาส Tailwind ปกติ
+          large ? 'min-h-8 gap-1 px-1.5 py-1 text-[11px]!' : 'px-1 py-0.5 text-[8.5px]',
           complete ? COMPLETE_CHIP : NEUTRAL_CHIP,
         )}
       >
@@ -541,6 +567,92 @@ export default function CalendarPage() {
     );
   };
 
+  /** จัดครบ = หัวหน้าทัวร์คอนเฟิร์มแล้ว + เจ้าหน้าที่ส่งกรุ๊ปคอนเฟิร์มแล้ว (เกณฑ์เดียวกับสีป้ายกรุ๊ป) */
+  const isComplete = (p: TourPeriodMaster) =>
+    !!leaderOf(p) && boardStatusFromAssignment(assignmentByPeriod.get(p.internalId)?.assignmentStatus) === 'CONFIRMED' && hasSendOff(sendOffOf(p));
+
+  /**
+   * จอเล็ก — มุมมองเดือน: ตาราง 7 คอลัมน์พอดีจอ ช่องละ "วันที่ + จำนวนกรุ๊ป" (ป้าย Group Code ใส่ไม่พอในช่องกว้าง ~48px)
+   * แตะวันที่มีกรุ๊ป → เปิดรายการกรุ๊ปทั้งวัน (หน้าต่างเดียวกับ "ดูทั้งหมด" บนจอใหญ่) · ตัวเลขเขียว = จัดครบทุกกรุ๊ปของวันนั้น
+   */
+  const mobileMonthGrid = () => (
+    <div>
+      <div className="zego-border-color zego-surface-soft-bg grid grid-cols-7 border-b">
+        {TH_WEEKDAYS_SHORT.map((d, i) => (
+          <div key={d} className={cx('py-1.5 text-center text-[11px] font-semibold', i === 0 || i === 6 ? 'text-rose-600' : 'zego-text-tertiary')}>{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {monthCells.map((cell) => {
+          if (!cell.inMonth) return <div key={cell.date} className="zego-border-color zego-surface-soft-bg min-h-14 border-b border-r" />;
+          const ps = periodsByStart.get(cell.date) ?? [];
+          const done = ps.filter(isComplete).length;
+          const holiday = holidays.get(cell.date);
+          const dow = parseDate(cell.date).getDay();
+          const weekend = dow === 0 || dow === 6;
+          return (
+            <button
+              key={cell.date}
+              type="button"
+              disabled={ps.length === 0}
+              onClick={() => setDayOpen(cell.date)}
+              aria-label={`${formatDate(cell.date)}${holiday ? ` วันหยุด ${holiday.name}` : ''} · ${ps.length} กรุ๊ป${ps.length ? ` · จัดครบ ${done}` : ''}`}
+              className={cx('zego-border-color flex min-h-14 flex-col items-center gap-1 border-b border-r pb-1 pt-1.5', holiday || weekend ? 'bg-rose-50' : 'zego-surface-bg', ps.length > 0 && 'active:brightness-95')}
+            >
+              <span className="flex items-center gap-0.5">
+                <span className={cx('flex h-6 min-w-6 items-center justify-center rounded-full text-xs', cell.isToday ? 'zego-today-badge font-bold' : holiday ? 'font-semibold text-rose-600' : weekend ? 'text-rose-500' : 'zego-text-secondary')}>
+                  {parseDate(cell.date).getDate()}
+                </span>
+                {holiday && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-rose-500" />}
+              </span>
+              {ps.length > 0 && (
+                <span className={cx('min-w-7 rounded-full px-1.5 text-[11px] font-semibold leading-5 tabular-nums', done === ps.length ? COMPLETE_CHIP : NEUTRAL_CHIP)}>
+                  {ps.length}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  /** จอเล็ก — มุมมองสัปดาห์: เรียงเป็นรายการรายวันลงมา · ป้ายกรุ๊ป 2 ใบต่อแถว ตัวใหญ่พออ่าน Group Code เต็ม */
+  const mobileWeekList = () => (
+    <div className="divide-y divide-[var(--zego-border-soft)]">
+      {weekCells.map((cell) => {
+        const ps = cell.inMonth ? periodsByStart.get(cell.date) ?? [] : [];
+        const d = parseDate(cell.date);
+        const weekend = d.getDay() === 0 || d.getDay() === 6;
+        const holiday = holidays.get(cell.date);
+        const limit = 8;
+        return (
+          <section key={cell.date} className={cx('px-3 py-2.5', (weekend || holiday) && 'bg-rose-50/60')}>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <p className={cx('text-sm font-semibold', cell.isToday ? 'zego-text-info' : weekend || holiday ? 'text-rose-600' : 'zego-text')}>
+                {TH_WEEKDAYS_SHORT[d.getDay()]} {formatDate(cell.date)}
+                {holiday && <span className="ml-1.5 text-xs font-normal text-rose-600">{holiday.name}</span>}
+              </p>
+              <span className="shrink-0 text-xs zego-text-tertiary">{ps.length} กรุ๊ป</span>
+            </div>
+            {ps.length === 0 ? (
+              <p className="text-xs zego-text-disabled">ไม่มีกรุ๊ปออกเดินทาง</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-1">
+                {ps.slice(0, limit).map((p) => renderChip(p, true))}
+                {ps.length > limit && (
+                  <button type="button" onClick={() => setDayOpen(cell.date)} className="zego-text-info col-span-2 rounded py-1 text-left text-xs font-medium">
+                    +{ps.length - limit} กรุ๊ป · ดูทั้งหมด
+                  </button>
+                )}
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+
   /**
    * สรุปวันหยุดใต้ตาราง — ในช่องวันเหลือแค่จุดแดง ชื่อวันหยุดมาอ่านที่นี่แทน
    * ข้อมูลมาจากเมนู "วันหยุด" ผ่าน holidayService ชุดเดียวกับจุดแดงในตาราง
@@ -578,6 +690,51 @@ export default function CalendarPage() {
     );
   };
 
+  /** แถวกรุ๊ป 1 แถว (Group Code · โปรแกรม · วันเดินทาง · หัวหน้าทัวร์ · คนไปส่ง · สถานะขาย) ในรายการกรุ๊ปของวัน */
+  const periodListItem = (p: TourPeriodMaster) => {
+    const leader = leaderOf(p);
+    const leaderStatus = boardStatusFromAssignment(assignmentByPeriod.get(p.internalId)?.assignmentStatus);
+    const sendOffJob = sendOffOf(p);
+    const sendOffStatus = sendOffJob ? sendOffJobStatus(sendOffJob) : 'UNASSIGNED';
+    // จัดครบ (หัวหน้าทัวร์ + เจ้าหน้าที่ส่งกรุ๊ป คอนเฟิร์มแล้วทั้งคู่) → เขียวทั้งแถว ตรงกับชิปบนปฏิทิน
+    const complete = !!leader && leaderStatus === 'CONFIRMED' && hasSendOff(sendOffJob);
+    return (
+      <li key={p.internalId}>
+        <button
+          type="button"
+          onClick={() => { setSelectedId(p.internalId); setDayOpen(null); }}
+          className={cx(
+            'flex w-full flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-left transition',
+            complete ? `${COMPLETE_CHIP} hover:brightness-95` : 'zego-border-color zego-hover-surface',
+          )}
+        >
+          <Icon name="guide" className="h-4 w-4 shrink-0 opacity-70" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-medium"><span className="font-mono font-bold">{groupCodeLabel(p)}</span> · {p.displayName}</p>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 truncate text-xs zego-text-tertiary">
+              <span>{p.countryName} · {formatDateRange(p.startDate, p.endDate)}</span>
+              <span className="flex items-center gap-1">
+                <Icon name="guide" className={cx('h-3 w-3 shrink-0', STATUS_ICON_COLOR[leaderStatus])} />
+                {leader
+                  ? `${leaderDisplayName(leader)} (${BOARD_STATUS[leaderStatus].label})`
+                  : 'ยังไม่มีหัวหน้าทัวร์'}
+              </span>
+              {sendOffJob && (
+                <span className="flex items-center gap-1">
+                  <Icon name="plane" className={cx('h-3 w-3 shrink-0', STATUS_ICON_COLOR[sendOffStatus])} />
+                  {sendOffJob.staff
+                    ? `${sendOffStaffName(sendOffJob.staff)} (${BOARD_STATUS[sendOffStatus].label})`
+                    : 'ยังไม่มีคนไปส่ง'}
+                </span>
+              )}
+            </p>
+          </div>
+          <span className={cx('shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-medium', SALE_CHIP[p.saleStatus])}>{SALE_STATUS_LABEL[p.saleStatus]}</span>
+        </button>
+      </li>
+    );
+  };
+
   return (
     <>
       <PageHeader title="ปฏิทินงาน" description={`อ่านจาก Tour Period Master · แสดง ${filtered.length} พีเรียด · สีของแถบแทนสถานะจัดหัวหน้าทัวร์ (ไอคอนคน) · ไอคอนเครื่องบินแทนสถานะเจ้าหน้าที่ส่งกรุ๊ป`} />
@@ -585,10 +742,18 @@ export default function CalendarPage() {
       {/* ตัวกรอง (ชุดเดียวกับตารางโปรแกรม §5) */}
       <Card className="mb-5">
         <div className="grid items-end gap-3 lg:grid-cols-4">
-          <div className="lg:col-span-1"><SearchBox value={search} onChange={setSearch} placeholder="ค้นหา Group Code / โปรแกรม" label="ค้นหาพีเรียด" /></div>
-          <MultiSelect label="ประเทศ" value={country} onChange={setCountry} allLabel="ทุกประเทศ" options={countries.map((c) => ({ value: c, label: c }))} />
-          <MultiSelect label="สถานะขาย" value={sale} onChange={(v) => setSale(v as SaleStatus[])} allLabel="ทั้งหมด" options={(['SELL', 'NO_SELL', 'CLOSED'] as SaleStatus[]).map((s) => ({ value: s, label: SALE_STATUS_LABEL[s] }))} />
-          <SelectInput label="ประเภทกรุ๊ป" value={period} onChange={(e) => setPeriod(e.target.value as typeof period)} options={[{ value: 'all', label: 'ทั้งหมด' }, { value: 'INC', label: 'INC' }, { value: 'COL', label: 'COL' }]} />
+          <div className="flex items-end gap-2 lg:col-span-1">
+            <div className="min-w-0 flex-1"><SearchBox value={search} onChange={setSearch} placeholder="ค้นหา Group Code / โปรแกรม" label="ค้นหาพีเรียด" /></div>
+            {/* จอเล็ก: ปุ่มกาง/พับตัวกรองที่เหลือ · ตัวเลข = จำนวนตัวกรองที่ไม่ใช่ค่าเริ่มต้น */}
+            <Button className="shrink-0 md:hidden!" variant={activeFilterCount > 0 ? 'primary' : 'secondary'} icon="filter" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((v) => !v)}>
+              ตัวกรอง{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+            </Button>
+          </div>
+          <div className={cx('contents', !filtersOpen && 'max-md:hidden')}>
+            <MultiSelect label="ประเทศ" value={country} onChange={setCountry} allLabel="ทุกประเทศ" options={countries.map((c) => ({ value: c, label: c }))} />
+            <MultiSelect label="สถานะขาย" value={sale} onChange={(v) => setSale(v as SaleStatus[])} allLabel="ทั้งหมด" options={(['SELL', 'NO_SELL', 'CLOSED'] as SaleStatus[]).map((s) => ({ value: s, label: SALE_STATUS_LABEL[s] }))} />
+            <SelectInput label="ประเภทกรุ๊ป" value={period} onChange={(e) => setPeriod(e.target.value as typeof period)} options={[{ value: 'all', label: 'ทั้งหมด' }, { value: 'INC', label: 'INC' }, { value: 'COL', label: 'COL' }]} />
+          </div>
         </div>
 
         {/*
@@ -597,7 +762,7 @@ export default function CalendarPage() {
           items-start: ทุกช่องมี Label ครบ จึงชิดบนแล้วตรงแนวกันเอง — ถ้าใช้ items-end
           ข้อความ hint ใต้ช่องเลือกคนจะดันช่องนั้นสูงขึ้นจนเหลื่อมกับช่องข้าง ๆ
         */}
-        <div className="zego-divider-top mt-3 grid items-start gap-3 pt-3 lg:grid-cols-4">
+        <div className={cx('zego-divider-top mt-3 grid items-start gap-3 pt-3 lg:grid-cols-4', !filtersOpen && 'max-md:hidden')}>
           <SelectInput
             label="สถานะหัวหน้าทัวร์"
             value={assignState}
@@ -670,7 +835,8 @@ export default function CalendarPage() {
           (วัดแล้วค่าค้างได้เมื่อแถบตกบรรทัด ทำให้แถวเลขวันที่ไปซ่อนใต้แถบหรือมีช่องว่างคั่น)
           z-30 — สูงกว่าแถบงานในตาราง และต่ำกว่าแถบด้านบนของแอป (z-40)
         */}
-        <div className="sticky z-30 zego-surface-bg" style={{ top: APP_HEADER_H }}>
+        {/* จอเล็กไม่ติดค้าง — แถบนี้สูงหลายบรรทัด ติดไว้จะบังปฏิทินเกือบครึ่งจอ */}
+        <div className="z-30 zego-surface-bg md:sticky" style={{ top: APP_HEADER_H }}>
         <div className="zego-divider-bottom flex flex-wrap items-center justify-between gap-3 zego-surface-bg px-4 py-3">
           <div className="flex items-center gap-2">
             <button type="button" aria-label="ก่อนหน้า" onClick={() => (view === 'week' ? setWeekAnchor((a) => shiftWeek(a, -1)) : setCursor((c) => shiftMonth(c.year, c.month, -1)))} className="zego-text-secondary rounded-lg p-1.5 zego-hover-surface"><Icon name="chevronLeft" className="h-4 w-4" /></button>
@@ -684,7 +850,7 @@ export default function CalendarPage() {
           {/* สรุปจำนวนกรุ๊ปของช่วงที่กำลังแสดง — อัปเดตตามตัวกรองและมุมมอง เขียนย่อเป็น "จัดแล้ว/ทั้งหมด" ให้อยู่บรรทัดเดียวเสมอ */}
           <div
             aria-live="polite"
-            className="zego-border-color zego-surface-soft-bg flex min-w-0 flex-1 items-center justify-center gap-x-3 overflow-x-auto whitespace-nowrap rounded-lg border px-3 py-1.5"
+            className="zego-border-color zego-surface-soft-bg flex min-w-0 flex-1 items-center justify-center gap-x-3 overflow-x-auto whitespace-nowrap rounded-lg border px-3 py-1.5 max-md:order-last max-md:basis-full max-md:flex-wrap max-md:justify-start max-md:gap-y-1 max-md:overflow-visible max-md:whitespace-normal"
           >
             <span className="zego-text shrink-0 text-sm font-semibold">
               {visiblePeriods.length.toLocaleString('th-TH')} กรุ๊ป
@@ -713,7 +879,10 @@ export default function CalendarPage() {
             )}
           </div>
 
+          {/* จอเล็ก: ไม่มีมุมมอง "ตาราง" (ปุ่มที่ 3) — ทั้งเดือนบีบในจอแคบอ่านไม่ได้ */}
+          <div className="max-md:w-full max-md:[&_.zego-segmented]:flex! max-md:[&_.zego-segmented__button]:flex-1 max-md:[&_.zego-segmented__button:nth-child(3)]:hidden!">
           <SegmentedControl label="เลือกมุมมองปฏิทิน" value={view} onChange={changeView} options={[{ value: 'month', label: 'เดือน' }, { value: 'week', label: 'สัปดาห์' }, { value: 'timeline', label: 'ตาราง' }]} />
+          </div>
         </div>
 
         {/*
@@ -722,7 +891,7 @@ export default function CalendarPage() {
           จอแคบตัวปฏิทินเลื่อนแนวนอนได้ → หัวคอลัมน์เลื่อนตาม (syncHeadScroll) ไม่งั้นคอลัมน์ไม่ตรงกัน
         */}
         {(view === 'month' || view === 'week') && (
-          <div ref={gridHeadRef} className="overflow-x-hidden">
+          <div ref={gridHeadRef} className="overflow-x-hidden max-md:hidden">
             <div className="min-w-[42rem]">
               {view === 'month' ? (
                 <div className="zego-border-color zego-surface-soft-bg grid grid-cols-7 border-b">
@@ -745,7 +914,7 @@ export default function CalendarPage() {
         {/* แถวเลขวันที่ของมุมมองตาราง — อยู่ในกล่อง sticky เดียวกับแถบด้านบน จึงเลื่อนตามกันเสมอ */}
         {/* หัวตาราง: 1 คอลัมน์ต่อวัน — ไม่มีคอลัมน์ซ้าย เพราะรหัสกรุ๊ปอยู่บนแถบแล้ว */}
         {view === 'timeline' && listPeriods.length > 0 && timelineDays.length > 0 && (
-          <div className="zego-border-color zego-surface-soft-bg grid border-b" style={{ gridTemplateColumns: timelineCols }}>
+          <div className="zego-border-color zego-surface-soft-bg grid border-b max-md:hidden" style={{ gridTemplateColumns: timelineCols }}>
             {timelineDays.map((iso) => {
               const d = parseDate(iso);
               const weekend = d.getDay() === 0 || d.getDay() === 6;
@@ -770,30 +939,49 @@ export default function CalendarPage() {
         </div>
 
         {view === 'month' && (
-          <div className="overflow-x-auto" onScroll={syncHeadScroll}>
-            <div className="min-w-[42rem]">
-              <div className="zego-border-color grid grid-cols-7 border-l">{monthCells.map((cell) => dayCell(cell, false))}</div>
+          <>
+            <div className="md:hidden">
+              {mobileMonthGrid()}
+              {holidaySummary(monthCells)}
             </div>
-            {holidaySummary(monthCells)}
-          </div>
+            <div className="hidden overflow-x-auto md:block" onScroll={syncHeadScroll}>
+              <div className="min-w-[42rem]">
+                <div className="zego-border-color grid grid-cols-7 border-l">{monthCells.map((cell) => dayCell(cell, false))}</div>
+              </div>
+              {holidaySummary(monthCells)}
+            </div>
+          </>
         )}
 
         {view === 'week' && (
-          <div className="overflow-x-auto" onScroll={syncHeadScroll}>
-            <div className="min-w-[42rem]">
-              <div className="zego-border-color grid grid-cols-7 border-l">{weekCells.map((cell) => dayCell(cell, true))}</div>
+          <>
+            <div className="md:hidden">
+              {mobileWeekList()}
+              {holidaySummary(weekCells)}
             </div>
-            {holidaySummary(weekCells)}
-          </div>
+            <div className="hidden overflow-x-auto md:block" onScroll={syncHeadScroll}>
+              <div className="min-w-[42rem]">
+                <div className="zego-border-color grid grid-cols-7 border-l">{weekCells.map((cell) => dayCell(cell, true))}</div>
+              </div>
+              {holidaySummary(weekCells)}
+            </div>
+          </>
         )}
 
         {/*
           มุมมองตาราง — 1 แถว = 1 กรุ๊ป · แถบลากจากวันออกเดินทางถึงวันเดินทางกลับ
           แถวละกรุ๊ปจึงไม่มีแถบซ้อนกัน อ่านช่วงวันได้ตรง ๆ ต่างจากตารางเดือนที่ช่องวันเดียวมีได้ถึง 29 กรุ๊ป
         */}
+        {/* กันพลาด: ค้างมุมมอง "ตาราง" อยู่ตอนจอแคบ (ยังไม่ทันสลับกลับ) → จอเล็กแสดงตารางเดือนแทน */}
+        {view === 'timeline' && (
+          <div className="md:hidden">
+            {mobileMonthGrid()}
+            {holidaySummary(monthCells)}
+          </div>
+        )}
         {view === 'timeline' && (
           listPeriods.length === 0 || timelineDays.length === 0 ? (
-            <div className="p-4">
+            <div className="p-4 max-md:hidden">
               <EmptyState icon="calendar" title="ไม่พบพีเรียดตามเงื่อนไขที่เลือก" description="ลองปรับตัวกรองด้านบน" />
             </div>
           ) : (
@@ -804,7 +992,7 @@ export default function CalendarPage() {
               ผู้ใช้ต้องเดาว่ากำลังเลื่อนอันไหนอยู่ · หัววันที่ยังคงอยู่โดย sticky เกาะใต้แถบด้านบนของแอปแทน
               ไม่กำหนดความกว้างขั้นต่ำ — คอลัมน์ยืดหดพอดีพื้นที่เสมอ จึงไม่มีแถบเลื่อนแนวนอน
             */
-            <div className="w-full max-w-full overflow-x-clip">
+            <div className="w-full max-w-full overflow-x-clip max-md:hidden">
               <div>
                 {timelineRows.map((p) => {
                   const leader = leaderOf(p);
@@ -886,49 +1074,7 @@ export default function CalendarPage() {
           : undefined}
       >
         <ul className="space-y-2">
-          {dayPeriodsOpen.map((p) => {
-            const leader = leaderOf(p);
-            const leaderStatus = boardStatusFromAssignment(assignmentByPeriod.get(p.internalId)?.assignmentStatus);
-            const sendOffJob = sendOffOf(p);
-            const sendOffStatus = sendOffJob ? sendOffJobStatus(sendOffJob) : 'UNASSIGNED';
-            // จัดครบ (หัวหน้าทัวร์ + เจ้าหน้าที่ส่งกรุ๊ป คอนเฟิร์มแล้วทั้งคู่) → เขียวทั้งแถว ตรงกับชิปบนปฏิทิน
-            const complete = !!leader && leaderStatus === 'CONFIRMED' && hasSendOff(sendOffJob);
-            return (
-              <li key={p.internalId}>
-                <button
-                  type="button"
-                  onClick={() => { setSelectedId(p.internalId); setDayOpen(null); }}
-                  className={cx(
-                    'flex w-full flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-left transition',
-                    complete ? `${COMPLETE_CHIP} hover:brightness-95` : 'zego-border-color zego-hover-surface',
-                  )}
-                >
-                  <Icon name="guide" className="h-4 w-4 shrink-0 opacity-70" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium"><span className="font-mono font-bold">{groupCodeLabel(p)}</span> · {p.displayName}</p>
-                    <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 truncate text-xs zego-text-tertiary">
-                      <span>{p.countryName} · {formatDateRange(p.startDate, p.endDate)}</span>
-                      <span className="flex items-center gap-1">
-                        <Icon name="guide" className={cx('h-3 w-3 shrink-0', STATUS_ICON_COLOR[leaderStatus])} />
-                        {leader
-                          ? `${leaderDisplayName(leader)} (${BOARD_STATUS[leaderStatus].label})`
-                          : 'ยังไม่มีหัวหน้าทัวร์'}
-                      </span>
-                      {sendOffJob && (
-                        <span className="flex items-center gap-1">
-                          <Icon name="plane" className={cx('h-3 w-3 shrink-0', STATUS_ICON_COLOR[sendOffStatus])} />
-                          {sendOffJob.staff
-                            ? `${sendOffStaffName(sendOffJob.staff)} (${BOARD_STATUS[sendOffStatus].label})`
-                            : 'ยังไม่มีคนไปส่ง'}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                  <span className={cx('shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-medium', SALE_CHIP[p.saleStatus])}>{SALE_STATUS_LABEL[p.saleStatus]}</span>
-                </button>
-              </li>
-            );
-          })}
+          {dayPeriodsOpen.map((p) => periodListItem(p))}
         </ul>
       </Drawer>
 
