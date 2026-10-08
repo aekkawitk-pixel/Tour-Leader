@@ -317,16 +317,21 @@ function JobsCalendar({ jobs, startMonth }: { jobs: Job[]; startMonth?: string |
           <ul className="divide-y divide-[var(--zego-border-soft)]">
             {inMonth.map(({ assignment, period }) => (
               <li key={assignment.assignmentId}>
-                <Link href={`/guide/jobs/${period.internalId}`} className="flex items-center gap-3 px-4 py-3 zego-hover-surface">
-                  <span className={cx('h-9 w-1.5 shrink-0 rounded-full', colorOf.get(assignment.assignmentId)!.bar)} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium zego-text">{period.groupCode} · {period.displayName}</p>
-                    <p className="text-xs zego-text-tertiary">{period.countryName} · {formatDateRange(period.startDate, period.endDate)}</p>
+                {/*
+                  มือถือ: แถวบน รหัสกรุ๊ป + สถานะงาน · ชื่อโปรแกรม (ไม่เกิน 2 บรรทัด) · ประเทศ · วันที่ · ซองเงินแถวล่างสุด
+                  ไม่วางป้ายไว้ขวามือ — ป้ายยาวบีบชื่อโปรแกรมจนตัดหลายบรรทัด
+                */}
+                <Link href={`/guide/jobs/${period.internalId}`} className="flex items-stretch gap-3 px-4 py-3 zego-hover-surface">
+                  <span className={cx('w-1.5 shrink-0 rounded-full', colorOf.get(assignment.assignmentId)!.bar)} />
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold zego-text">{period.groupCode}</p>
+                      <StatusBadge meta={boardStatusMeta(assignment.assignmentStatus)} size="sm" />
+                    </div>
+                    <p className="line-clamp-2 text-xs zego-text-secondary" title={period.displayName}>{period.displayName}</p>
+                    <p className="text-[11px] zego-text-tertiary">{period.countryName} · {formatDateRange(period.startDate, period.endDate)}</p>
+                    <EnvelopeChip periodId={period.internalId} />
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                            <StatusBadge meta={boardStatusMeta(assignment.assignmentStatus)} size="sm" />
-                            <EnvelopeChip periodId={period.internalId} />
-                          </div>
                 </Link>
               </li>
             ))}
@@ -359,5 +364,10 @@ function EnvelopeChip({ periodId }: { periodId: string }) {
   else if (waitingMe > 0) { label = `รอคุณยืนยันรับ ${waitingMe} ซอง`; tone = 'violet'; }
   else if (status.stage === 'handed_over') { label = status.label; tone = 'violet'; }
   else { label = 'รับซองแล้ว'; tone = 'green'; }
-  return <StatusPill label={`ซองเงิน: ${label}`} tone={tone} />;
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className="text-[11px] zego-text-tertiary">ซองเงิน</span>
+      <StatusPill label={label} tone={tone} />
+    </span>
+  );
 }
