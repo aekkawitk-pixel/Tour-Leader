@@ -25,7 +25,7 @@ const OTHER_TONE = { tile: 'zego-surface-soft-bg', text: 'zego-text-secondary', 
 const AIRPORT_TONE: Record<string, typeof GREEN> = { BKK: GREEN, DMK: BROWN };
 export const airportTone = (code: string) => AIRPORT_TONE[code] ?? OTHER_TONE;
 
-export function MonthJobsCard({ month, isCurrent, count, byAirport, pending = 0, onBack }: {
+export function MonthJobsCard({ month, isCurrent, count, byAirport, pending = 0, onBack, onClick, active = false }: {
   /** เดือนที่แสดง (yyyy-mm) */
   month: string;
   /** เป็นเดือนปัจจุบันไหม — หัวข้อ "จำนวนงานเดือนปัจจุบัน" / "จำนวนงานของเดือน" */
@@ -36,10 +36,15 @@ export function MonthJobsCard({ month, isCurrent, count, byAirport, pending = 0,
   pending?: number;
   /** ไม่ใช่เดือนปัจจุบัน — ปุ่ม "กลับเดือนนี้" */
   onBack?: () => void;
+  /** แตะการ์ด = สลับดูทั้งเดือน (หน้าหลักเจ้าหน้าที่ส่งกรุ๊ป) · ไม่ส่ง = การ์ดแสดงอย่างเดียว */
+  onClick?: () => void;
+  /** กำลังดูทั้งเดือนอยู่ — กรอบเขียวเข้ม */
+  active?: boolean;
 }) {
   const total = count || 1;
-  return (
-    <Card className="space-y-3 border-emerald-200 bg-emerald-50/40">
+  const clickable = !!onClick;
+  const card = (
+    <Card className={cx('space-y-3 border-emerald-200 bg-emerald-50/40', clickable && 'transition hover:border-emerald-400', active && 'ring-2 ring-emerald-500')}>
       <div className="flex items-center gap-3">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
           <Icon name="calendar" className="h-5 w-5" />
@@ -49,7 +54,7 @@ export function MonthJobsCard({ month, isCurrent, count, byAirport, pending = 0,
           <p className="text-xs zego-text-tertiary">
             {thaiMonthTitle(month)}
             {!isCurrent && onBack && (
-              <button type="button" onClick={onBack} className="ml-2 font-medium zego-text-success hover:underline">กลับเดือนนี้</button>
+              <button type="button" onClick={(e) => { e.stopPropagation(); onBack(); }} className="ml-2 font-medium zego-text-success hover:underline">กลับเดือนนี้</button>
             )}
           </p>
         </div>
@@ -80,6 +85,25 @@ export function MonthJobsCard({ month, isCurrent, count, byAirport, pending = 0,
           );
         })}
       </div>
+      {clickable && (
+        <p className="flex items-center justify-center gap-1 text-[11px] font-medium text-emerald-700">
+          {active ? 'กำลังดูงานทั้งเดือน · แตะอีกครั้งเพื่อกลับดูรายวัน' : 'แตะเพื่อดูงานทั้งเดือน'}
+          <Icon name={active ? 'close' : 'chevronRight'} className="h-3.5 w-3.5" />
+        </p>
+      )}
     </Card>
   );
+  // Card ไม่รับ props อื่น — ห่อด้วยตัวกดได้ (role=button) แทน · ข้างในมีปุ่ม "กลับเดือนนี้" จึงใช้ <button> ซ้อนไม่ได้
+  return clickable ? (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={active}
+      className="cursor-pointer rounded-xl focus-visible:outline-2 focus-visible:outline-emerald-500"
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick!(); } }}
+    >
+      {card}
+    </div>
+  ) : card;
 }

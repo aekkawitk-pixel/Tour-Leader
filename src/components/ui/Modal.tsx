@@ -161,7 +161,8 @@ export function Modal({
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        {/* กันที่แถบเลื่อนไว้ตลอด — เนื้อหาสั้น/ยาว (เช่น สลับตัวกรอง) ความกว้างไม่เปลี่ยน ข้อความไม่ขยับตัดบรรทัดใหม่ */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 [scrollbar-gutter:stable]">{children}</div>
 
         {footer && (
           <footer className="zego-divider-top zego-surface-soft-bg flex flex-wrap justify-end gap-2 rounded-b-2xl px-5 py-3">
@@ -228,7 +229,8 @@ export function Drawer({
             <Icon name="close" className="h-5 w-5" />
           </button>
         </header>
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        {/* กันที่แถบเลื่อนไว้ตลอด — เนื้อหาสั้น/ยาว (เช่น สลับตัวกรอง) ความกว้างไม่เปลี่ยน ข้อความไม่ขยับตัดบรรทัดใหม่ */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 [scrollbar-gutter:stable]">{children}</div>
         {footer && (
           <footer className="zego-divider-top zego-surface-soft-bg flex flex-wrap justify-end gap-2 px-5 py-3">
             {footer}

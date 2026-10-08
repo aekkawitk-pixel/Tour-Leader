@@ -106,13 +106,18 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
 
   // คนที่ถือซองมาให้ = ผู้รับแทน (ถ้ามี) หรือเจ้าหน้าที่ที่ระบุไว้
   const fromStaffOf = (env: CashEnvelope) => env.handover?.proxyName ?? (env.handover?.receiverKind === 'staff' ? env.handover.receiverName : undefined);
-  const acknowledge = async (env: CashEnvelope) => {
+  /*
+    หลัก "คนรับเป็นคนถ่าย" — หัวหน้าทัวร์แนบรูปซองที่ได้รับทุกครั้งตอนยืนยันรับ
+    (คนถือซองที่ส่งมาให้ไม่ต้องถ่ายตอนส่งแล้ว รูปของหัวหน้าทัวร์จึงเป็นหลักฐานของทอดนี้)
+  */
+  const acknowledge = async (env: CashEnvelope, photo?: string) => {
     const fromStaff = fromStaffOf(env);
     await saveEnvelope(
-      { ...env, leaderAck: { at: toISODateTime(new Date()), leaderId: currentUser.leaderId ?? '', leaderName, ...(fromStaff ? { fromStaffName: fromStaff } : {}) } },
+      { ...env, leaderAck: { at: toISODateTime(new Date()), leaderId: currentUser.leaderId ?? '', leaderName, ...(fromStaff ? { fromStaffName: fromStaff } : {}), ...(photo ? { photo } : {}) } },
       'หัวหน้าทัวร์ยืนยันรับซอง',
       // ยังอยู่ระหว่างทาง (เจ้าหน้าที่ยังไม่กดส่งต่อ) — บันทึกไว้ให้การเงินเห็นใน Timeline
-      `${envelopeName(env)}${fromStaff ? ` · รับต่อจาก ${fromStaff}` : ''}${carrierOf(env.handover) && !env.staffHandoff ? ` · ${ACK_BEFORE_HANDOFF_NOTE}` : ''}`,
+      `${envelopeName(env)}${fromStaff ? ` · รับต่อจาก ${fromStaff}` : ' · รับจากการเงินโดยตรง'}${carrierOf(env.handover) && !env.staffHandoff ? ` · ${ACK_BEFORE_HANDOFF_NOTE}` : ''}`,
+      photo,
     );
   };
   /** แนบรูปซองที่ได้รับ ให้ซองที่กดยืนยันรับไปแล้ว (ไม่บังคับ) */
@@ -192,7 +197,7 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
             {/* หลายซอง — ยืนยันทีเดียวได้ (ยังกดทีละซองด้านล่างได้เหมือนเดิม) */}
             {toAck.length > 1 && (
               <Button variant="primary" size="sm" className="w-full" icon="check" onClick={() => setAckAllOpen(true)}>
-                ยืนยันรับทั้ง {toAck.length} ซอง
+                ยืนยันรับทั้ง {toAck.length} ซอง (แนบรูป)
               </Button>
             )}
           </div>
@@ -331,8 +336,8 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
                     เจ้าหน้าที่ส่งกรุ๊ปยังไม่ได้รับซองจากการเงิน = ขั้นตอนยังมาไม่ถึง ไม่มีปุ่ม · ส่งคืนการเงินแล้วก็ไม่มี */}
                 {stage === 'handed_over' && !env.staffReturn && !(carrierOf(env.handover) && !env.staffAck) && (receiving ? (
                   <div className="space-y-1.5">
-                    <Button variant="primary" size="sm" className="w-full" icon="check" onClick={() => setAckTarget(env)}>
-                      ยืนยันการรับ
+                    <Button variant="primary" size="sm" className="w-full" icon="camera" onClick={() => setAckTarget(env)}>
+                      ยืนยันการรับ (แนบรูป)
                     </Button>
                     {/* เดินทางกลับแล้วยังไม่ได้รับเงิน → แจ้งการเงิน */}
                     {ended && !env.notReceived && (
@@ -385,24 +390,26 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
         </Modal>
       )}
       {ackAllOpen && (
-        <AckModal
+        <PhotoConfirmModal
           title={`ยืนยันรับทั้ง ${toAck.length} ซอง`}
-          face={toAck.map((e) => `${envelopeName(e)} ${fmt(e.sealed?.faceTotals ?? [])}`).join(' · ')}
-          body="ยืนยันว่าได้รับครบทุกซองแล้ว — ถ้ามีซองไหนยังไม่ได้รับ ให้ยกเลิกแล้วกดยืนยันทีละซองแทน"
+          description={toAck.map((e) => `${envelopeName(e)} ${fmt(e.sealed?.faceTotals ?? [])}`).join(' · ')}
+          confirmLabel="ยืนยันรับซอง"
+          photoHint="ถ่ายรูปซองทั้งหมดที่ได้รับรวมกัน ให้เห็นหน้าซองและยอดเงินชัดเจน — ถ้ามีซองไหนยังไม่ได้รับ ให้ยกเลิกแล้วยืนยันทีละซอง"
           onClose={() => setAckAllOpen(false)}
-          onConfirm={async () => {
-            for (const env of toAck) await acknowledge(env);
+          onConfirm={async (photo) => {
+            for (const env of toAck) await acknowledge(env, photo);
             setAckAllOpen(false);
           }}
         />
       )}
       {ackTarget && (
-        <AckModal
+        <PhotoConfirmModal
           title={`ยืนยันรับ${envelopeName(ackTarget)}`}
-          face={fmt(ackTarget.sealed?.faceTotals ?? [])}
-          fromStaff={fromStaffOf(ackTarget)}
+          description={`ยอดหน้าซอง ${fmt(ackTarget.sealed?.faceTotals ?? [])}${fromStaffOf(ackTarget) ? ` · รับต่อจาก ${fromStaffOf(ackTarget)}` : ' · รับจากการเงินโดยตรง'}`}
+          confirmLabel="ยืนยันรับซอง"
+          photoHint="ถ่ายรูปซองที่ได้รับ ให้เห็นหน้าซองและยอดเงินชัดเจน"
           onClose={() => setAckTarget(null)}
-          onConfirm={async () => { await acknowledge(ackTarget); setAckTarget(null); }}
+          onConfirm={async (photo) => { await acknowledge(ackTarget, photo); setAckTarget(null); }}
         />
       )}
       {ackPhotoTarget && (
@@ -533,59 +540,6 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
         />
       )}
     </Card>
-  );
-}
-
-/** ยืนยันรับซอง — ยืนยันอย่างเดียว ไม่ต้องแนบรูป */
-function AckModal({
-  title,
-  face,
-  fromStaff,
-  body,
-  onClose,
-  onConfirm,
-}: {
-  title: string;
-  face: string;
-  fromStaff?: string;
-  /** ข้อความแทนค่าเริ่มต้น (ใช้กับการยืนยันหลายซอง) */
-  body?: string;
-  onClose: () => void;
-  onConfirm: () => Promise<void>;
-}) {
-  const [saving, setSaving] = useState(false);
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      size="sm"
-      title={title}
-      description={`ยอดหน้าซอง ${face}`}
-      footer={
-        <div className="grid w-full grid-cols-2 gap-2">
-          <Button variant="secondary" onClick={onClose} disabled={saving}>ยกเลิก</Button>
-          <Button
-            variant="primary"
-            icon="check"
-            loading={saving}
-            onClick={async () => {
-              setSaving(true);
-              try {
-                await onConfirm();
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
-            ยืนยันการรับ
-          </Button>
-        </div>
-      }
-    >
-      <p className="text-sm zego-text-secondary">
-        {body ?? `ยืนยันว่าได้รับซองนี้แล้ว${fromStaff ? ` (รับต่อจาก ${fromStaff})` : ''} — หลังยืนยันจึงจะบันทึกรายการจากซองนี้ได้`}
-      </p>
-    </Modal>
   );
 }
 

@@ -112,6 +112,21 @@ export interface CashEnvelope {
      * (เมื่อเจ้าหน้าที่กดส่งต่อ ผู้ถือซองเปลี่ยนเป็นคนนี้ → คนนี้กดรับ แล้วนำไปส่งหัวหน้าทัวร์หลัก)
      */
     nextLeaderCarrier?: { id: string; name: string; viaGroup?: string };
+    /**
+     * คนอื่นมารับแทน แล้วส่งต่อให้เจ้าหน้าที่ส่งกรุ๊ปประจำกรุ๊ป — ผู้ถือคนแรก (proxyStaffId) กดส่งต่อ → ผู้ถือเปลี่ยนเป็นคนนี้
+     * คนนี้กดรับในพอร์ทัลของตัวเอง แล้วนำส่งหัวหน้าทัวร์ประจำกรุ๊ปตามปกติ
+     */
+    nextStaffCarrier?: { id: string; name: string };
+    /**
+     * หัวหน้าทัวร์ประจำกรุ๊ปอื่น (รับแทน) นำส่งให้หัวหน้าทัวร์ประจำกรุ๊ปอื่นอีกคน — ทอดหลังสุดของเส้นทางที่การเงินกำหนด
+     * คนนี้ไม่จำเป็นต้องเป็นปลายทาง: รับแล้วเป็นผู้ถือซอง นำส่งหัวหน้าทัวร์ประจำกรุ๊ป หรือส่งต่ออีกทอดได้เอง
+     */
+    finalLeaderCarrier?: { id: string; name: string; viaGroup?: string };
+    /**
+     * หัวหน้าทัวร์ประจำกรุ๊ปอื่น (รับแทน) นำส่งแลนด์ — ไม่ผ่านหัวหน้าทัวร์ประจำกรุ๊ป (ผู้ถือระบุชื่อแลนด์ตอนส่ง)
+     * ทอดสุดท้ายของผู้ถือ = ส่งให้แลนด์ (บันทึกเป็น leaderAck + leaderForward ของผู้ถือคนนั้น — ซองถือว่ารับแล้ว)
+     */
+    carrierToLand?: boolean;
     /** ฝากไปกับกรุ๊ปไหน (รหัสกรุ๊ปที่ผู้ถือซองดูแลอยู่) — ไว้ตรวจย้อนหลังว่าซองเดินทางไปกับกรุ๊ปอะไร */
     viaGroup?: string;
     /** ซองของกรุ๊ปอื่นที่หยิบมาฝากไปกับกรุ๊ปนี้ (รหัสกรุ๊ป) — แสดงในหัวข้อ "ซองของกรุ๊ปอื่นที่ฝากไปด้วย" ของกรุ๊ปนั้น */
@@ -301,15 +316,20 @@ export function envelopeShortLabel(env: CashEnvelope | undefined): { label: stri
  * - ฝากเจ้าหน้าที่ส่งกรุ๊ป: "เจ้าหน้าที่ส่งกรุ๊ป ธนกฤต → นำส่ง ชัยมงคล"
  * - ฝากหัวหน้าทัวร์คนอื่น: "หัวหน้าทัวร์ (ฝากส่ง) สมชาย → นำส่ง ชัยมงคล"
  */
+const finalHop = (h: Partial<Pick<NonNullable<CashEnvelope['handover']>, 'receiverName' | 'finalLeaderCarrier' | 'carrierToLand'>>) =>
+  h.finalLeaderCarrier
+    ? ` → หัวหน้าทัวร์ประจำกรุ๊ปอื่น ${h.finalLeaderCarrier.name}${h.finalLeaderCarrier.viaGroup ? ` (ไปกับกรุ๊ป ${h.finalLeaderCarrier.viaGroup})` : ''}`
+    : h.carrierToLand ? ' → นำส่งแลนด์' : ` → นำส่ง ${h.receiverName}`;
+
 export const handoverReceiverText = (
-  h: Pick<NonNullable<CashEnvelope['handover']>, 'receiverName' | 'proxyName'> & Partial<Pick<NonNullable<CashEnvelope['handover']>, 'receiverKind' | 'proxyStaffId' | 'proxyLeaderId' | 'viaGroup' | 'nextLeaderCarrier'>>,
+  h: Pick<NonNullable<CashEnvelope['handover']>, 'receiverName' | 'proxyName'> & Partial<Pick<NonNullable<CashEnvelope['handover']>, 'receiverKind' | 'proxyStaffId' | 'proxyLeaderId' | 'viaGroup' | 'nextLeaderCarrier' | 'nextStaffCarrier' | 'finalLeaderCarrier' | 'carrierToLand'>>,
 ) =>
   h.proxyLeaderId && h.proxyName
-    ? `หัวหน้าทัวร์ (ฝากส่ง) ${h.proxyName}${h.viaGroup ? ` (ไปกับกรุ๊ป ${h.viaGroup})` : ''} → นำส่ง ${h.receiverName}`
+    ? `หัวหน้าทัวร์ (รับแทน) ${h.proxyName}${h.viaGroup ? ` (ไปกับกรุ๊ป ${h.viaGroup})` : ''}${finalHop(h)}`
     : h.proxyStaffId && h.proxyName
-      ? `เจ้าหน้าที่ส่งกรุ๊ป ${h.proxyName}${h.nextLeaderCarrier
-        ? ` → หัวหน้าทัวร์ (ฝากส่ง) ${h.nextLeaderCarrier.name}${h.nextLeaderCarrier.viaGroup ? ` (ไปกับกรุ๊ป ${h.nextLeaderCarrier.viaGroup})` : ''}`
-        : ''} → นำส่ง ${h.receiverName}`
+      ? `${h.nextStaffCarrier ? 'รับแทนโดย' : 'เจ้าหน้าที่ส่งกรุ๊ป'} ${h.proxyName}${h.nextStaffCarrier ? ` → เจ้าหน้าที่ส่งกรุ๊ป ${h.nextStaffCarrier.name}` : ''}${h.nextLeaderCarrier
+        ? ` → หัวหน้าทัวร์ (รับแทน) ${h.nextLeaderCarrier.name}${h.nextLeaderCarrier.viaGroup ? ` (ไปกับกรุ๊ป ${h.nextLeaderCarrier.viaGroup})` : ''}`
+        : ''}${finalHop(h)}`
       : `${h.receiverName}${h.proxyName ? ` (รับแทนโดย ${h.proxyName})` : ''}`;
 
 /**

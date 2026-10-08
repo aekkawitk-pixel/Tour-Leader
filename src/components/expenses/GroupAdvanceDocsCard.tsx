@@ -64,6 +64,7 @@ export function GroupAdvanceDocsCard({
     1 กรุ๊ป → เนื้อหาแต่ละช่องคิดครั้งเดียว แล้ววางได้ 2 แบบ
       จอใหญ่ = แถวตาราง 8 คอลัมน์ (เหมือนเดิม) · จอเล็ก = การ์ด (ตารางกว้าง ~990px เลื่อนข้างอ่านไม่ได้)
   */
+  const groupCodeOf = (periodId: string, docs: GroupDocs['docs']) => getTourPeriodById(periodId)?.groupCode ?? docs[0]?.sourceDoc?.groupCode ?? periodCodeOf(periodId);
   const renderGroup = ({ periodId, docs }: GroupDocs, asCard: boolean) => {
     const period = getTourPeriodById(periodId);
     // ไม่พบกรุ๊ปใน Master (เช่น เดินทางไปแล้ว ไม่อยู่ในข้อมูล Zego รอบใหม่) — ใช้ข้อมูลจากตัวเอกสารเบิกแทน
@@ -78,6 +79,10 @@ export function GroupAdvanceDocsCard({
     // ยังไม่มีเอกสารเบิก = รอการทำเบิก — ไม่มียอดเงิน และยังจัดซองไม่ได้
     const noDocs = docs.length === 0;
     const forwarded = envs.filter((e) => e.packedLineIds.length > 0 && e.leaderForward).sort((a, b) => a.no - b.no);
+    // ซองของกรุ๊ปอื่นที่การเงินระบุให้ฝากไปกับกรุ๊ปนี้ และยังไม่มีใครดึงไป — ต้องเห็นจากหน้ารายการ ไม่งั้นไม่มีใครรู้
+    const incoming = envelopes.filter((e) => e.pendingDeposit?.target?.periodId === periodId && !e.handover).length;
+    // ซองกรุ๊ปอื่นที่ดึงไปฝากกับกรุ๊ปนี้แล้ว — มี Timeline ให้ดูแม้กรุ๊ปนี้ยังไม่มีซองของตัวเอง
+    const carried = envelopes.some((e) => e.periodId !== periodId && !!e.handover && (e.handover.depositedWith ?? e.handover.viaGroup) === groupCodeOf(periodId, docs));
 
     const country = period?.countryName || fb?.countryName || '—';
     const groupCode = period?.groupCode ?? docs[0]?.sourceDoc?.groupCode ?? periodCodeOf(periodId);
@@ -89,6 +94,11 @@ export function GroupAdvanceDocsCard({
     const statusPill = noDocs && !noEnv ? <StatusPill label="รอการทำเบิก" tone="slate" /> : <StatusPill label={status.label} tone={status.tone} />;
     const statusDetails = (
       <>
+        {incoming > 0 && (
+          <p className="mt-1">
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 md:whitespace-nowrap">มีซองฝากรอ {incoming} ซอง</span>
+          </p>
+        )}
         {(!noDocs || noEnv) && status.awaiting && <p className="mt-0.5 text-xs zego-text-tertiary md:whitespace-nowrap">{status.awaiting}</p>}
         {status.recheck && <p className="mt-0.5 text-xs zego-text-warning">มีใบเบิกเข้ามาแล้ว — ตรวจว่ายังไม่ต้องจัดซองจริงไหม</p>}
         {/* หัวหน้าทัวร์ที่รับซองแล้ว — ชื่อ นามสกุล (ชื่อเล่น) ของผู้กดยืนยันรับ (ไม่ซ้ำ) */}
@@ -136,8 +146,8 @@ export function GroupAdvanceDocsCard({
           variant="primary"
           size="sm"
           className="min-w-[4.5rem] justify-center max-md:flex-1"
-          disabled={!noDocs && !manageable}
-          title={noDocs ? 'ยังไม่มีเอกสารเบิก — จัดซองได้เมื่อนำเข้าเอกสารเบิกแล้ว · ระบุว่ากรุ๊ปนี้ไม่มีซองได้เลย' : manageable ? undefined : 'ส่งมอบครบและมีผู้ตอบรับแล้ว — จัดการซองเพิ่มไม่ได้'}
+          disabled={!noDocs && !manageable && incoming === 0}
+          title={noDocs ? 'ยังไม่มีเอกสารเบิก — จัดซองได้เมื่อนำเข้าเอกสารเบิกแล้ว · ระบุว่ากรุ๊ปนี้ไม่มีซองได้เลย' : manageable || incoming > 0 ? undefined : 'ส่งมอบครบและมีผู้ตอบรับแล้ว — จัดการซองเพิ่มไม่ได้'}
           onClick={() => setOpen({ periodId, view: 'manage' })}
         >
           {noDocs ? 'จัดการ' : status.label === 'รอจัด' ? 'จัดซอง' : 'จัดการ'}
@@ -146,8 +156,8 @@ export function GroupAdvanceDocsCard({
           variant="secondary"
           size="sm"
           className="min-w-[6.5rem] justify-center max-md:flex-1"
-          disabled={!hasEvents}
-          title={hasEvents ? undefined : 'ยังไม่มีความเคลื่อนไหวของซอง — จัดซองก่อนจึงจะมี Timeline'}
+          disabled={!hasEvents && !carried && incoming === 0}
+          title={hasEvents || carried || incoming > 0 ? undefined : 'ยังไม่มีความเคลื่อนไหวของซอง — จัดซองก่อนจึงจะมี Timeline'}
           onClick={() => setOpen({ periodId, view: 'timeline' })}
         >
           ดู Timeline

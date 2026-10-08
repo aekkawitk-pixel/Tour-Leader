@@ -60,7 +60,8 @@ export function useCarrierActions(me: { kind: CarrierKind; id: string; name: str
   };
 
   /*
-    ทุกทอดต้องแนบรูปถ่ายหลักฐาน (photo) — กล่องยืนยันในการ์ดบังคับไว้แล้ว ที่นี่แค่บันทึกรูปคู่กับทอดนั้น
+    หลัก "คนรับเป็นคนถ่าย" — รับซอง: บังคับรูป · ส่งต่อให้คนในระบบ / ส่งคืนการเงิน: ไม่บังคับ (คนรับถ่ายตอนกดรับเอง)
+    ส่งให้คนนอกระบบ (แลนด์ / ผู้รับไม่ใช่คนที่กำหนด) ยังบังคับ เพราะคนรับกดยืนยันในแอปไม่ได้ · photo '' = ไม่ได้แนบ
     กล่องยืนยันพร้อมรูปคือขั้นยืนยันแล้ว จึงไม่ถาม window.confirm ซ้ำอีกชั้น
   */
   const receive = async (env: CashEnvelope, photo: string) => {
@@ -78,11 +79,54 @@ export function useCarrierActions(me: { kind: CarrierKind; id: string; name: str
    * การเงินกำหนดให้ฝากต่อหัวหน้าทัวร์กรุ๊ปอื่น (nextLeaderCarrier) → ส่งต่อให้คนนั้นแทน (เป็นผู้ถือซองคนใหม่)
    */
   const passOn = async (env: CashEnvelope, photo: string, other?: { name: string; reason: string }) => {
-    const next = env.handover?.nextLeaderCarrier;
+    /*
+      การเงินกำหนดให้นำส่งแลนด์ (carrierToLand) — ทอดสุดท้ายของผู้ถือ ไม่ผ่านหัวหน้าทัวร์ประจำกรุ๊ป
+      บันทึกเป็น "รับแล้วโดยผู้ถือคนนี้ + ส่งต่อให้แลนด์" (leaderAck + leaderForward) ซองจึงจบเส้นทางที่นี่
+    */
+    const lastHop = !env.handover?.nextLeaderCarrier && !env.handover?.nextStaffCarrier && !env.handover?.finalLeaderCarrier;
+    if (env.handover?.carrierToLand && lastHop && other) {
+      const at = toISODateTime(new Date());
+      await saveEnvelope(
+        {
+          ...env,
+          handover: { ...env.handover, receiverKind: 'other', receiverId: undefined, receiverName: other.name },
+          staffHandoff: { at, staffName: me.name, photo },
+          leaderAck: { at, leaderId: me.id, leaderName: me.name, photo },
+          leaderForward: { at, byName: me.name, toName: other.name, ...(other.reason ? { note: other.reason } : {}), photo },
+        },
+        `${title}ส่งซองให้แลนด์`,
+        `${envelopeName(env)} · ${me.name} → ${other.name}${other.reason ? ` · ${other.reason}` : ''}`,
+        photo,
+      );
+      return;
+    }
+    /* คนอื่นมารับแทน → ส่งต่อให้เจ้าหน้าที่ประจำกรุ๊ป (nextStaffCarrier) เป็นผู้ถือซองคนใหม่ แล้วคนนั้นนำส่งหัวหน้าทัวร์ต่อ */
+    const nextStaff = env.handover?.nextStaffCarrier;
+    if (nextStaff && !other) {
+      const h = { ...env.handover! };
+      delete h.proxyLeaderId;
+      delete h.nextStaffCarrier;
+      const moved: CashEnvelope = {
+        ...env,
+        handover: { ...h, receiverKind: 'staff', proxyName: nextStaff.name, proxyStaffId: nextStaff.id, relayFrom: `${title} ${me.name}` },
+      };
+      delete moved.staffAck;
+      delete moved.staffHandoff;
+      await saveEnvelope(
+        moved,
+        `${title}ส่งต่อให้เจ้าหน้าที่ส่งกรุ๊ปประจำกรุ๊ป`,
+        `${envelopeName(env)} · ${me.name} → ${nextStaff.name} · รอ ${nextStaff.name} กดรับในพอร์ทัลของตัวเอง แล้วนำส่ง ${env.handover!.receiverName}`,
+        photo,
+      );
+      return;
+    }
+    /* หัวหน้าทัวร์ (รับแทน) ทอดถัดไป — ถ้ามีทั้ง 2 ทอด ส่ง nextLeaderCarrier ก่อน แล้วค่อย finalLeaderCarrier */
+    const next = env.handover?.nextLeaderCarrier ?? env.handover?.finalLeaderCarrier;
     if (next && !other) {
       const h = { ...env.handover! };
       delete h.proxyStaffId;
-      delete h.nextLeaderCarrier;
+      if (h.nextLeaderCarrier) delete h.nextLeaderCarrier;
+      else delete h.finalLeaderCarrier;
       const moved: CashEnvelope = {
         ...env,
         handover: {
@@ -112,7 +156,7 @@ export function useCarrierActions(me: { kind: CarrierKind; id: string; name: str
         handover: other
           ? { ...env.handover!, receiverKind: 'other', receiverId: undefined, receiverName: other.name }
           : { ...env.handover!, receiverId: leader.id, receiverName: leader.name },
-        staffHandoff: { at: toISODateTime(new Date()), staffName: me.name, photo },
+        staffHandoff: { at: toISODateTime(new Date()), staffName: me.name, ...(photo ? { photo } : {}) },
       },
       other ? `${title}ส่งต่อให้ผู้รับคนอื่น` : `${title}ส่งต่อให้หัวหน้าทัวร์`,
       other
@@ -153,7 +197,7 @@ export function useCarrierActions(me: { kind: CarrierKind; id: string; name: str
   /** ติดปัญหาหน้างาน → ส่งซองคืนการเงิน (รอการเงินยืนยันรับคืน ซองยังไม่ถือว่ากลับถึงการเงินจนกว่าจะยืนยัน) */
   const giveBack = async (env: CashEnvelope, reason: string, photo: string) => {
     await saveEnvelope(
-      { ...env, staffReturn: { at: toISODateTime(new Date()), staffId: me.id, staffName: me.name, reason, photo } },
+      { ...env, staffReturn: { at: toISODateTime(new Date()), staffId: me.id, staffName: me.name, reason, ...(photo ? { photo } : {}) } },
       `${title}ส่งซองคืนการเงิน`,
       `${envelopeName(env)} · เหตุผล: ${reason} · รอการเงินยืนยันรับคืน`,
       photo,
@@ -213,8 +257,15 @@ export function CarrierEnvelopeCard({
   const holding = allHolding.filter((e) => !unpicked.has(e.id));
   const receiverName = leader?.name ?? envs[0].handover!.receiverName;
   /** ส่งมอบให้ใคร: หัวหน้าทัวร์ที่ฝากต่อ (การเงินกำหนดไว้) หรือหัวหน้าทัวร์ของกรุ๊ป */
-  const plannedNext = envs.find((e) => e.handover?.nextLeaderCarrier)?.handover?.nextLeaderCarrier;
-  const handoffTo = plannedNext ? { name: plannedNext.name, carrier: true } : leader ? { name: leader.name, carrier: false } : null;
+  const plannedNext = envs.map((e) => e.handover?.nextLeaderCarrier ?? e.handover?.finalLeaderCarrier).find(Boolean);
+  const plannedStaff = envs.find((e) => e.handover?.nextStaffCarrier)?.handover?.nextStaffCarrier;
+  /** การเงินกำหนดให้นำส่งแลนด์ — ทอดสุดท้ายต้องระบุชื่อผู้รับ */
+  // เฉพาะผู้ถือทอดสุดท้าย — ยังมีคนต้องรับต่อ (เจ้าหน้าที่ → หัวหน้าทัวร์คนอื่น) ให้ส่งต่อตามปกติก่อน
+  const toLand = envs.some((e) => e.handover?.carrierToLand && !e.handover.nextLeaderCarrier && !e.handover.nextStaffCarrier && !e.handover.finalLeaderCarrier);
+  const handoffTo = toLand ? { name: 'แลนด์', carrier: false, note: '' }
+    : plannedNext ? { name: plannedNext.name, carrier: true, note: ' (หัวหน้าทัวร์ประจำกรุ๊ปอื่น)' }
+      : plannedStaff ? { name: plannedStaff.name, carrier: true, note: ' (เจ้าหน้าที่ประจำกรุ๊ป)' }
+        : leader ? { name: leader.name, carrier: false, note: '' } : null;
   const closeForm = () => { setMode(null); setOtherName(''); setReason(''); setRelayKey(''); };
   /** ทำทีละซอง (บันทึกประวัติแยกของแต่ละซอง) แล้วปิดกล่อง */
   const runAll = async (list: CashEnvelope[], fn: (e: CashEnvelope) => Promise<void>) => {
@@ -295,13 +346,25 @@ export function CarrierEnvelopeCard({
         </ul>
 
         <p className="text-xs zego-text-secondary">
-          ส่งให้หัวหน้าทัวร์: <span className="font-medium zego-text">{leader ? leader.name : 'ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม'}</span>
+          {toLand
+            ? <>นำส่ง: <span className="font-medium zego-text">แลนด์</span> (ระบุชื่อตอนส่ง · ไม่ผ่านหัวหน้าทัวร์ประจำกรุ๊ป)</>
+            : plannedStaff
+              ? <>ส่งต่อให้เจ้าหน้าที่ประจำกรุ๊ป: <span className="font-medium zego-text">{plannedStaff.name}</span></>
+            : plannedNext
+              ? <>ส่งต่อให้หัวหน้าทัวร์ประจำกรุ๊ปอื่น: <span className="font-medium zego-text">{plannedNext.name}</span>{envs.some((e) => e.handover?.carrierToLand) ? ' — แล้วนำส่งแลนด์' : ''}</>
+              : <>ส่งให้หัวหน้าทัวร์: <span className="font-medium zego-text">{leader ? leader.name : 'ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม'}</span></>}
           <span className="zego-text-tertiary">
             {h0.relayFrom ? ` · ฝากต่อจาก ${h0.relayFrom}` : ` · การเงินฝากให้คุณ ${formatDateTime(h0.at)}${h0.byName ? ` โดย ${h0.byName}` : ''}`}
           </span>
         </p>
         {/* ขั้นตอนบรรทัดเดียว — สถานะของแต่ละซองบอกแล้วว่าถึงขั้นไหน */}
-        <p className="text-[11px] zego-text-tertiary">รับซอง → ส่งต่อให้หัวหน้าทัวร์ของกรุ๊ป (หรือฝากต่อคนในระบบ) → หัวหน้าทัวร์ยืนยันรับในเครื่องของตัวเอง</p>
+        <p className="text-[11px] zego-text-tertiary">
+          {toLand
+            ? 'รับซอง → ส่งให้แลนด์ (ระบุชื่อแลนด์ + แนบรูป) — จบที่คุณ'
+            : plannedStaff
+              ? `รับซอง → ส่งต่อให้ ${plannedStaff.name} (เจ้าหน้าที่ประจำกรุ๊ป) → เจ้าหน้าที่นำส่งหัวหน้าทัวร์ของกรุ๊ป`
+              : 'รับซอง → ส่งต่อให้หัวหน้าทัวร์ของกรุ๊ป (หรือฝากต่อคนในระบบ) → หัวหน้าทัวร์ยืนยันรับในเครื่องของตัวเอง'}
+        </p>
 
         {(allReceive.length > 1 || allHolding.length > 1) && (
           <p className="text-[11px] zego-text-tertiary">ติ๊กเลือกซองที่จะทำรายการ — ทำบางซองก่อนได้ ที่เหลือทำทีหลัง</p>
@@ -319,8 +382,8 @@ export function CarrierEnvelopeCard({
         )}
         {allHolding.length > 0 && (
           <div className="space-y-2">
-            <Button variant="primary" className="w-full" icon="camera" disabled={!handoffTo || holding.length === 0} onClick={() => setMode('handoff')}>
-              {holding.length === 0 ? 'เลือกซองที่จะส่งมอบก่อน' : handoffTo ? `ส่งมอบ${many(holding)}ให้ ${handoffTo.name}${handoffTo.carrier ? ' (หัวหน้าทัวร์ฝากส่ง)' : ''} (แนบรูป)` : 'ส่งมอบให้หัวหน้าทัวร์'}
+            <Button variant="primary" className="w-full" icon={toLand ? 'camera' : 'check'} disabled={!handoffTo || holding.length === 0} onClick={() => setMode('handoff')}>
+              {holding.length === 0 ? 'เลือกซองที่จะส่งมอบก่อน' : handoffTo ? `ส่งมอบ${many(holding)}ให้ ${handoffTo.name}${handoffTo.note}${toLand ? ' (แนบรูป)' : ''}` : 'ส่งมอบให้หัวหน้าทัวร์'}
             </Button>
             <div className="grid grid-cols-2 gap-2">
               {/* ฝากต่อให้คนในระบบ (เจ้าหน้าที่/หัวหน้าทัวร์คนอื่น) — คนนั้นกดรับในแอปต่อ ไล่ตรวจย้อนหลังได้ทุกทอด */}
@@ -329,7 +392,7 @@ export function CarrierEnvelopeCard({
                   ฝากต่อให้คนในระบบ
                 </Button>
               )}
-              <Button variant="secondary" size="sm" className="justify-center" disabled={!leader || holding.length === 0} onClick={() => setMode('other')}>
+              <Button variant="secondary" size="sm" className="justify-center" disabled={!leader || toLand || holding.length === 0} onClick={() => setMode('other')}>
                 ผู้รับไม่ใช่คนที่กำหนด
               </Button>
               <Button variant="secondary" size="sm" className="justify-center" disabled={holding.length === 0} onClick={() => setMode('return')}>
@@ -350,12 +413,27 @@ export function CarrierEnvelopeCard({
             onConfirm={(photo) => runAll(toReceive, (e) => onReceive(e, photo))}
           />
         )}
-        {mode === 'handoff' && handoffTo && (
+        {mode === 'handoff' && handoffTo && toLand && (
+          <PhotoConfirmModal
+            title={`ส่งซอง${many(holding)}ให้แลนด์`}
+            description={summary(holding)}
+            confirmLabel="ยืนยันส่งมอบ"
+            photoHint="ถ่ายรูปผู้รับคู่กับซอง ณ จุดส่งมอบ"
+            canConfirm={!!otherName.trim()}
+            onClose={closeForm}
+            onConfirm={(photo) => runAll(holding, (e) => onPassOn(e, photo, { name: otherName.trim(), reason: reason.trim() }))}
+          >
+            <TextInput label="ชื่อแลนด์ / ผู้รับ" required value={otherName} onChange={(e) => setOtherName(e.target.value)} placeholder="เช่น บริษัท ABC Travel / Mr. Wang" />
+            <TextArea label="หมายเหตุ" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="ไม่บังคับ" />
+          </PhotoConfirmModal>
+        )}
+        {mode === 'handoff' && handoffTo && !toLand && (
           <PhotoConfirmModal
             title={`ส่งมอบซอง${many(holding)}ให้ ${handoffTo.name}`}
             description={summary(holding)}
             confirmLabel="ยืนยันส่งมอบ"
-            photoHint="ถ่ายรูปหัวหน้าทัวร์คู่กับซอง ณ จุดส่งมอบ"
+            photoOptional
+            photoHint={`${handoffTo.name} เป็นคนถ่ายรูปตอนกดยืนยันรับในแอปของตัวเอง — แนบรูปฝั่งคุณเพิ่มได้ถ้าต้องการ`}
             onClose={closeForm}
             onConfirm={(photo) => runAll(holding, (e) => onPassOn(e, photo))}
           />
@@ -379,7 +457,8 @@ export function CarrierEnvelopeCard({
             title={`ฝากต่อซอง${many(holding)}`}
             description={summary(holding)}
             confirmLabel="ยืนยันฝากต่อ"
-            photoHint="ถ่ายรูปผู้รับฝากคู่กับซอง ณ จุดส่งมอบ"
+            photoOptional
+            photoHint="ผู้รับฝากเป็นคนถ่ายรูปตอนกดรับในแอปของตัวเอง — แนบรูปฝั่งคุณเพิ่มได้ถ้าต้องการ"
             canConfirm={!!relayTarget}
             onClose={closeForm}
             onConfirm={(photo) => runAll(holding, (e) => onRelay(e, photo, relayTarget!))}
@@ -406,7 +485,8 @@ export function CarrierEnvelopeCard({
             title={`ส่งซองคืนการเงิน${many(holding)}`}
             description={summary(holding)}
             confirmLabel="ยืนยันส่งคืน"
-            photoHint="ถ่ายรูปซองตอนส่งคืน ให้เห็นหน้าซองชัดเจน"
+            photoOptional
+            photoHint="การเงินเป็นคนถ่ายรูปตอนกดรับซองคืน — แนบรูปฝั่งคุณเพิ่มได้ถ้าต้องการ"
             canConfirm={!!reason.trim()}
             onClose={closeForm}
             onConfirm={(photo) => runAll(holding, (e) => onReturn(e, reason.trim(), photo))}

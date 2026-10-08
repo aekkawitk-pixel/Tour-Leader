@@ -4,11 +4,12 @@
  * หน้าหลัก — /staff/home (พอร์ทัลเจ้าหน้าที่ส่งกรุ๊ป)
  *
  *   หัวหน้า: เลือกเดือนที่ดู (มีผลกับการ์ดจำนวนงานเดือน)
- *   1) จำนวนงานของเดือน + แถบสัดส่วน สุวรรณภูมิ (ฟ้า) / ดอนเมือง (ส้ม) + จำนวน·%
+ *   1) จำนวนงานของเดือน + แถบสัดส่วน สุวรรณภูมิ (ฟ้า) / ดอนเมือง (ส้ม) + จำนวน·% — แตะการ์ด = ทั้งหน้าดูทั้งเดือน
+ *      (แถบสัปดาห์ → ปฏิทินทั้งเดือน · ช่วงเช้า/เย็น · แยกสนามบิน · รายการงาน นับทั้งเดือน · แตะวันในปฏิทิน = กลับดูรายวัน)
  *   แถบเลือกวันที่รายสัปดาห์ อา.–ส. กด ‹ › เลื่อนทีละสัปดาห์ (ค่าเริ่มต้น = วันนี้) — การ์ดงานรายวันและรายการงานเปลี่ยนตามวันที่เลือก
  *   2) งานวันนี้ / งานวันที่เลือก — รวมทั้งหมด · ช่วงเช้า 00:01–12:00 / ช่วงเย็น 12:01–00:00 (ตามเวลาต้องถึงสนามบิน · แตะเพื่อกรองรายการ)
  *      · แยกตามสนามบิน (วันนี้)
- *   3) รายการงานวันนี้ — กรองทั้งหมด / ตามสนามบิน · เวลานัด · สนามบิน · รหัสกรุ๊ป · สถานะตามเวลา
+ *   3) รายการงาน (วันที่เลือก / ทั้งเดือน) — กรองทั้งหมด / ตามสนามบิน · (วันที่) เวลานัด · สนามบิน · รหัสกรุ๊ป · สถานะตามเวลา
  * ตัวเลขคำนวณที่ staffHomeSummary / dutyStage (lib/logic/staffPortal.ts)
  */
 
@@ -20,7 +21,7 @@ import { formatDate } from '@/lib/format';
 import { DUTY_STAGE, dutyShift, dutyStage, staffHomeSummary } from '@/lib/logic/staffPortal';
 import { useStaffPortal } from '../useStaffPortal';
 import { MonthPicker } from '@/components/ui/MonthPicker';
-import { MonthJobsCard, airportText, airportTone, GREEN, BROWN } from '@/components/portal/MonthJobsCard';
+import { MonthJobsCard, airportText, airportTone, thaiMonthTitle, GREEN, BROWN } from '@/components/portal/MonthJobsCard';
 import { staffEnvelopeNotice } from '../envelopeNotice';
 import { useDemo } from '@/store/DemoStore';
 import { periodCodeOf } from '@/services/tourPeriodMaster';
@@ -70,8 +71,30 @@ export default function StaffHomePage() {
   // ตัวกรองรายการวันนี้ — สนามบิน / ช่วงเวลา (แตะการ์ดช่วงเช้า/เย็น)
   const [airportFilter, setAirportFilter] = useState<string>('all');
   const [shiftFilter, setShiftFilter] = useState<'morning' | 'evening' | null>(null);
-  const list = s.today.duties.filter((d) => (airportFilter === 'all' || (d.airport ?? '').toUpperCase() === airportFilter)
+  /** ทั้งหน้า: ดูรายวัน (วันที่เลือก) / ทั้งเดือน — สลับที่การ์ดจำนวนงานของเดือน */
+  const [scope, setScope] = useState<'day' | 'month'>('day');
+  const monthDuties = useMemo(
+    () => duties.filter((d) => d.dutyDate.startsWith(month))
+      .sort((a, b) => a.dutyDate.localeCompare(b.dutyDate) || (a.arrivalTime ?? '99').localeCompare(b.arrivalTime ?? '99')),
+    [duties, month],
+  );
+  // ตัวเลขชุดเดียวกับรายวัน แต่นับทั้งเดือน
+  const view = scope === 'month'
+    ? {
+      duties: monthDuties,
+      morning: monthDuties.filter((d) => dutyShift(d.arrivalTime) === 'morning').length,
+      evening: monthDuties.filter((d) => dutyShift(d.arrivalTime) === 'evening').length,
+      noTime: monthDuties.filter((d) => !d.arrivalTime).length,
+      airports: s.monthByAirport,
+    }
+    : s.today;
+  const base = view.duties;
+  // จำนวนต่อสนามบินของรายการที่ดูอยู่ — ใช้กับปุ่มกรอง
+  const airportCount = (code: string) => base.filter((d) => (d.airport ?? '').toUpperCase() === code).length;
+  const otherAirports = [...new Set(base.map((d) => (d.airport ?? '').toUpperCase()).filter((c) => c !== 'BKK' && c !== 'DMK'))];
+  const list = base.filter((d) => (airportFilter === 'all' || (d.airport ?? '').toUpperCase() === airportFilter)
     && (!shiftFilter || dutyShift(d.arrivalTime) === shiftFilter));
+  const listWord = scope === 'month' ? `เดือน${thaiMonthTitle(month)}` : dayWord;
 
   return (
     <div className="space-y-4">
@@ -85,21 +108,32 @@ export default function StaffHomePage() {
       </div>
 
       {/* 1) จำนวนงานของเดือน + สัดส่วนสนามบิน — การ์ดกลาง ใช้ร่วมกับหน้าหลักหัวหน้าทัวร์ */}
-      <MonthJobsCard month={month} isCurrent={month === today.slice(0, 7)} count={s.monthCount} byAirport={s.monthByAirport} pending={s.monthPending} />
+      <MonthJobsCard
+        month={month}
+        isCurrent={month === today.slice(0, 7)}
+        count={s.monthCount}
+        byAirport={s.monthByAirport}
+        pending={s.monthPending}
+        active={scope === 'month'}
+        onClick={() => setScope((v) => (v === 'month' ? 'day' : 'month'))}
+      />
 
-      {/* 2) งานรายวัน — แถบเลือกวันที่ในเดือน + ช่วงเช้า/เย็น + แยกสนามบิน */}
+      {/* 2) งานรายวัน / ทั้งเดือน — แถบสัปดาห์ (หรือปฏิทินทั้งเดือน) + ช่วงเช้า/เย็น + แยกสนามบิน */}
       <Card className="space-y-3">
         {/* หัวข้อบรรทัดเดียวเหนือแถบวันที่ — บอกวันที่กำลังดู (แม้วันที่เลือกเลื่อนพ้นแถบ) + จำนวนงาน · ไม่ซ้ำตัวเลขใหญ่ */}
         <p className="text-sm zego-text">
-          <span className="font-semibold">{isToday ? 'งานวันนี้ · ' : 'งาน'}{dayTitle(day)}</span>
+          <span className="font-semibold">{scope === 'month' ? `งานทั้งเดือน${thaiMonthTitle(month)}` : `${isToday ? 'งานวันนี้ · ' : 'งาน'}${dayTitle(day)}`}</span>
           <span className="zego-text-tertiary"> · </span>
-          <span className="font-semibold text-emerald-700">{s.today.duties.length} งาน</span>
+          <span className="font-semibold text-emerald-700">{view.duties.length} งาน</span>
         </p>
-        <WeekStrip day={day} today={today} counts={dayCounts} onPick={pickDay} />
+        {scope === 'month'
+          // ทั้งเดือน — ปฏิทินทั้งเดือนแทนแถบสัปดาห์ · แตะวัน = กลับดูรายวันของวันนั้น
+          ? <MonthGrid month={month} today={today} counts={dayCounts} onPick={(iso) => { pickDay(iso); setScope('day'); }} />
+          : <WeekStrip day={day} today={today} counts={dayCounts} onPick={pickDay} />}
         <div className="grid grid-cols-2 gap-2">
           {([
-            ['morning', 'ช่วงเช้า', '00:01 – 12:00', 'sun', GREEN.tile, GREEN.text, s.today.morning],
-            ['evening', 'ช่วงเย็น', '12:01 – 00:00', 'moon', BROWN.tile, BROWN.text, s.today.evening],
+            ['morning', 'ช่วงเช้า', '00:01 – 12:00', 'sun', GREEN.tile, GREEN.text, view.morning],
+            ['evening', 'ช่วงเย็น', '12:01 – 00:00', 'moon', BROWN.tile, BROWN.text, view.evening],
           ] as const).map(([k, label, range, icon, bg, text, n]) => (
             <button
               key={k}
@@ -120,12 +154,12 @@ export default function StaffHomePage() {
             </button>
           ))}
         </div>
-        {s.today.noTime > 0 && <p className="text-[11px] zego-text-warning">ยังไม่ทราบเวลา {s.today.noTime} งาน — ไม่นับในช่วงเช้า/เย็น</p>}
+        {view.noTime > 0 && <p className="text-[11px] zego-text-warning">ยังไม่ทราบเวลา {view.noTime} งาน — ไม่นับในช่วงเช้า/เย็น</p>}
         <div>
-          <p className="mb-1.5 text-xs font-semibold zego-text">แยกตามสนามบิน ({dayWord})</p>
+          <p className="mb-1.5 text-xs font-semibold zego-text">แยกตามสนามบิน ({scope === 'month' ? 'ทั้งเดือน' : dayWord})</p>
           <div className="grid grid-cols-2 gap-2">
-            {(['BKK', 'DMK'] as const).map((code) => s.today.airports.find((a) => a.code === code) ?? { code, count: 0 })
-              .concat(s.today.airports.filter((a) => a.code !== 'BKK' && a.code !== 'DMK'))
+            {(['BKK', 'DMK'] as const).map((code) => view.airports.find((a) => a.code === code) ?? { code, count: 0 })
+              .concat(view.airports.filter((a) => a.code !== 'BKK' && a.code !== 'DMK' && a.count > 0))
               .map((a) => {
                 const t = toneOf(a.code);
                 return (
@@ -142,18 +176,18 @@ export default function StaffHomePage() {
         </div>
       </Card>
 
-      {/* 3) รายการงานวันนี้ */}
+      {/* 3) รายการงาน — วันที่เลือก / ทั้งเดือน ตามการ์ดเดือนด้านบน */}
       <Card className="space-y-3">
         <div className="flex items-center gap-2">
           <Icon name="list" className="h-5 w-5 text-emerald-700" />
-          <h2 className="min-w-0 flex-1 text-sm font-semibold zego-text">รายการงาน{isToday ? '' : ' '}{dayWord}</h2>
+          <h2 className="min-w-0 flex-1 text-sm font-semibold zego-text">รายการงาน{scope === 'day' && isToday ? '' : ' '}{listWord}</h2>
         </div>
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="กรองตามสนามบิน">
           {[
-            { code: 'all', label: 'ทั้งหมด', count: s.today.duties.length },
+            { code: 'all', label: 'ทั้งหมด', count: base.length },
             // สุวรรณภูมิ / ดอนเมือง แสดงเสมอ (แม้ 0) · สนามบินอื่นแสดงเมื่อมีงาน
-            ...(['BKK', 'DMK'] as const).map((code) => ({ code, label: airportText(code), count: s.today.airports.find((a) => a.code === code)?.count ?? 0 })),
-            ...s.today.airports.filter((a) => a.code !== 'BKK' && a.code !== 'DMK').map((a) => ({ code: a.code, label: airportText(a.code), count: a.count })),
+            ...(['BKK', 'DMK'] as const).map((code) => ({ code, label: airportText(code), count: airportCount(code) })),
+            ...otherAirports.map((code) => ({ code, label: airportText(code), count: airportCount(code) })),
           ].map((f) => (
             <button
               key={f.code || 'none'}
@@ -169,14 +203,14 @@ export default function StaffHomePage() {
 
         {list.length === 0 ? (
           <p className="rounded-lg zego-surface-soft-bg px-3 py-4 text-center text-sm zego-text-tertiary">
-            {s.today.duties.length === 0 ? `${dayWord}${isToday ? '' : ' '}ไม่มีงานส่งกรุ๊ป` : 'ไม่มีงานที่ตรงกับตัวกรอง'}
+            {base.length === 0 ? `${listWord}${scope === 'day' && isToday ? '' : ' '}ไม่มีงานส่งกรุ๊ป` : 'ไม่มีงานที่ตรงกับตัวกรอง'}
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-left text-[11px] zego-text-tertiary">
-                  <th className="whitespace-nowrap py-1.5 pr-2 font-medium">เวลานัด</th>
+                  <th className="whitespace-nowrap py-1.5 pr-2 font-medium">{scope === 'month' ? 'วันที่ · เวลานัด' : 'เวลานัด'}</th>
                   <th className="whitespace-nowrap py-1.5 pr-2 font-medium">สนามบิน</th>
                   <th className="py-1.5 pr-2 font-medium">รหัสกรุ๊ป</th>
                   <th className="py-1.5 font-medium">สถานะ</th>
@@ -188,7 +222,11 @@ export default function StaffHomePage() {
                   const stage = DUTY_STAGE[dutyStage(d, now, today)];
                   return (
                     <tr key={d.assignmentId} className="cursor-pointer align-top hover:bg-emerald-50/40" onClick={() => router.push('/staff')}>
-                      <td className="py-2 pr-2 font-semibold tabular-nums zego-text">{d.arrivalTime ?? '—'}</td>
+                      <td className="py-2 pr-2 font-semibold tabular-nums zego-text">
+                        {/* ทั้งเดือน — วันที่อยู่บนเวลานัด */}
+                        {scope === 'month' && <span className="block whitespace-nowrap text-[11px] font-medium zego-text-secondary">{formatDate(d.dutyDate).slice(0, 5)}</span>}
+                        {d.arrivalTime ?? '—'}
+                      </td>
                       <td className="py-2 pr-2">
                         <span className={cx('rounded px-1.5 py-0.5 text-[11px] font-semibold', toneOf(code).badge)}>{code || '—'}</span>
                       </td>
@@ -276,6 +314,49 @@ function WeekStrip({ day, today, counts, onPick }: {
       <button type="button" aria-label="สัปดาห์ถัดไป" className={arrow} onClick={() => onPick(shiftDay(day, 7))}>
         <Icon name="chevronRight" className="h-4 w-4" />
       </button>
+    </div>
+  );
+}
+
+/**
+ * ปฏิทินทั้งเดือน (โหมดดูทั้งเดือน) — 7 คอลัมน์ อา.–ส. · ตัวเลขจำนวนงานใต้วันที่ที่มีงาน · วันนี้มีกรอบ
+ * แตะวัน = กลับไปดูรายวันของวันนั้น
+ */
+function MonthGrid({ month, today, counts, onPick }: {
+  month: string;
+  today: string;
+  counts: Map<string, number>;
+  onPick: (iso: string) => void;
+}) {
+  const first = `${month}-01`;
+  const lead = new Date(`${first}T00:00:00`).getDay();
+  const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+  const cells = [...Array(lead).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => shiftDay(first, i))] as (string | null)[];
+  return (
+    <div className="grid grid-cols-7 gap-1" role="group" aria-label="เลือกวันที่ในเดือน">
+      {TH_DAYS_SHORT.map((d, i) => (
+        <span key={d} className={cx('text-center text-[10px]', i === 0 || i === 6 ? 'text-rose-500' : 'zego-text-tertiary')}>{d}</span>
+      ))}
+      {cells.map((iso, i) => {
+        if (!iso) return <span key={`x${i}`} />;
+        const n = counts.get(iso) ?? 0;
+        return (
+          <button
+            key={iso}
+            type="button"
+            aria-label={`${formatDate(iso)}${n ? ` · ${n} งาน` : ''}`}
+            onClick={() => onPick(iso)}
+            className={cx(
+              'flex flex-col items-center rounded-lg py-1 text-center transition',
+              n ? 'bg-emerald-50 zego-text hover:bg-emerald-100' : 'zego-surface-soft-bg zego-text-tertiary hover:bg-emerald-50',
+              iso === today && 'ring-1 ring-inset ring-emerald-500',
+            )}
+          >
+            <span className="text-xs font-semibold tabular-nums">{Number(iso.slice(8, 10))}</span>
+            <span className={cx('mt-0.5 h-3.5 min-w-3.5 rounded-full px-1 text-[9px] font-bold leading-[14px]', n ? 'bg-emerald-600 text-white' : 'invisible')}>{n || 0}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

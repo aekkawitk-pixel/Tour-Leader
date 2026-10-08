@@ -108,7 +108,8 @@ export function Combobox<T>({
     if (disabled) return;
     setQuery(nextQuery);
     onSearch(nextQuery);
-    setHighlight(-1);
+    // เปิดโดยยังไม่พิมพ์ → ไฮไลต์ + เลื่อนไปที่ค่าที่เลือกอยู่ (รายการยาวจะได้ไม่เด้งไปบนสุด ดูเหมือนค่าหาย)
+    setHighlight(!nextQuery && value ? items.findIndex((item) => getLabel(item) === value) : -1);
     setOpen(true);
   };
 
@@ -192,7 +193,8 @@ export function Combobox<T>({
           aria-invalid={Boolean(error)}
           aria-describedby={describedBy}
           disabled={disabled}
-          placeholder={disabled ? disabledHint : placeholder}
+          // เปิดรายการแล้วช่องแสดงคำค้น (ว่าง) — โชว์ค่าที่เลือกอยู่เป็นตัวจาง ให้รู้ว่ายังไม่ได้ล้างค่า
+          placeholder={disabled ? disabledHint : open && value ? value : placeholder}
           value={inputValue}
           onChange={(e) => openList(e.target.value)}
           onFocus={() => openList('')}

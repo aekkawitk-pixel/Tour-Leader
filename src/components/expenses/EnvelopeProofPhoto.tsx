@@ -18,6 +18,7 @@ export function PhotoConfirmModal({
   confirmLabel,
   photoHint = 'ถ่ายรูปซองคู่กับผู้รับ/ผู้ส่ง ให้เห็นหน้าซองชัดเจน',
   canConfirm = true,
+  photoOptional = false,
   onClose,
   onConfirm,
   children,
@@ -28,6 +29,8 @@ export function PhotoConfirmModal({
   photoHint?: string;
   /** เงื่อนไขอื่นนอกจากรูป (เช่นกรอกเหตุผลแล้ว) — รูปบังคับเสมอ */
   canConfirm?: boolean;
+  /** รูปไม่บังคับ — ใช้กับทอดที่คนรับเป็นคนถ่ายตอนกดรับเอง (ส่งรูปว่าง '' เมื่อไม่ได้แนบ) */
+  photoOptional?: boolean;
   onClose: () => void;
   onConfirm: (photo: string) => void | Promise<void>;
   /** ช่องกรอกเพิ่มเติมของแต่ละทอด (ชื่อผู้รับ / เหตุผล) */
@@ -61,11 +64,11 @@ export function PhotoConfirmModal({
             variant="primary"
             icon="check"
             loading={saving}
-            disabled={!photo || !canConfirm}
-            title={!photo ? 'แนบรูปถ่ายหลักฐานก่อน' : undefined}
+            disabled={(!photo && !photoOptional) || !canConfirm}
+            title={!photo && !photoOptional ? 'แนบรูปถ่ายหลักฐานก่อน' : undefined}
             onClick={async () => {
               setSaving(true);
-              try { await onConfirm(photo!); } finally { setSaving(false); }
+              try { await onConfirm(photo ?? ''); } finally { setSaving(false); }
             }}
           >
             {confirmLabel}
@@ -77,7 +80,7 @@ export function PhotoConfirmModal({
         {children}
         <div>
           <p className="mb-1 text-sm font-medium zego-text-secondary">
-            รูปถ่ายหลักฐาน <span className="text-rose-600">*</span>
+            รูปถ่ายหลักฐาน {photoOptional ? <span className="text-xs font-normal zego-text-tertiary">(ไม่บังคับ)</span> : <span className="text-rose-600">*</span>}
           </p>
           <p className="mb-2 text-xs zego-text-tertiary">{photoHint}</p>
           {photo ? (
