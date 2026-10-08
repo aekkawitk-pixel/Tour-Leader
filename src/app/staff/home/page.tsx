@@ -236,9 +236,10 @@ export default function StaffHomePage() {
                         {(() => {
                           const n = staffEnvelopeNotice({ envelopes, expenses, staffId, staffName: currentUser.name, periodId: d.periodId });
                           return n && (
-                            <span className={cx('mt-0.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium', n.tone === 'amber' ? 'bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200' : 'zego-surface-soft-bg zego-text-secondary')}>
+                            // ป้ายสั้นบรรทัดเดียว (มือถือ) — ข้อความเต็มอยู่ที่ title
+                            <span title={n.text} className={cx('mt-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium', n.tone === 'amber' ? 'bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200' : 'zego-surface-soft-bg zego-text-secondary')}>
                               <Icon name="money" className="h-3 w-3 shrink-0" />
-                              {n.text}
+                              {n.short}
                             </span>
                           );
                         })()}
