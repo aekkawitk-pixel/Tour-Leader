@@ -6,21 +6,20 @@
  * เอกสารเบิกค่าใช้จ่ายกรุ๊ป (นำเข้า .xls) → การเงินจัดเงินใส่ซอง → ส่งมอบให้เจ้าหน้าที่ส่งกรุ๊ป → หัวหน้าทัวร์รับ
  * → ส่งแลนด์ / ใช้ตามรายการ · แยกจากเมนู "ตรวจสอบรายการจ่าย" (/expenses) ที่เป็นคิวตรวจ/อนุมัติใบที่หัวหน้าทัวร์ส่งมา
  *
- * 2 แท็บ ใช้แถบค้นหาชุดเดียวกัน:
- *   ซองเงิน   — จัดซอง/ส่งมอบเงินกรุ๊ปก่อนเดินทาง (ค่าเริ่มต้น: ก่อนเดินทาง)
- *   เบี้ยเลี้ยง — ใบเบิกเบี้ยเลี้ยงหัวหน้าทัวร์ หลังจบทริป ตรวจ/อนุมัติ/บันทึกโอน (ค่าเริ่มต้น: หลังเดินทาง)
+ * การเงินคนเดียวดูแลทั้งสองเรื่องของกรุ๊ป จึงรวมเป็นตารางเดียว (1 แถว = 1 กรุ๊ป):
+ *   ซองเงิน   — จัดซอง/ส่งมอบเงินกรุ๊ปก่อนเดินทาง
+ *   เบี้ยเลี้ยง — ใบเบิกเบี้ยเลี้ยงหัวหน้าทัวร์ หลังจบทริป ตรวจ/อนุมัติ/บันทึกโอน
+ * การ์ดสรุปด้านบน = งานที่ต้องทำของทั้งสองเรื่อง · ปุ่ม "จัดการ" เปิดแผงของกรุ๊ป
  */
 
 import { useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { can } from '@/lib/permissions';
 import { PageHeader, Button, cx } from '@/components/ui/Primitives';
-import { Icon } from '@/components/ui/Icon';
 import { FilterBox, FILTER_INPUT } from '@/components/ui/FilterBox';
 import { MultiSelectControl } from '@/components/ui/MultiSelect';
-import { GroupAdvanceDocsCard, type GroupDocs } from '@/components/expenses/GroupAdvanceDocsCard';
 import { AdvanceImportModal } from '@/components/expenses/AdvanceImportModal';
-import { GroupPerDiemCard, PER_DIEM_STAGE, perDiemStage, type PerDiemRow, type PerDiemStage } from '@/components/expenses/GroupPerDiemCard';
+import { GroupExpensesCard, perDiemStage, type GroupDocs, type GroupExpenseRow, type PerDiemRow } from '@/components/expenses/GroupExpensesCard';
 import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
@@ -29,50 +28,46 @@ import { getAssignablePeriods, getTourPeriodById } from '@/services/tourPeriodMa
 import { toISODate } from '@/lib/format';
 import { advanceDocFallback } from '@/lib/logic/advanceDocFallback';
 
-type Filter = 'all' | 'no_docs' | 'packing' | 'sealed' | 'handed_over' | 'received' | 'mismatch' | 'none';
+type EnvStatus = { stage: string; mismatch: boolean };
+
+/*
+  การ์ดสรุป = งานที่ต้องทำ ของซองเงิน (ก่อนเดินทาง) และเบี้ยเลี้ยง (หลังจบทริป) · แตะเพื่อกรอง
+  สถานะที่ไม่ต้องทำอะไรแล้ว (รับแล้ว / ไม่มีซอง / โอนแล้ว) ไม่มีการ์ดแยก — รวมอยู่ใน "เสร็จครบ"
+*/
+type Filter =
+  | 'all'
+  | 'env_no_docs' | 'env_packing' | 'env_sealed' | 'env_handed_over' | 'env_mismatch'
+  | 'pd_to_claim' | 'pd_submitted' | 'pd_to_pay'
+  | 'done';
 
 const FILTERS: { key: Filter; label: string; hint: string; tone: string }[] = [
-  { key: 'all', label: 'ทั้งหมด', hint: 'กรุ๊ปปัจจุบัน + กรุ๊ปที่มีเอกสารเบิก', tone: '#475569' },
-  { key: 'no_docs', label: 'รอการทำเบิก', hint: 'ยังไม่พบเอกสารเบิก', tone: '#64748b' },
-  { key: 'packing', label: 'รอจัดซอง', hint: 'ยังจัดไม่ครบทุกรายการ', tone: '#b45309' },
-  { key: 'sealed', label: 'รอส่งมอบ', hint: 'ปิดซองแล้ว', tone: '#0369a1' },
-  { key: 'handed_over', label: 'ระหว่างส่งมอบ', hint: 'รอเจ้าหน้าที่ / หัวหน้าทัวร์ยืนยันรับ', tone: '#6d28d9' },
-  { key: 'received', label: 'หัวหน้าทัวร์รับแล้ว', hint: 'อยู่ในมือหัวหน้าทัวร์', tone: '#15803d' },
-  { key: 'mismatch', label: 'แจ้งปัญหาซอง', hint: 'ยอดไม่ตรง / ไม่ได้รับซอง', tone: '#be123c' },
-  { key: 'none', label: 'ไม่มีซอง', hint: 'การเงินระบุว่าไม่ต้องจัดซอง', tone: '#475569' },
+  { key: 'all', label: 'ทั้งหมด', hint: 'ทุกกรุ๊ปตามตัวกรอง', tone: '#475569' },
+  { key: 'env_no_docs', label: 'ซอง · รอการทำเบิก', hint: 'ยังไม่พบเอกสารเบิก', tone: '#64748b' },
+  { key: 'env_packing', label: 'ซอง · รอจัดซอง', hint: 'ยังจัดไม่ครบทุกรายการ', tone: '#b45309' },
+  { key: 'env_sealed', label: 'ซอง · รอส่งมอบ', hint: 'ปิดซองแล้ว', tone: '#0369a1' },
+  { key: 'env_handed_over', label: 'ซอง · ระหว่างส่งมอบ', hint: 'รอเจ้าหน้าที่ / หัวหน้าทัวร์ยืนยันรับ', tone: '#6d28d9' },
+  { key: 'env_mismatch', label: 'ซอง · แจ้งปัญหา', hint: 'ยอดไม่ตรง / ไม่ได้รับซอง', tone: '#be123c' },
+  { key: 'pd_to_claim', label: 'เบี้ยเลี้ยง · รอทำเบิก', hint: 'จบทริปแล้ว หัวหน้าทัวร์ยังไม่ทำใบเบิก', tone: '#b45309' },
+  { key: 'pd_submitted', label: 'เบี้ยเลี้ยง · รออนุมัติ', hint: 'การเงินต้องตรวจ', tone: '#6d28d9' },
+  { key: 'pd_to_pay', label: 'เบี้ยเลี้ยง · รอโอน', hint: 'อนุมัติแล้ว ยังไม่โอน', tone: '#0369a1' },
+  { key: 'done', label: 'เสร็จครบ', hint: 'ซองถึงมือหัวหน้าทัวร์ + โอนเบี้ยเลี้ยงแล้ว', tone: '#15803d' },
 ];
 
-type Tab = 'envelope' | 'per_diem';
-type PdFilter = 'all' | PerDiemStage;
-const PD_HINT: Record<PerDiemStage, string> = {
-  no_leader: 'จบทริปแล้ว ไม่มีหัวหน้าทัวร์ในระบบ',
-  not_ended: 'ยังทำเบิกไม่ได้',
-  to_claim: 'จบทริปแล้ว ยังไม่มีใบเบิก',
-  draft: 'หัวหน้าทัวร์ยังไม่ส่งอนุมัติ',
-  submitted: 'การเงินต้องตรวจ',
-  revise: 'รอหัวหน้าทัวร์แก้',
-  to_pay: 'อนุมัติแล้ว ยังไม่โอน',
-  paid: 'จ่ายเรียบร้อย',
-};
-const PD_TONE: Record<PerDiemStage, string> = {
-  no_leader: '#64748b', not_ended: '#64748b', to_claim: '#b45309', draft: '#64748b', submitted: '#6d28d9', revise: '#b45309', to_pay: '#0369a1', paid: '#15803d',
-};
-const PD_FILTERS: { key: PdFilter; label: string; hint: string; tone: string }[] = [
-  { key: 'all', label: 'ทั้งหมด', hint: 'กรุ๊ปปัจจุบัน + กรุ๊ปที่มีหัวหน้าทัวร์/ใบเบิก', tone: '#475569' },
-  ...(Object.keys(PER_DIEM_STAGE) as PerDiemStage[]).map((k) => ({ key: k, label: PER_DIEM_STAGE[k].label, hint: PD_HINT[k], tone: PD_TONE[k] })),
-];
+/** ซองเสร็จ = ไม่ต้องจัดซอง / หัวหน้าทัวร์รับแล้ว / ระบุไม่มีซอง (และไม่มีปัญหาค้าง) */
+const envelopeDone = (s: EnvStatus | null) => !s || (!s.mismatch && (s.stage === 'received' || s.stage === 'none'));
 
-function matches(s: { stage: string; mismatch: boolean }, f: Filter): boolean {
+function matches(env: EnvStatus | null, pd: PerDiemRow | null, f: Filter): boolean {
   if (f === 'all') return true;
-  if (f === 'mismatch') return s.mismatch;
-  return s.stage === f;
+  if (f === 'done') return envelopeDone(env) && (!pd || pd.stage === 'paid');
+  if (f.startsWith('pd_')) return pd?.stage === f.slice(3);
+  if (!env) return false;
+  if (f === 'env_mismatch') return env.mismatch;
+  return !env.mismatch && env.stage === f.slice(4);
 }
 
 export default function GroupExpensesPage() {
   const { expenses, envelopes, currentUser, resetEnvelopes, noEnvelopeMarks, leaders } = useDemo();
-  const [tab, setTab] = useState<Tab>('envelope');
   const [filter, setFilter] = useState<Filter>('all');
-  const [pdFilter, setPdFilter] = useState<PdFilter>('all');
 
   const [importOpen, setImportOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -108,7 +103,7 @@ export default function GroupExpensesPage() {
   }, [expenses]);
   // สถานะทุกกรุ๊ปคำนวณครั้งเดียว — กรุ๊ปเป็นร้อยต่อเดือน การ์ดสรุปนับซ้ำทุกตัวกรอง
   const statuses = useMemo(() => {
-    const m = new Map<string, { stage: string; mismatch: boolean }>();
+    const m = new Map<string, EnvStatus>();
     for (const g of groups) {
       const mark = noEnvelopeMarks.find((x) => x.periodId === g.periodId);
       // ยังไม่มีเอกสารเบิก = รอการทำเบิก — เว้นแต่การเงินระบุไว้แล้วว่ากรุ๊ปนี้ไม่มีซอง
@@ -118,10 +113,9 @@ export default function GroupExpensesPage() {
     }
     return m;
   }, [groups, envelopes, noEnvelopeMarks]);
-  const statusOf = (g: GroupDocs) => statuses.get(g.periodId)!;
 
   /*
-    แท็บเบี้ยเลี้ยง — ทุกกรุ๊ปเหมือนแท็บซองเงิน (กรุ๊ปปัจจุบัน + กรุ๊ปที่มีเอกสารเบิก)
+    เบี้ยเลี้ยง — ทุกกรุ๊ปของซองเงิน (กรุ๊ปปัจจุบัน + กรุ๊ปที่มีเอกสารเบิก)
     รวมกรุ๊ปที่จบทริปแล้วแต่มีหัวหน้าทัวร์คอนเฟิร์ม / มีใบเบิกเบี้ยเลี้ยง — เบี้ยเลี้ยงเบิกหลังจบทริป
     ใบเบิก = ใบเบิกเบี้ยเลี้ยงที่ยังมีผลของหัวหน้าทัวร์คนนั้น (ใบยกเลิก/ปฏิเสธไม่นับ ทำใหม่ได้)
     ยังไม่มีหัวหน้าทัวร์ = ยังขึ้นในตาราง (สถานะ "ยังไม่มีหัวหน้าทัวร์")
@@ -151,9 +145,17 @@ export default function GroupExpensesPage() {
     }
     return m;
   }, [expenses, leaders, groups]);
-  const perDiemGroups = useMemo<GroupDocs[]>(() => [...perDiemRows.keys()].map((periodId) => ({ periodId, docs: [] })), [perDiemRows]);
-  // แถวของแท็บที่เปิดอยู่ — แถบค้นหา/แบ่งหน้าใช้ร่วมกัน
-  const base = tab === 'envelope' ? groups : perDiemGroups;
+  // แถวเดียวต่อกรุ๊ป — กรุ๊ปของซองเงิน + กรุ๊ปที่มีแต่เบี้ยเลี้ยง (จบทริปแล้ว ไม่มีเอกสารเบิก)
+  const base = useMemo<GroupExpenseRow[]>(() => {
+    const docsOf = new Map(groups.map((g) => [g.periodId, g.docs]));
+    const ids = new Set([...docsOf.keys(), ...perDiemRows.keys()]);
+    return [...ids].map((periodId) => ({
+      periodId,
+      docs: docsOf.get(periodId) ?? [],
+      hasEnvelope: docsOf.has(periodId),
+      perDiem: perDiemRows.get(periodId) ?? null,
+    }));
+  }, [groups, perDiemRows]);
 
   /*
     แถบค้นหา — ประเทศ · รหัสกรุ๊ป · รายการทัวร์ · ช่วงวันที่เดินทาง
@@ -173,16 +175,16 @@ export default function GroupExpensesPage() {
   );
   /*
     ช่วงเดินทาง — ก่อนเดินทาง = ยังไม่ออกเดินทาง (ออกวันนี้นับเป็นก่อนเดินทาง ยังต้องจัดซองให้ทัน)
-    หลังเดินทาง = ออกเดินทางไปแล้ว (รวมกรุ๊ปที่กำลังเดินทาง) · ค่าเริ่มต้น = ก่อนเดินทาง
+    หลังเดินทาง = ออกเดินทางไปแล้ว (รวมกรุ๊ปที่กำลังเดินทาง) · ค่าเริ่มต้น = ทั้งหมด (ซองเงิน + เบี้ยเลี้ยง)
   */
-  const [trip, setTrip] = useState<'before' | 'after'>('before');
+  const [trip, setTrip] = useState<'all' | 'before' | 'after'>('all');
   /** จอเล็ก: ประเทศ / รายการทัวร์ / ช่วงวันที่ พับไว้ — เหลือรหัสกรุ๊ปกับช่วงเดินทางที่ใช้บ่อย */
   const [filtersOpen, setFiltersOpen] = useState(false);
   const today = toISODate(new Date());
-  // ไม่ได้ตั้งวันเริ่มเอง = อัตโนมัติ: ดูย้อนหลังได้เมื่อเลือกหลังเดินทาง ไม่งั้นเริ่มวันนี้
+  // ไม่ได้ตั้งวันเริ่มเอง = อัตโนมัติ: ก่อนเดินทางเริ่มวันนี้ · ทั้งหมด / หลังเดินทาง ดูย้อนหลังได้
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const dateFromEff = dateFrom || (trip === 'after' ? firstStart : today);
+  const dateFromEff = dateFrom || (trip === 'before' ? today : firstStart);
   // หลังเดินทาง = ออกเดินทางแล้ว → ถึงวันนี้ (ไม่ใช่วันกลับของกรุ๊ปสุดท้ายในอนาคต) · ก่อนเดินทาง = ถึงวันกลับของกรุ๊ปสุดท้าย
   const dateToEff = dateTo || (trip === 'after' ? today : lastEnd);
   const countries = useMemo(
@@ -211,24 +213,26 @@ export default function GroupExpensesPage() {
     if (range && dateToEff && range.startDate > dateToEff) return false;
     return true;
   });
-  const pdMatches = (g: GroupDocs, f: PdFilter) => f === 'all' || perDiemRows.get(g.periodId)?.stage === f;
+  const rowMatches = (g: GroupExpenseRow, f: Filter) => matches(g.hasEnvelope ? statuses.get(g.periodId) ?? null : null, g.perDiem, f);
+  // ระยะห่างจากวันนี้ — ใช้เรียงเมื่อดูทั้งหมด: กรุ๊ปที่ออกใกล้วันนี้ที่สุด (เพิ่งกลับ / ใกล้ออก) อยู่บน
+  const distance = (iso: string) => Math.abs(new Date(`${iso}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime());
   const shown = searched
-    .filter((g) => (tab === 'envelope' ? matches(statusOf(g), filter) : pdMatches(g, pdFilter)))
+    .filter((g) => rowMatches(g, filter))
     // ก่อนเดินทาง: ออกใกล้สุดก่อน (จัดซองให้ทัน) · หลังเดินทาง: ออกล่าสุดก่อน (เพิ่งกลับ/กำลังเดินทาง อยู่บน)
     .sort((a, b) => {
-      const c = (getTourPeriodById(a.periodId)?.startDate ?? '9').localeCompare(getTourPeriodById(b.periodId)?.startDate ?? '9');
+      const sa = getTourPeriodById(a.periodId)?.startDate;
+      const sb = getTourPeriodById(b.periodId)?.startDate;
+      if (trip === 'all') return (sa ? distance(sa) : Infinity) - (sb ? distance(sb) : Infinity);
+      const c = (sa ?? '9').localeCompare(sb ?? '9');
       return trip === 'after' ? -c : c;
     });
-  // ช่วงเดินทางเริ่มต้นตามแท็บ — ซองเงินจัดก่อนเดินทาง · เบี้ยเลี้ยงเบิกหลังเดินทาง
-  const tripDefault = tab === 'envelope' ? 'before' : 'after';
-  const switchTab = (t: Tab) => { setTab(t); setTrip(t === 'envelope' ? 'before' : 'after'); setDateFrom(''); setDateTo(''); };
-  const searching = !!(countrySel.length > 0 || codeN || tourN || dateTo || dateFrom || trip !== tripDefault);
-  const clearSearch = () => { setCountrySel([]); setCodeQ(''); setTourQ(''); setDateFrom(''); setDateTo(''); setTrip(tripDefault); };
+  const searching = !!(countrySel.length > 0 || codeN || tourN || dateTo || dateFrom || trip !== 'all');
+  const clearSearch = () => { setCountrySel([]); setCodeQ(''); setTourQ(''); setDateFrom(''); setDateTo(''); setTrip('all'); };
 
   // แบ่งหน้า — เปลี่ยนตัวกรอง/คำค้น/ขนาดหน้า กลับไปหน้าแรก
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
-  const sig = [tab, filter, pdFilter, trip, countrySel.join(','), codeN, tourN, dateFromEff, dateToEff, pageSize].join('|');
+  const sig = [filter, trip, countrySel.join(','), codeN, tourN, dateFromEff, dateToEff, pageSize].join('|');
   const [prevSig, setPrevSig] = useState(sig);
   if (prevSig !== sig) { setPrevSig(sig); setPage(1); }
   const totalPages = Math.max(1, Math.ceil(shown.length / pageSize));
@@ -239,10 +243,8 @@ export default function GroupExpensesPage() {
     <>
       <PageHeader
         title="จัดการค่าใช้จ่ายกรุ๊ป"
-        description={tab === 'envelope'
-          ? 'เอกสารเบิกค่าใช้จ่ายกรุ๊ป · การเงินจัดซอง → เจ้าหน้าที่ส่งกรุ๊ป → หัวหน้าทัวร์ → ส่งแลนด์ / ใช้ตามรายการ'
-          : 'เบี้ยเลี้ยงหัวหน้าทัวร์ · จบทริป → หัวหน้าทัวร์ทำใบเบิก → การเงินตรวจ / อนุมัติ → โอนเข้าบัญชี'}
-        actions={tab === 'envelope' && (
+        description="ซองเงิน: การเงินจัดซอง → เจ้าหน้าที่ส่งกรุ๊ป → หัวหน้าทัวร์ · เบี้ยเลี้ยง: จบทริป → หัวหน้าทัวร์ทำใบเบิก → การเงินตรวจ / อนุมัติ → โอน"
+        actions={(
           <>
             {(envelopes.length > 0 || noEnvelopeMarks.length > 0) && (
               <Button variant="secondary" loading={resetting} onClick={onReset}>
@@ -258,54 +260,10 @@ export default function GroupExpensesPage() {
         )}
       />
 
-      {/* แท็บ — ซองเงิน (ก่อนเดินทาง) | เบี้ยเลี้ยง (หลังเดินทาง) */}
-      <div className="mb-4 flex gap-1 border-b zego-border-color" role="tablist" aria-label="ประเภทงาน">
-        {([['envelope', 'ซองเงิน', 'money'], ['per_diem', 'เบี้ยเลี้ยง', 'receipt']] as const).map(([k, label, icon]) => (
-          <button
-            key={k}
-            type="button"
-            role="tab"
-            aria-selected={tab === k}
-            onClick={() => switchTab(k)}
-            className={cx(
-              '-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm transition',
-              tab === k ? 'border-emerald-600 font-semibold text-emerald-700' : 'border-transparent zego-text-secondary hover:text-emerald-700',
-            )}
-          >
-            <Icon name={icon} className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/* สรุปสถานะเบี้ยเลี้ยง — แตะเพื่อกรอง */}
-      {tab === 'per_diem' && (
-        <div className="mb-4 grid grid-cols-3 gap-1.5 sm:gap-2 xl:grid-cols-9">
-          {PD_FILTERS.map((f) => {
-            const count = searched.filter((g) => pdMatches(g, f.key)).length;
-            const active = pdFilter === f.key;
-            return (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => setPdFilter(f.key)}
-                aria-pressed={active}
-                className={cx('zego-card-surface rounded-xl px-2 py-1.5 text-left transition sm:px-3 sm:py-2.5', active ? 'ring-2 ring-emerald-500' : 'hover:ring-1 hover:ring-emerald-200')}
-              >
-                <p className="line-clamp-2 text-[11px] leading-tight zego-text-tertiary sm:text-xs">{f.label}</p>
-                <p className="text-lg font-bold tabular-nums sm:text-2xl" style={{ color: count > 0 && f.key !== 'all' ? f.tone : undefined }}>{count}</p>
-                <p className="hidden text-[11px] zego-text-tertiary sm:block">{f.hint}</p>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* สรุปสถานะซอง — แตะเพื่อกรอง · จอเล็ก: การ์ดย่อ 4 ต่อแถว (ชื่อ + ตัวเลข ไม่มีคำอธิบาย) — การ์ดเต็ม 8 ใบกินที่เกินหนึ่งจอ */}
-      {tab === 'envelope' && (
-      <div className="mb-4 grid grid-cols-4 gap-1.5 sm:gap-2 xl:grid-cols-8">
+      {/* งานที่ต้องทำ — ซองเงิน + เบี้ยเลี้ยง · แตะเพื่อกรอง · จอเล็ก: การ์ดย่อ (ชื่อ + ตัวเลข ไม่มีคำอธิบาย) */}
+      <div className="mb-4 grid grid-cols-3 gap-1.5 sm:grid-cols-5 sm:gap-2">
         {FILTERS.map((f) => {
-          const count = searched.filter((g) => matches(statusOf(g), f.key)).length;
+          const count = searched.filter((g) => rowMatches(g, f.key)).length;
           const active = filter === f.key;
           return (
             <button
@@ -322,7 +280,6 @@ export default function GroupExpensesPage() {
           );
         })}
       </div>
-      )}
 
       {/* แถบค้นหา — กล่องละ 1 เงื่อนไข: ไอคอน + ชื่อช่องด้านบน ค่าที่เลือกด้านล่าง */}
       <div className="mb-4 flex flex-wrap items-stretch gap-2 2xl:flex-nowrap">
@@ -370,7 +327,7 @@ export default function GroupExpensesPage() {
         </div>
         <FilterBox icon="plane" label="ช่วงเดินทาง" className="w-full sm:w-auto" group>
           <span className="flex gap-1" role="group" aria-label="ช่วงเดินทาง">
-            {([['before', 'ก่อนเดินทาง'], ['after', 'หลังเดินทาง']] as const).map(([v, label]) => (
+            {([['all', 'ทั้งหมด'], ['before', 'ก่อนเดินทาง'], ['after', 'หลังเดินทาง']] as const).map(([v, label]) => (
               <button
                 key={v}
                 type="button"
@@ -388,17 +345,10 @@ export default function GroupExpensesPage() {
         )}
       </div>
 
-      {tab === 'envelope' ? (
-        <GroupAdvanceDocsCard
-          groups={pageRows}
-          emptyText={groups.length === 0 ? 'ยังไม่มีกรุ๊ป — กด "นำเข้าเอกสารเบิก (.xls)"' : 'ไม่พบกรุ๊ปที่ตรงกับตัวกรอง'}
-        />
-      ) : (
-        <GroupPerDiemCard
-          rows={pageRows.map((g) => perDiemRows.get(g.periodId)!)}
-          emptyText={perDiemGroups.length === 0 ? 'ยังไม่มีกรุ๊ป' : 'ไม่พบกรุ๊ปที่ตรงกับตัวกรอง'}
-        />
-      )}
+      <GroupExpensesCard
+        rows={pageRows}
+        emptyText={base.length === 0 ? 'ยังไม่มีกรุ๊ป — กด "นำเข้าเอกสารเบิก (.xls)"' : 'ไม่พบกรุ๊ปที่ตรงกับตัวกรอง'}
+      />
       {shown.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm zego-text-secondary">
           <span>พบ <strong className="zego-text">{shown.length}</strong> กรุ๊ป</span>

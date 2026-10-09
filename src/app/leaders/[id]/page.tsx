@@ -560,20 +560,21 @@ export default function LeaderDetailPage() {
                 {leader.firstName} {leader.lastName}
               </h1>
               {leader.nickname && <span className="zego-text-tertiary">({leader.nickname})</span>}
-              {/* รูปแบบการร่วมงาน · สถานะพร้อมรับงาน · สถานะโปรไฟล์ — 3 มิติแยกกัน ห้ามรวมเป็นป้ายเดียว
+              {/* สถานะพร้อมรับงาน · สถานะโปรไฟล์ — แยกกัน ห้ามรวมเป็นป้ายเดียว (รูปแบบการร่วมงานอยู่บรรทัด 2)
                   สถานะโปรไฟล์แสดงเมื่อไม่ใช่ “ใช้งาน” เท่านั้น (ระงับการใช้งาน / สิ้นสุดการร่วมงาน)
                   เดิมใช้ !active ซึ่งเป็นจริงเฉพาะ “สิ้นสุด” จึงไม่เตือนกรณีถูกระงับ */}
-              <StatusBadge meta={LEADER_TYPE[leader.leaderType]} dot={false} />
               <StatusBadge meta={LEADER_STATUS[leader.status]} />
               {leader.usageStatus !== 'active' && (
                 <StatusBadge meta={LEADER_USAGE_STATUS[leader.usageStatus]} />
               )}
             </div>
-            {/* บรรทัด 2: รหัสหัวหน้าทัวร์ */}
-            <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm zego-text-tertiary">
+            {/* บรรทัด 2: รหัสหัวหน้าทัวร์ | รูปแบบการร่วมงาน */}
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm zego-text-tertiary">
               <span className="font-mono">{leader.id}</span>
+              <span aria-hidden="true">|</span>
+              <span>{LEADER_TYPE[leader.leaderType].label}</span>
             </p>
-            {/* บรรทัด 3: เบอร์โทรศัพท์ | คะแนนเฉลี่ย */}
+            {/* บรรทัด 3: เบอร์โทรศัพท์ — คะแนนเฉลี่ยอยู่ในการ์ดคะแนนของแท็บภาพรวม */}
             <div className="mt-1.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
               {primaryPhone ? (
                 <span className="inline-flex items-center gap-1.5 zego-text-secondary">
@@ -584,17 +585,14 @@ export default function LeaderDetailPage() {
               ) : (
                 <span className="zego-text-disabled">ยังไม่มีเบอร์โทรศัพท์</span>
               )}
-              <span className="inline-flex items-center gap-1.5 zego-text-secondary">
-                <Icon name="star" className="h-4 w-4 zego-text-warning" filled />
-                {leader.rating.toFixed(1)} / 5.0
-              </span>
             </div>
           </div>
 
-          {/* §1 ปุ่มเปลี่ยนสถานะอยู่ขวา — ปุ่ม "ดูข้อมูลส่วนตัว" ถูกนำออก (ซ้ำกับแท็บ "ข้อมูลส่วนตัว") */}
-          <div className="flex shrink-0 flex-wrap gap-2">
+          {/* §1 ปุ่มเปลี่ยนสถานะอยู่ขวา — ปุ่ม "ดูข้อมูลส่วนตัว" ถูกนำออก (ซ้ำกับแท็บ "ข้อมูลส่วนตัว")
+              จอเล็กปุ่มลงแถวของตัวเอง — ไม่งั้นแย่งที่จนชื่อ/เบอร์โทรตัดบรรทัดทีละท่อน */}
+          <div className="flex shrink-0 flex-wrap gap-2 max-sm:w-full max-sm:justify-end">
             {can(currentUser.role, 'leader.changeStatus') && (
-              <Button variant="secondary" onClick={() => setStatusOpen(true)}>
+              <Button variant="primary" onClick={() => setStatusOpen(true)}>
                 เปลี่ยนสถานะ
               </Button>
             )}
