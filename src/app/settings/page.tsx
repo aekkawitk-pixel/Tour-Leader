@@ -41,9 +41,6 @@ const MASTER_KEYS: MasterKey[] = [
   'expenseTypes',
   'currencies',
   'banks',
-  'documentTypes',
-  'statuses',
-  'appointmentModes',
 ];
 
 type TabKey = MasterKey | 'countries' | 'routes' | 'users' | 'sendoffFee' | 'tipRates' | 'testReset';

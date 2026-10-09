@@ -1118,16 +1118,13 @@ export type MasterKey =
   | 'workSkills' // ทักษะและรูปแบบการทำงาน
   | 'expenseTypes'
   | 'currencies'
-  | 'banks'
-  | 'documentTypes'
-  | 'statuses'
-  | 'appointmentModes';
+  | 'banks';
 
 export interface MasterItem {
   id: string;
   code: string;
   name: string;
-  /** ข้อมูลเสริม เช่น อัตราแลกเปลี่ยนของสกุลเงิน หรือกลุ่มของสถานะ */
+  /** ข้อมูลเสริม เช่น อัตราแลกเปลี่ยนของสกุลเงิน */
   extra?: string;
   /** ลำดับการแสดงผล (น้อย = อยู่บน) */
   order: number;

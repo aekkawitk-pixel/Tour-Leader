@@ -224,7 +224,7 @@ export default function StaffHomePage() {
                     <tr key={d.assignmentId} className="cursor-pointer align-top hover:bg-emerald-50/40" onClick={() => router.push('/staff')}>
                       <td className="py-2 pr-2 font-semibold tabular-nums zego-text">
                         {/* ทั้งเดือน — วันที่อยู่บนเวลานัด */}
-                        {scope === 'month' && <span className="block whitespace-nowrap text-[11px] font-medium zego-text-secondary">{formatDate(d.dutyDate).slice(0, 5)}</span>}
+                        {scope === 'month' && <span className="block whitespace-nowrap text-[11px] font-medium zego-text-secondary">{formatDate(d.dutyDate)}</span>}
                         {d.arrivalTime ?? '—'}
                       </td>
                       <td className="py-2 pr-2">

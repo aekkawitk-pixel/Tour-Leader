@@ -306,9 +306,6 @@ const emptyMaster: MasterDataMap = {
   expenseTypes: [],
   currencies: [],
   banks: [],
-  documentTypes: [],
-  statuses: [],
-  appointmentModes: [],
 };
 
 let toastSeq = 0;
