@@ -11,7 +11,7 @@
  * Layout (3 แถว):
  *   ตัวเลขสรุป 4 ช่อง (แตะไปแท็บต้นทาง · จอเล็ก 4 ช่องแถวเดียวแบบย่อ)
  *   ตารางงานที่กำลังจะถึง | ปฏิทินความพร้อมรับงานและการลา | คะแนนและผลงาน
- *   ความเชี่ยวชาญ | ภาษาและทักษะ | เอกสารสำคัญ + ประสบการณ์และประวัติการทำงาน
+ *   ความเชี่ยวชาญ | ภาษาและทักษะ | เอกสารสำคัญ + ประสบการณ์ทำงาน (แถว 2–3 ใช้สัดส่วนคอลัมน์เดียวกัน)
  * จอเล็กเรียงตามลำดับเดียวกันเป็นคอลัมน์เดียว
  */
 
@@ -75,8 +75,8 @@ const TONE_TILE: Record<Tone, { icon: string; value: string }> = {
 
 /** ตัวเลขสรุป 1 ช่อง — แตะเพื่อไปแท็บต้นทาง · จอเล็กย่อเป็นไอคอน + ค่า (ชื่อช่องอยู่ใน title/aria-label) */
 function KpiTile({
-  icon, tone, label, value, sub, footer, chevron, onClick,
-}: { icon: IconName; tone: Tone; label: string; value: ReactNode; sub?: string; footer?: ReactNode; chevron?: boolean; onClick: () => void }) {
+  icon, tone, label, value, sub, footer, onClick,
+}: { icon: IconName; tone: Tone; label: string; value: ReactNode; sub?: string; footer?: ReactNode; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -94,9 +94,13 @@ function KpiTile({
         {sub && <span className="hidden truncate text-xs zego-text-tertiary sm:block">{sub}</span>}
         {footer}
       </span>
-      {chevron && <Icon name="chevronRight" className="hidden h-4 w-4 shrink-0 zego-text-tertiary sm:block" />}
     </button>
   );
+}
+
+/** ช่องว่างตรงกลางการ์ดที่ยืดสูงตามแถว — ไม่ให้ข้อความ "ยังไม่มีข้อมูล" ลอยติดขอบบน */
+function CardEmpty({ children }: { children: ReactNode }) {
+  return <div className="flex flex-1 items-center justify-center [&>div]:py-6">{children}</div>;
 }
 
 /** หัวการ์ด — ไอคอน + ชื่อ (+ คำอธิบาย) ทางซ้าย ปุ่ม/ลิงก์ทางขวา */
@@ -386,7 +390,7 @@ export function LeaderOverviewTab({
     const allCountries = s.countryScope === 'all_zone_countries';
     const routes = s.routeScope === 'all_routes' ? 'ทุกเส้นทาง' : s.routeCodes.join(', ');
     return (
-      <li className="rounded-lg border zego-border-color px-3 py-2">
+      <li className="rounded-lg zego-surface-soft-bg px-3 py-2">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
           {allCountries ? (
             <>
@@ -454,27 +458,26 @@ export function LeaderOverviewTab({
           label="Passport คงเหลือ"
           value={passDaysLeft === null ? '—' : passDaysLeft < 0 ? 'หมดอายุแล้ว' : `${passDaysLeft} วัน`}
           sub={passExpiry ? `หมดอายุ ${formatDate(passExpiry)}` : undefined}
-          chevron
           onClick={() => onGoTab('idDocs')}
         />
       </div>
 
       {/* ============ แถว 2: ตารางงาน | ปฏิทินความพร้อม | คะแนน ============ */}
-      <div className="grid gap-4 sm:gap-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
+      <div className="grid gap-4 sm:gap-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]">
         {/* ---- ตารางงานที่กำลังจะถึง ---- */}
-        <Card className="lg:col-span-2 xl:col-span-1">
+        <Card className="flex flex-col lg:col-span-2 xl:col-span-1">
           <SectionHead
             icon="plane"
             title="ตารางงานที่กำลังจะถึง"
             action={upcomingJobs.length > 0 && <TextLink onClick={() => onGoTab('schedule')}>ดูทั้งหมด ({upcomingJobs.length})</TextLink>}
           />
           {upcomingJobs.length === 0 ? (
-            <EmptyState
+            <CardEmpty><EmptyState
               icon="calendar"
               title="ยังไม่มีงานที่กำลังจะถึง"
               description="เมื่อจัดงานให้หัวหน้าทัวร์รายนี้ในหน้าการจัดสเก็ต จะแสดงที่นี่"
               action={<Button size="sm" variant="secondary" icon="calendar" onClick={() => router.push(`/jobs?leader=${leader.id}`)}>ไปหน้าการจัดสเก็ต</Button>}
-            />
+            /></CardEmpty>
           ) : (
             <ul className="space-y-2">
               {upcomingJobs.slice(0, 5).map(({ id, period, board }, i) => {
@@ -513,7 +516,7 @@ export function LeaderOverviewTab({
         </Card>
 
         {/* ---- ความพร้อมรับงานและการลา — ปฏิทินรายเดือน ---- */}
-        <Card>
+        <Card className="flex flex-col">
           <SectionHead
             icon="calendar"
             title="ความพร้อมรับงานและการลา"
@@ -523,20 +526,20 @@ export function LeaderOverviewTab({
         </Card>
 
         {/* ---- คะแนนและประวัติผลงาน ---- */}
-        <Card>
+        <Card className="flex flex-col">
           <SectionHead
             icon="star"
             title="คะแนนและประวัติผลงาน"
             action={<GoTo label="ดูประวัติผลงาน" onClick={() => onGoTab('tourJobs')} />}
           />
           {scores.reviews === 0 ? (
-            <EmptyState
+            <CardEmpty><EmptyState
               icon="star"
               title="ยังไม่มีข้อมูลคะแนน"
               description={scores.groups > 0
                 ? `เดินทางแล้ว ${scores.groups} กรุ๊ป — ยังไม่มีแบบสอบถามตอบกลับ`
                 : 'เมื่อมีกรุ๊ปที่เดินทางแล้วและมีแบบสอบถาม จะสรุปที่นี่'}
-            />
+            /></CardEmpty>
           ) : (
             <div className="space-y-4">
               <div>
@@ -567,9 +570,9 @@ export function LeaderOverviewTab({
       </div>
 
       {/* ============ แถว 3: ความเชี่ยวชาญ | ภาษาและทักษะ | (เอกสารสำคัญ + ประสบการณ์) ============ */}
-      <div className="grid gap-4 sm:gap-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)_minmax(0,1.1fr)]">
+      <div className="grid gap-4 sm:gap-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]">
         {/* ---- ประเทศและเส้นทางที่เชี่ยวชาญ (§5) ---- */}
-        <Card>
+        <Card className="flex flex-col">
           <SectionHead
             icon="mapPin"
             title="ประเทศและเส้นทางที่เชี่ยวชาญ"
@@ -608,7 +611,7 @@ export function LeaderOverviewTab({
             </div>
           )}
           {scopes.length === 0 ? (
-            <EmptyState icon="plane" title="ยังไม่ระบุโซน ประเทศ หรือเส้นทาง" description="เพิ่มได้ที่แท็บความเชี่ยวชาญและทักษะ" />
+            <CardEmpty><EmptyState icon="plane" title="ยังไม่ระบุโซน ประเทศ หรือเส้นทาง" description="เพิ่มได้ที่แท็บความเชี่ยวชาญและทักษะ" /></CardEmpty>
           ) : (
             <>
               {scores.groups > 0 && <p className="mb-2 text-xs font-medium zego-text-tertiary">ที่ระบุไว้</p>}
@@ -700,7 +703,7 @@ export function LeaderOverviewTab({
           <Card className="flex-1">
             <SectionHead
               icon="briefcase"
-              title="ประสบการณ์และประวัติการทำงาน"
+              title="ประสบการณ์ทำงาน"
               action={<TextLink onClick={() => onGoTab('tourJobs')}>ดูทั้งหมด</TextLink>}
             />
             <div className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-3 text-sm">

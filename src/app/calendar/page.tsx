@@ -9,14 +9,15 @@
  * • อ่านอย่างเดียว: วันเดินทางมาจากพีเรียดจริง ห้ามลากเปลี่ยนวันที่นี่ (จัดหัวหน้าทัวร์ทำที่ /jobs)
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
+import Link from 'next/link';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { addDays, formatDate, formatDateRange, parseDate, TH_WEEKDAYS_SHORT } from '@/lib/format';
 import { buildMonthGrid, buildWeekGrid, monthTitle, shiftMonth, shiftWeek } from '@/lib/logic/calendar';
 import { Button, Card, cx, EmptyState, PageHeader, StatusBadge } from '@/components/ui/Primitives';
-import { SelectInput, SearchBox } from '@/components/ui/FormField';
-import { MultiSelect } from '@/components/ui/MultiSelect';
+import { SearchBox } from '@/components/ui/FormField';
+import { MultiSelectControl } from '@/components/ui/MultiSelect';
 import { SegmentedControl } from '@/components/ui/Tabs';
 import { Drawer } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
@@ -142,8 +143,6 @@ export default function CalendarPage() {
   // ตัวกรองการจัดเจ้าหน้าที่ส่งกรุ๊ป — คู่ขนานกับหัวหน้าทัวร์ด้านบน กรองอิสระจากกัน
   const [sendOffState, setSendOffState] = useState<'all' | 'assigned' | 'unassigned'>('all');
   const [staffPick, setStaffPick] = useState<string[]>([]); // [] = ทุกคนที่ถูกจัดแล้ว
-  /** จอเล็ก: ตัวกรองทั้ง 7 ช่องพับไว้ (เหลือช่องค้นหา) — ไม่งั้นปฏิทินถูกดันลงไปเกินหนึ่งจอ */
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const activeFilterCount = [
     country.length > 0,
     !(sale.length === 2 && sale.includes('SELL') && sale.includes('CLOSED')),
@@ -153,9 +152,36 @@ export default function CalendarPage() {
     sendOffState !== 'all',
     staffPick.length > 0,
   ].filter(Boolean).length;
+  const clearFilters = () => {
+    setSearch(''); setCountry([]); setSale(['SELL', 'CLOSED']); setPeriod('all');
+    setAssignState('all'); setLeaderPick([]); setSendOffState('all'); setStaffPick([]);
+  };
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dayOpen, setDayOpen] = useState<string | null>(null); // วันที่ ISO ที่กางรายการกรุ๊ปทั้งวันอยู่
+  /*
+   * มุมมองเดือนบนจอกว้าง (≥1280px) — คลิกวันแล้วรายละเอียดขึ้นที่แผงด้านขวา (ไม่เปิดหน้าต่างทับ)
+   * จอที่แคบกว่านี้ยังเปิดรายการทั้งวันเป็น Drawer เหมือนเดิม เพราะไม่มีที่พอวางแผงข้างปฏิทิน
+   */
+  const [focusDay, setFocusDay] = useState<string | null>(null);
+  /** แผงข้าง: 'pending' = เฉพาะกรุ๊ปที่ยังจัดไม่ครบ (งานที่เหลือ) */
+  const [panelTab, setPanelTab] = useState<'all' | 'pending'>('all');
+  /** มุมมองสัปดาห์: แสดงกรุ๊ปครบทุกตัวในช่องวัน (ไม่ตัดเป็น "+N กรุ๊ป") — จำค่าไว้ในเบราว์เซอร์นี้ */
+  const [showAll, setShowAllState] = useState(() => {
+    try { return typeof window !== 'undefined' && localStorage.getItem('calendar.weekShowAll') === '1'; } catch { return false; }
+  });
+  const setShowAll = (v: boolean) => {
+    setShowAllState(v);
+    try { localStorage.setItem('calendar.weekShowAll', v ? '1' : '0'); } catch { /* ignore */ }
+  };
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1280px)');
+    const sync = () => setWide(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
 
   const [assignments] = useState(() => (typeof window !== 'undefined' ? loadActiveGuideAssignments() : []));
   const assignmentByPeriod = useMemo(() => new Map(assignments.map((a) => [a.periodId, a])), [assignments]);
@@ -477,28 +503,34 @@ export default function CalendarPage() {
         onClick={(e) => { e.stopPropagation(); setSelectedId(p.internalId); }}
         title={[`${groupCodeLabel(p)} — ${p.displayName}`, complete ? 'จัดครบแล้ว (หัวหน้าทัวร์ + เจ้าหน้าที่ส่งกรุ๊ป)' : null, assignedLabel, sendOffLabel, `ขาย: ${SALE_STATUS_LABEL[p.saleStatus]}`].filter(Boolean).join(' · ')}
         className={cx(
-          // 8.5px + ระยะขอบแคบ — ป้ายยาวขึ้นเพราะมี (บัส) ต่อท้าย ตัวใหญ่กว่านี้ถูกตัดตั้งแต่จอ 1280 · ผู้ใช้ขอให้เล็กลงจาก 9px
-          'flex w-full items-center gap-0.5 rounded border text-left font-medium transition hover:brightness-95',
-          // large = รายการรายวันบนจอเล็ก (2 ป้ายต่อแถว) — มีที่พอให้อ่าน Group Code เต็ม
-          // ! — กฎ global `button { font-size: inherit }` (นอก layer) ชนะคลาส Tailwind ปกติ
-          large ? 'min-h-8 gap-1 px-1.5 py-1 text-[11px]!' : 'px-1 py-0.5 text-[8.5px]',
+          'flex w-full rounded border text-left font-medium transition hover:brightness-95',
+          // large = รายการรายวันบนจอเล็ก (2 ป้ายต่อแถว) — แถวเดียว ไอคอน + Group Code
+          // ปกติ (มุมมองสัปดาห์) = 2 บรรทัด: Group Code เต็มบรรทัดบน · ไอคอนสถานะ + ชื่อหัวหน้าทัวร์บรรทัดล่าง
+          // ! — กฎ global `button { font-size: inherit }` (นอก layer) ชนะคลาส Tailwind ปกติ ขนาดตัวอักษรจึงกำหนดที่ span ข้างใน
+          large ? 'min-h-8 items-center gap-1 px-1.5 py-1 text-[11px]!' : 'flex-col gap-0.5 px-1.5 py-1',
           complete ? COMPLETE_CHIP : NEUTRAL_CHIP,
         )}
       >
         {/* ไอคอนคนถือธง = สถานะจริงของหัวหน้าทัวร์ · ไอคอนเครื่องบิน = สถานะจริงของเจ้าหน้าที่ส่งกรุ๊ป — สีต้องตรงกับ Tag ในหน้าต่างรายละเอียด ไม่บังคับให้เท่ากัน */}
-        <Icon
-          name="guide"
-          className={cx('h-2.5 w-2.5 shrink-0', STATUS_ICON_COLOR[status])}
-        />
         {/* ไม่แสดงไอคอนเครื่องบินถ้ากรุ๊ปนี้ไม่ต้องมีคนไปส่ง (เช่น NO_SELL) */}
-        {sendOffJob && (
-          <Icon
-            name="plane"
-            className={cx('h-2.5 w-2.5 shrink-0', STATUS_ICON_COLOR[sendOffStatus])}
-          />
+        {large ? (
+          <>
+            <Icon name="guide" className={cx('h-2.5 w-2.5 shrink-0', STATUS_ICON_COLOR[status])} />
+            {sendOffJob && <Icon name="plane" className={cx('h-2.5 w-2.5 shrink-0', STATUS_ICON_COLOR[sendOffStatus])} />}
+            <span className="sr-only">{[assignedLabel, sendOffLabel].filter(Boolean).join(' · ')}</span>
+            <span className="min-w-0 truncate font-mono font-semibold">{groupCodeLabel(p)}</span>
+          </>
+        ) : (
+          <>
+            <span className="block w-full truncate font-mono text-xs font-semibold leading-4">{groupCodeLabel(p)}</span>
+            <span className="flex w-full min-w-0 items-center gap-1 text-[10px] leading-3 opacity-80">
+              <Icon name="guide" className={cx('h-3 w-3 shrink-0', STATUS_ICON_COLOR[status])} />
+              {sendOffJob && <Icon name="plane" className={cx('h-3 w-3 shrink-0', STATUS_ICON_COLOR[sendOffStatus])} />}
+              <span className="sr-only">{[assignedLabel, sendOffLabel].filter(Boolean).join(' · ')}</span>
+              <span aria-hidden="true" className="min-w-0 truncate">{leader ? leaderDisplayName(leader) : 'ยังไม่จัด'}</span>
+            </span>
+          </>
         )}
-        <span className="sr-only">{[assignedLabel, sendOffLabel].filter(Boolean).join(' · ')}</span>
-        <span className="min-w-0 truncate font-mono font-semibold">{groupCodeLabel(p)}</span>
       </button>
     );
   };
@@ -506,7 +538,7 @@ export default function CalendarPage() {
   const dayCell = (cell: { date: string; inMonth: boolean; isToday: boolean }, tall: boolean) => {
     // แสดงเฉพาะกรุ๊ปของเดือนที่เลือก — ช่องวันต้น/ท้ายเดือนข้างเคียงเว้นว่างไว้
     const dayPeriods = cell.inMonth ? periodsByStart.get(cell.date) ?? [] : [];
-    const limit = tall ? 6 : 3;
+    const limit = showAll ? Infinity : tall ? 6 : 3;
     const dayNumber = parseDate(cell.date).getDate();
     const openAllLabel = `ดูกรุ๊ปทั้งหมดของวันที่ ${formatDate(cell.date)} (${dayPeriods.length} กรุ๊ป)`;
     // ทำเครื่องหมายวันหยุดเฉพาะวันของเดือนที่เลือก — วันนอกเดือนมีจุดแต่ไม่มีบรรทัดสรุปจะยิ่งงง
@@ -557,9 +589,9 @@ export default function CalendarPage() {
               type="button"
               onClick={() => setDayOpen(cell.date)}
               title={openAllLabel}
-              className="zego-text-info rounded px-1 text-left text-[9px] font-medium underline-offset-2 hover:underline"
+              className="zego-text-info rounded px-1 text-left font-medium underline-offset-2 hover:underline"
             >
-              +{dayPeriods.length - limit} พีเรียด · ดูทั้งหมด
+              <span className="text-xs">+{dayPeriods.length - limit} กรุ๊ป · ดูทั้งหมด</span>
             </button>
           )}
         </div>
@@ -570,6 +602,240 @@ export default function CalendarPage() {
   /** จัดครบ = หัวหน้าทัวร์คอนเฟิร์มแล้ว + เจ้าหน้าที่ส่งกรุ๊ปคอนเฟิร์มแล้ว (เกณฑ์เดียวกับสีป้ายกรุ๊ป) */
   const isComplete = (p: TourPeriodMaster) =>
     !!leaderOf(p) && boardStatusFromAssignment(assignmentByPeriod.get(p.internalId)?.assignmentStatus) === 'CONFIRMED' && hasSendOff(sendOffOf(p));
+
+  /** รวมกรุ๊ปตามปลายทาง (ตัวหน้ารหัสกรุ๊ป เช่น CKG-261101A → CKG) เรียงจากมากไปน้อย */
+  const byDestination = (ps: TourPeriodMaster[]) => {
+    const map = new Map<string, TourPeriodMaster[]>();
+    for (const p of ps) {
+      const key = p.groupCode.split('-')[0] || p.groupCode;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(p);
+    }
+    return [...map.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  };
+
+  /** วันที่แผงด้านขวาแสดง — วันที่คลิกไว้ (ถ้ายังอยู่ในเดือนที่ดู) › วันนี้ › วันแรกของเดือนที่มีกรุ๊ป › วันที่ 1 */
+  const panelDay = useMemo(() => {
+    const month = monthStartISO.slice(0, 7);
+    if (focusDay?.startsWith(month)) return focusDay;
+    if (today.startsWith(month)) return today;
+    return monthCells.find((c) => c.inMonth && (periodsByStart.get(c.date)?.length ?? 0) > 0)?.date ?? monthStartISO;
+  }, [focusDay, monthStartISO, today, monthCells, periodsByStart]);
+
+  /** คลิกวัน — จอกว้างเลือกวันให้แผงข้าง · จอแคบเปิดรายการทั้งวันเป็น Drawer */
+  const openDay = (date: string) => (wide ? setFocusDay(date) : setDayOpen(date));
+
+  /** เลื่อนวันที่เลือกในแผงข้าง ±n วัน — ข้ามเดือนแล้วปฏิทินเลื่อนเดือนตามให้ */
+  const moveDay = (n: number) => {
+    const next = addDays(panelDay, n);
+    setFocusDay(next);
+    if (next.slice(0, 7) !== monthStartISO.slice(0, 7)) {
+      setCursor({ year: Number(next.slice(0, 4)), month: Number(next.slice(5, 7)) - 1 });
+    }
+  };
+  const moveDayRef = useRef(moveDay);
+  useEffect(() => { moveDayRef.current = moveDay; });
+
+  /*
+   * คีย์ลัดมุมมองเดือน (จอกว้าง): ← → = วันก่อน/ถัดไป · ↑ ↓ = สัปดาห์ก่อน/ถัดไป
+   * ไม่ทำงานตอนพิมพ์ในช่องค้นหา/ช่องกรอก หรือโฟกัสอยู่ที่ตัวควบคุมที่ใช้ลูกศรเอง (เมนูตัวเลือก ปุ่มแท็บ)
+   * และตอนมีหน้าต่างรายละเอียดเปิดอยู่
+   */
+  useEffect(() => {
+    if (view !== 'month' || !wide) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const step = ({ ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 } as Record<string, number>)[e.key];
+      if (!step) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('input, textarea, select, [contenteditable="true"], [role="listbox"], [role="tablist"], [role="radiogroup"], [role="dialog"]')) return;
+      if (selectedId || dayOpen) return;
+      e.preventDefault();
+      moveDayRef.current(step);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [view, wide, selectedId, dayOpen]);
+
+  /**
+   * ช่องวันของมุมมองเดือน (จอ md ขึ้นไป) — ตัวเลขเด่นได้ตัวเดียวคือ "จำนวนกรุ๊ป"
+   * วันที่ย่อเล็ก/จางไว้มุมซ้าย · สถานะการจัดบอกด้วยสีของตัวเลข (เขียว = ครบ · เหลือง = จัดบางส่วน)
+   * แถบความคืบหน้าแสดงเฉพาะวันที่เริ่มจัดแล้ว — วันที่ยังไม่จัดเลยไม่ต้องมีตัวเลข 0/N ซ้ำ · รายการเต็มอยู่ที่แผงข้าง/Drawer
+   */
+  const monthSummaryCell = (cell: { date: string; inMonth: boolean; isToday: boolean }) => {
+    const ps = cell.inMonth ? periodsByStart.get(cell.date) ?? [] : [];
+    const holiday = cell.inMonth ? holidays.get(cell.date) : undefined;
+    const dow = parseDate(cell.date).getDay();
+    const weekend = cell.inMonth && (dow === 0 || dow === 6);
+    const done = ps.filter(isComplete).length;
+    const withLeader = ps.filter((p) => leaderOf(p)).length;
+    const active = wide && cell.date === panelDay;
+    const dayNumClass = cell.isToday ? 'zego-today-badge font-bold' : holiday ? 'font-semibold text-rose-600' : weekend ? 'text-rose-400' : cell.inMonth ? 'zego-text-tertiary' : 'zego-text-disabled';
+    const countClass = done === ps.length ? 'text-emerald-600' : withLeader > 0 ? 'text-amber-600' : 'zego-text';
+    return (
+      <button
+        key={cell.date}
+        type="button"
+        disabled={!cell.inMonth}
+        onClick={() => openDay(cell.date)}
+        aria-pressed={active}
+        aria-label={`${formatDate(cell.date)}${holiday ? ` วันหยุด ${holiday.name}` : ''} · ${ps.length} กรุ๊ป${ps.length ? ` · จัดครบ ${done}` : ''}`}
+        title={holiday ? `${formatDate(cell.date)} — ${holiday.name}` : undefined}
+        className={cx(
+          'zego-border-color flex min-h-20 flex-col border-b border-r p-1.5 text-left transition',
+          !cell.inMonth ? 'zego-surface-soft-bg' : holiday || weekend ? 'bg-rose-50/60 hover:bg-rose-50' : 'zego-surface-bg zego-hover-surface',
+          active && 'relative z-[1] ring-2 ring-inset ring-emerald-500',
+        )}
+      >
+        <span className="flex items-center gap-1">
+          <span className={cx('flex h-5 min-w-5 items-center justify-center rounded-full text-xs', dayNumClass)}>{parseDate(cell.date).getDate()}</span>
+          {holiday && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-rose-500" />}
+        </span>
+        {ps.length > 0 && (
+          <>
+            <span className="flex flex-1 items-baseline justify-center gap-1">
+              <span className={cx('text-xl font-semibold leading-none tabular-nums', countClass)}>{ps.length}</span>
+              <span className="text-[11px] zego-text-tertiary">กรุ๊ป</span>
+            </span>
+            {withLeader > 0 && done < ps.length && (
+              <span className="flex h-1 overflow-hidden rounded-full zego-surface-soft-bg" title={`จัดครบ ${done}/${ps.length} · มีหัวหน้าทัวร์ ${withLeader}/${ps.length}`}>
+                <span className="h-full bg-emerald-500" style={{ width: `${(done / ps.length) * 100}%` }} />
+                <span className="h-full bg-amber-400" style={{ width: `${((withLeader - Math.min(done, withLeader)) / ps.length) * 100}%` }} />
+              </span>
+            )}
+          </>
+        )}
+      </button>
+    );
+  };
+
+  /** แผงรายละเอียดวันด้านขวาของมุมมองเดือน (จอกว้าง) — รายการกรุ๊ปเต็มของวันที่เลือก แยกตามปลายทาง */
+  const dayPanel = () => {
+    const ps = periodsByStart.get(panelDay) ?? [];
+    const d = parseDate(panelDay);
+    const holiday = holidays.get(panelDay);
+    const done = ps.filter(isComplete).length;
+    const withLeader = ps.filter((p) => leaderOf(p)).length;
+    const sendOffApplicable = ps.filter((p) => sendOffOf(p)).length;
+    const sendOffDone = ps.filter((p) => hasSendOff(sendOffOf(p))).length;
+    return (
+      <aside
+        aria-label="รายละเอียดวัน"
+        className="zego-card-surface sticky flex flex-col overflow-hidden"
+        style={{ top: APP_HEADER_H + 16, maxHeight: `calc(100vh - ${APP_HEADER_H + 32}px)` }}
+      >
+        <div className="zego-border-color border-b p-4">
+          <p className="text-xs font-medium zego-text-tertiary">รายละเอียดวัน <span className="zego-text-disabled">· ใช้ปุ่มลูกศรเลื่อนวันได้</span></p>
+          <div className="mt-0.5 flex items-center gap-1">
+            <p className="min-w-0 flex-1 text-base font-semibold zego-text">
+              {TH_WEEKDAYS_SHORT[d.getDay()]} {formatDate(panelDay)}
+              {panelDay === today && <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 align-middle text-[11px] font-medium text-emerald-700">วันนี้</span>}
+            </p>
+            <button type="button" aria-label="วันก่อนหน้า" title="วันก่อนหน้า (←)" onClick={() => moveDay(-1)} className="rounded-lg p-1.5 zego-text-secondary zego-hover-surface"><Icon name="chevronLeft" className="h-4 w-4" /></button>
+            <button type="button" aria-label="วันถัดไป" title="วันถัดไป (→)" onClick={() => moveDay(1)} className="rounded-lg p-1.5 zego-text-secondary zego-hover-surface"><Icon name="chevronRight" className="h-4 w-4" /></button>
+          </div>
+          {holiday && <p className="mt-1 text-xs font-medium text-rose-600">วันหยุด: {holiday.name}</p>}
+          {ps.length > 0 && (
+            <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+              {[
+                ['กรุ๊ป', `${ps.length}`],
+                ['หัวหน้าทัวร์', `${withLeader}/${ps.length}`],
+                ['คนไปส่ง', sendOffApplicable ? `${sendOffDone}/${sendOffApplicable}` : '—'],
+              ].map(([k, v]) => (
+                <div key={k} className="rounded-lg zego-surface-soft-bg px-2 py-1.5">
+                  <dt className="text-[11px] zego-text-tertiary">{k}</dt>
+                  <dd className="text-sm font-semibold tabular-nums zego-text">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {ps.length > 0 && <p className={cx('mt-2 text-xs', done === ps.length ? 'text-emerald-700' : 'zego-text-secondary')}>จัดครบแล้ว {done} จาก {ps.length} กรุ๊ป</p>}
+          {ps.length > 0 && (
+            <div role="tablist" aria-label="แสดงกรุ๊ป" className="mt-3 grid grid-cols-2 gap-1 rounded-lg zego-surface-soft-bg p-1">
+              {([['all', `ทั้งหมด ${ps.length}`], ['pending', `ยังจัดไม่ครบ ${ps.length - done}`]] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  role="tab"
+                  aria-selected={panelTab === k}
+                  onClick={() => setPanelTab(k)}
+                  className={cx('rounded-md py-1 font-medium transition', panelTab === k ? 'zego-surface-bg zego-text shadow-sm' : 'zego-text-tertiary hover:zego-text')}
+                >
+                  <span className="text-xs">{label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* ซ่อนแถบเลื่อน (ยังเลื่อนด้วยล้อเมาส์/ทัชแพดได้) — แถบเลื่อนของแผงซ้อนกับของหน้าเว็บที่ขอบขวาดูรก */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 [scrollbar-width:none]! [&::-webkit-scrollbar]:hidden!">
+          {ps.length === 0 ? (
+            <p className="px-2 py-10 text-center text-sm zego-text-tertiary">ไม่มีกรุ๊ปออกเดินทางวันนี้</p>
+          ) : panelTab === 'pending' && done === ps.length ? (
+            <p className="px-2 py-10 text-center text-sm text-emerald-700">จัดครบทุกกรุ๊ปของวันนี้แล้ว</p>
+          ) : (
+            // กรุ๊ปที่ยังจัดไม่ครบขึ้นก่อนในแต่ละปลายทาง
+            byDestination(panelTab === 'pending' ? ps.filter((x) => !isComplete(x)) : ps).map(([dest, list]) => (
+              <section key={dest} className="mb-3 last:mb-0">
+                <h3 className="mb-1.5 flex items-center justify-between px-1 text-xs font-semibold zego-text-secondary">
+                  <span className="font-mono">{dest}</span>
+                  <span className="font-normal zego-text-tertiary">{list.length} กรุ๊ป</span>
+                </h3>
+                <ul className="space-y-1.5">{[...list].sort((a, b) => Number(isComplete(a)) - Number(isComplete(b))).map((p) => panelItem(p))}</ul>
+              </section>
+            ))
+          )}
+        </div>
+      </aside>
+    );
+  };
+
+  /** แถวกรุ๊ปในแผงข้าง — กระชับกว่ารายการใน Drawer (แผงกว้างแค่ 18–22rem) · คลิกเปิดรายละเอียดกรุ๊ป */
+  const panelItem = (p: TourPeriodMaster) => {
+    const leader = leaderOf(p);
+    const leaderStatus = boardStatusFromAssignment(assignmentByPeriod.get(p.internalId)?.assignmentStatus);
+    const sendOffJob = sendOffOf(p);
+    const sendOffStatus = sendOffJob ? sendOffJobStatus(sendOffJob) : 'UNASSIGNED';
+    const complete = isComplete(p);
+    // ลิงก์ไปหน้าการจัดสเก็ตที่เปิดกรุ๊ปนี้ให้เลย — เฉพาะกรุ๊ปที่ยังจัดไม่ครบ และไม่ใช่มุมมองของหัวหน้าทัวร์เอง
+    const canAssign = !complete && !ownScope;
+    return (
+      <li key={p.internalId} className="relative">
+        <button
+          type="button"
+          onClick={() => setSelectedId(p.internalId)}
+          title={p.displayName}
+          className={cx('w-full rounded-lg border px-3 py-2 text-left transition', canAssign && 'pb-8', complete ? `${COMPLETE_CHIP} hover:brightness-95` : 'zego-border-color zego-hover-surface')}
+        >
+          <span className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate font-mono text-xs font-semibold">{groupCodeLabel(p)}</span>
+            <span className={cx('shrink-0 rounded border px-1.5 text-[10px] font-medium leading-4', SALE_CHIP[p.saleStatus])}>{SALE_STATUS_LABEL[p.saleStatus]}</span>
+          </span>
+          <span className="mt-0.5 block truncate text-[11px] zego-text-tertiary">{p.displayName}</span>
+          <span className="mt-1 flex flex-col gap-0.5 text-[11px] zego-text-secondary">
+            <span className="flex items-center gap-1 truncate">
+              <Icon name="guide" className={cx('h-3 w-3 shrink-0', STATUS_ICON_COLOR[leaderStatus])} />
+              {leader ? `${leaderDisplayName(leader)} · ${BOARD_STATUS[leaderStatus].label}` : 'ยังไม่มีหัวหน้าทัวร์'}
+            </span>
+            {sendOffJob && (
+              <span className="flex items-center gap-1 truncate">
+                <Icon name="plane" className={cx('h-3 w-3 shrink-0', STATUS_ICON_COLOR[sendOffStatus])} />
+                {sendOffJob.staff ? `${sendOffStaffName(sendOffJob.staff)} · ${BOARD_STATUS[sendOffStatus].label}` : 'ยังไม่มีคนไปส่ง'}
+              </span>
+            )}
+          </span>
+        </button>
+        {canAssign && (
+          <Link
+            href={`/jobs?period=${encodeURIComponent(p.internalId)}`}
+            className="absolute bottom-2 right-3 inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
+          >
+            จัดคน<Icon name="chevronRight" className="h-3 w-3" />
+          </Link>
+        )}
+      </li>
+    );
+  };
 
   /**
    * จอเล็ก — มุมมองเดือน: ตาราง 7 คอลัมน์พอดีจอ ช่องละ "วันที่ + จำนวนกรุ๊ป" (ป้าย Group Code ใส่ไม่พอในช่องกว้าง ~48px)
@@ -625,7 +891,7 @@ export default function CalendarPage() {
         const d = parseDate(cell.date);
         const weekend = d.getDay() === 0 || d.getDay() === 6;
         const holiday = holidays.get(cell.date);
-        const limit = 8;
+        const limit = showAll ? Infinity : 8;
         return (
           <section key={cell.date} className={cx('px-3 py-2.5', (weekend || holiday) && 'bg-rose-50/60')}>
             <div className="mb-1.5 flex items-center justify-between gap-2">
@@ -739,75 +1005,83 @@ export default function CalendarPage() {
     <>
       <PageHeader title="ปฏิทินงาน" description={`อ่านจาก Tour Period Master · แสดง ${filtered.length} พีเรียด · สีของแถบแทนสถานะจัดหัวหน้าทัวร์ (ไอคอนคน) · ไอคอนเครื่องบินแทนสถานะเจ้าหน้าที่ส่งกรุ๊ป`} />
 
-      {/* ตัวกรอง (ชุดเดียวกับตารางโปรแกรม §5) */}
+      {/*
+        ตัวกรอง (ชุดเดียวกับตารางโปรแกรม §5) — แถบเดียวแบบปุ่มแคปซูล
+        กดปุ่มแล้วเลือกในกล่องเล็ก · ปุ่มที่กรองอยู่เป็นสีเขียวพร้อมค่าที่เลือก
+        สถานะ + ตัวคน ของหัวหน้าทัวร์/เจ้าหน้าที่ส่งกรุ๊ป รวมอยู่ในปุ่มเดียวกัน (เดิมแยก 4 ช่อง)
+      */}
       <Card className="mb-5">
-        <div className="grid items-end gap-3 lg:grid-cols-4">
-          <div className="flex items-end gap-2 lg:col-span-1">
-            <div className="min-w-0 flex-1"><SearchBox value={search} onChange={setSearch} placeholder="ค้นหา Group Code / โปรแกรม" label="ค้นหาพีเรียด" /></div>
-            {/* จอเล็ก: ปุ่มกาง/พับตัวกรองที่เหลือ · ตัวเลข = จำนวนตัวกรองที่ไม่ใช่ค่าเริ่มต้น */}
-            <Button className="shrink-0 md:hidden!" variant={activeFilterCount > 0 ? 'primary' : 'secondary'} icon="filter" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((v) => !v)}>
-              ตัวกรอง{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-            </Button>
-          </div>
-          <div className={cx('contents', !filtersOpen && 'max-md:hidden')}>
-            <MultiSelect label="ประเทศ" value={country} onChange={setCountry} allLabel="ทุกประเทศ" options={countries.map((c) => ({ value: c, label: c }))} />
-            <MultiSelect label="สถานะขาย" value={sale} onChange={(v) => setSale(v as SaleStatus[])} allLabel="ทั้งหมด" options={(['SELL', 'NO_SELL', 'CLOSED'] as SaleStatus[]).map((s) => ({ value: s, label: SALE_STATUS_LABEL[s] }))} />
-            <SelectInput label="ประเภทกรุ๊ป" value={period} onChange={(e) => setPeriod(e.target.value as typeof period)} options={[{ value: 'all', label: 'ทั้งหมด' }, { value: 'INC', label: 'INC' }, { value: 'COL', label: 'COL' }]} />
-          </div>
-        </div>
-
-        {/*
-          แถวที่สอง — กรองจากข้อมูลการจัด (คนละแหล่งกับ 4 ช่องบน จึงแยกแถวให้เห็นชัด)
-          4 ช่องเท่ากัน: สถานะ/ตัวคน ของหัวหน้าทัวร์ และเจ้าหน้าที่ส่งกรุ๊ป — กรองอิสระจากกันได้ทั้งคู่
-          items-start: ทุกช่องมี Label ครบ จึงชิดบนแล้วตรงแนวกันเอง — ถ้าใช้ items-end
-          ข้อความ hint ใต้ช่องเลือกคนจะดันช่องนั้นสูงขึ้นจนเหลื่อมกับช่องข้าง ๆ
-        */}
-        <div className={cx('zego-divider-top mt-3 grid items-start gap-3 pt-3 lg:grid-cols-4', !filtersOpen && 'max-md:hidden')}>
-          <SelectInput
-            label="สถานะหัวหน้าทัวร์"
-            value={assignState}
-            onChange={(e) => setAssignState(e.target.value as typeof assignState)}
-            options={[{ value: 'all', label: 'ทั้งหมด' }, { value: 'assigned', label: 'จัดแล้ว' }, { value: 'unassigned', label: 'ยังไม่จัด' }]}
-          />
-          <MultiSelect
-            label="หัวหน้าทัวร์ที่ถูกจัด"
-            value={leaderPick}
-            onChange={setLeaderPick}
-            allLabel="ทุกคน"
-            options={leaderOptions}
-            disabled={assignState === 'unassigned' || leaderOptions.length === 0}
-            hint={
-              assignState === 'unassigned'
-                ? 'กำลังดูเฉพาะกรุ๊ปที่ยังไม่จัด'
-                : leaderOptions.length === 0
-                  ? 'ยังไม่มีคนถูกจัดในช่วงนี้'
-                  : `${leaderOptions.length} คนในช่วงนี้ · วงเล็บ = จำนวนกรุ๊ป`
-            }
-          />
-          <SelectInput
-            label="สถานะเจ้าหน้าที่ส่งกรุ๊ป"
-            value={sendOffState}
-            onChange={(e) => setSendOffState(e.target.value as typeof sendOffState)}
-            options={[{ value: 'all', label: 'ทั้งหมด' }, { value: 'assigned', label: 'จัดแล้ว' }, { value: 'unassigned', label: 'ยังไม่จัด' }]}
-          />
-          <MultiSelect
-            label="เจ้าหน้าที่ส่งกรุ๊ปที่ถูกจัด"
-            value={staffPick}
-            onChange={setStaffPick}
-            allLabel="ทุกคน"
-            options={staffOptions}
-            disabled={sendOffState === 'unassigned' || staffOptions.length === 0}
-            hint={
-              sendOffState === 'unassigned'
-                ? 'กำลังดูเฉพาะกรุ๊ปที่ยังไม่จัด'
-                : staffOptions.length === 0
-                  ? 'ยังไม่มีคนถูกจัดในช่วงนี้'
-                  : `${staffOptions.length} คนในช่วงนี้ · วงเล็บ = จำนวนกรุ๊ป`
-            }
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          {/* ช่องค้นหาทรงเดียวกับปุ่มตัวกรอง: แคปซูล สูง 36px เส้นขอบ/ตัวอักษรเท่ากัน (! — .zego-input อยู่นอก layer) */}
+          <SearchBox className="w-full sm:w-72 [&_input]:h-9! [&_input]:min-h-0! [&_input]:rounded-full! [&_input]:border-[var(--zego-border)]! [&_input]:py-0! [&_input]:text-sm! [&_input]:shadow-none! [&_input:focus]:border-emerald-400! [&_input:focus]:shadow-[0_0_0_3px_var(--zego-focus)]!" value={search} onChange={setSearch} onClear={() => setSearch('')} placeholder="ค้นหา Group Code / โปรแกรม" label="ค้นหาพีเรียด" />
+          <FilterPill
+            label="ประเทศ"
+            active={country.length > 0}
+            summary={country.length === 0 ? undefined : country.length <= 2 ? country.join(', ') : `${country.length} ประเทศ`}
+          >
+            <CheckList value={country} onChange={setCountry} options={countries.map((c) => ({ value: c, label: c }))} />
+          </FilterPill>
+          <FilterPill
+            label="สถานะขาย"
+            active={!(sale.length === 2 && sale.includes('SELL') && sale.includes('CLOSED'))}
+            summary={sale.length === 0 ? 'ทั้งหมด' : sale.map((x) => SALE_STATUS_LABEL[x]).join(', ')}
+          >
+            <CheckList value={sale} onChange={(v) => setSale(v as SaleStatus[])} options={(['SELL', 'NO_SELL', 'CLOSED'] as SaleStatus[]).map((x) => ({ value: x, label: SALE_STATUS_LABEL[x] }))} />
+            <p className="mt-2 text-[11px] zego-text-tertiary">ไม่เลือกเลย = ทุกสถานะ</p>
+          </FilterPill>
+          <FilterPill label="ประเภทกรุ๊ป" active={period !== 'all'} summary={period === 'all' ? undefined : period}>
+            <RadioList value={period} onChange={(v) => setPeriod(v as typeof period)} options={[{ value: 'all', label: 'ทั้งหมด' }, { value: 'INC', label: 'INC' }, { value: 'COL', label: 'COL' }]} />
+          </FilterPill>
+          <FilterPill
+            label="หัวหน้าทัวร์"
+            width="w-72"
+            active={assignState !== 'all' || leaderPick.length > 0}
+            summary={assignSummary(assignState, leaderPick.length)}
+          >
+            <RadioList value={assignState} onChange={(v) => setAssignState(v as typeof assignState)} options={ASSIGN_STATE_OPTIONS} />
+            <p className="mb-1.5 mt-3 text-xs font-medium zego-text-secondary">หัวหน้าทัวร์ที่ถูกจัด</p>
+            <MultiSelectControl
+              ariaLabel="หัวหน้าทัวร์ที่ถูกจัด"
+              value={leaderPick}
+              onChange={setLeaderPick}
+              allLabel="ทุกคน"
+              options={leaderOptions}
+              disabled={assignState === 'unassigned' || leaderOptions.length === 0}
+            />
+            <p className="mt-1 text-[11px] zego-text-tertiary">
+              {assignState === 'unassigned' ? 'กำลังดูเฉพาะกรุ๊ปที่ยังไม่จัด' : leaderOptions.length === 0 ? 'ยังไม่มีคนถูกจัดในช่วงนี้' : `${leaderOptions.length} คนในช่วงนี้ · วงเล็บ = จำนวนกรุ๊ป`}
+            </p>
+          </FilterPill>
+          <FilterPill
+            label="คนไปส่ง"
+            width="w-72"
+            active={sendOffState !== 'all' || staffPick.length > 0}
+            summary={assignSummary(sendOffState, staffPick.length)}
+          >
+            <RadioList value={sendOffState} onChange={(v) => setSendOffState(v as typeof sendOffState)} options={ASSIGN_STATE_OPTIONS} />
+            <p className="mb-1.5 mt-3 text-xs font-medium zego-text-secondary">เจ้าหน้าที่ส่งกรุ๊ปที่ถูกจัด</p>
+            <MultiSelectControl
+              ariaLabel="เจ้าหน้าที่ส่งกรุ๊ปที่ถูกจัด"
+              value={staffPick}
+              onChange={setStaffPick}
+              allLabel="ทุกคน"
+              options={staffOptions}
+              disabled={sendOffState === 'unassigned' || staffOptions.length === 0}
+            />
+            <p className="mt-1 text-[11px] zego-text-tertiary">
+              {sendOffState === 'unassigned' ? 'กำลังดูเฉพาะกรุ๊ปที่ยังไม่จัด' : staffOptions.length === 0 ? 'ยังไม่มีคนถูกจัดในช่วงนี้' : `${staffOptions.length} คนในช่วงนี้ · วงเล็บ = จำนวนกรุ๊ป`}
+            </p>
+          </FilterPill>
+          {(activeFilterCount > 0 || search) && (
+            <button type="button" onClick={clearFilters} className="ml-auto inline-flex items-center gap-1 rounded-full px-2 py-1 font-medium zego-text-info hover:underline">
+              <Icon name="x" className="h-3.5 w-3.5" /><span className="text-sm">ล้างทั้งหมด</span>
+            </button>
+          )}
         </div>
       </Card>
 
+      {/* มุมมองเดือนบนจอกว้าง: ปฏิทิน | แผงรายละเอียดวัน (คลิกวันเพื่อเปลี่ยน) */}
+      <div className={cx(view === 'month' && 'xl:grid xl:grid-cols-[minmax(0,1fr)_18rem] 2xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start xl:gap-5')}>
       {/* แถบควบคุมมุมมอง */}
       <Card padded={false} className="overflow-x-clip">
         {offRange && (
@@ -837,7 +1111,7 @@ export default function CalendarPage() {
         */}
         {/* จอเล็กไม่ติดค้าง — แถบนี้สูงหลายบรรทัด ติดไว้จะบังปฏิทินเกือบครึ่งจอ */}
         <div className="z-30 zego-surface-bg md:sticky" style={{ top: APP_HEADER_H }}>
-        <div className="zego-divider-bottom flex flex-wrap items-center justify-between gap-3 zego-surface-bg px-4 py-3">
+        <div className="zego-divider-bottom flex flex-wrap items-center justify-between gap-x-3 gap-y-2 zego-surface-bg px-4 py-2">
           <div className="flex items-center gap-2">
             <button type="button" aria-label="ก่อนหน้า" onClick={() => (view === 'week' ? setWeekAnchor((a) => shiftWeek(a, -1)) : setCursor((c) => shiftMonth(c.year, c.month, -1)))} className="zego-text-secondary rounded-lg p-1.5 zego-hover-surface"><Icon name="chevronLeft" className="h-4 w-4" /></button>
             <button type="button" aria-label="ถัดไป" onClick={() => (view === 'week' ? setWeekAnchor((a) => shiftWeek(a, 1)) : setCursor((c) => shiftMonth(c.year, c.month, 1)))} className="zego-text-secondary rounded-lg p-1.5 zego-hover-surface"><Icon name="chevronRight" className="h-4 w-4" /></button>
@@ -847,29 +1121,38 @@ export default function CalendarPage() {
             <Button variant="ghost" size="sm" onClick={goToday}>เดือนเริ่มต้น</Button>
           </div>
 
-          {/* สรุปจำนวนกรุ๊ปของช่วงที่กำลังแสดง — อัปเดตตามตัวกรองและมุมมอง เขียนย่อเป็น "จัดแล้ว/ทั้งหมด" ให้อยู่บรรทัดเดียวเสมอ */}
+          {/*
+            สรุปจำนวนกรุ๊ปของช่วงที่กำลังแสดง — อัปเดตตามตัวกรองและมุมมอง
+            แบบกระชับ: ไม่มีกรอบ · บรรทัดเดียว · "จัดแล้ว/ทั้งหมด" ต่อท้ายไอคอน (ชื่อเต็มอยู่ใน tooltip และ screen reader)
+            ช่วงเวลา (เดือน/สัปดาห์) ไม่ต้องเขียนซ้ำ — มีอยู่ในหัวข้อทางซ้ายแล้ว
+          */}
           <div
             aria-live="polite"
-            className="zego-border-color zego-surface-soft-bg flex min-w-0 flex-1 items-center justify-center gap-x-3 overflow-x-auto whitespace-nowrap rounded-lg border px-3 py-1.5 max-md:order-last max-md:basis-full max-md:flex-wrap max-md:justify-start max-md:gap-y-1 max-md:overflow-visible max-md:whitespace-normal"
+            className="flex min-w-0 flex-1 items-center justify-center gap-x-3 whitespace-nowrap text-sm max-md:order-last max-md:basis-full max-md:flex-wrap max-md:justify-start max-md:gap-y-1 max-md:whitespace-normal"
           >
-            <span className="zego-text shrink-0 text-sm font-semibold">
+            <span className="shrink-0 font-semibold zego-text">
               {visiblePeriods.length.toLocaleString('th-TH')} กรุ๊ป
-              <span className="ml-1 font-normal zego-text-tertiary">
-                {view === 'week' ? 'ในสัปดาห์นี้' : 'ในเดือนนี้'}
-              </span>
+              <span className="sr-only">{view === 'week' ? 'ในสัปดาห์นี้' : 'ในเดือนนี้'}</span>
             </span>
             {visiblePeriods.length > 0 && (
               <>
-                <span aria-hidden="true" className="shrink-0 zego-text-disabled">·</span>
-                <span className="flex shrink-0 items-center gap-1 text-xs zego-text-secondary">
-                  <Icon name="guide" className="h-3 w-3 zego-text-success" />
-                  หัวหน้าทัวร์ {visibleAssignCounts.assigned.toLocaleString('th-TH')}/{visiblePeriods.length.toLocaleString('th-TH')}
+                <span
+                  title={`หัวหน้าทัวร์จัดแล้ว ${visibleAssignCounts.assigned.toLocaleString('th-TH')} จาก ${visiblePeriods.length.toLocaleString('th-TH')} กรุ๊ป`}
+                  className="flex shrink-0 items-center gap-1 tabular-nums zego-text-secondary"
+                >
+                  <Icon name="guide" className="h-3.5 w-3.5 zego-text-success" />
+                  <span className="sr-only">หัวหน้าทัวร์</span>
+                  {visibleAssignCounts.assigned.toLocaleString('th-TH')}/{visiblePeriods.length.toLocaleString('th-TH')}
                 </span>
                 {/* เจ้าหน้าที่ส่งกรุ๊ป — คนละสถานะกับหัวหน้าทัวร์ด้านบน แยกไอคอนเครื่องบินให้ไม่สับสนกัน */}
                 {visibleSendOffCounts.applicable > 0 && (
-                  <span className="flex shrink-0 items-center gap-1 text-xs zego-text-secondary">
-                    <Icon name="plane" className="h-3 w-3 zego-text-success" />
-                    คนไปส่ง {visibleSendOffCounts.assigned.toLocaleString('th-TH')}/{visibleSendOffCounts.applicable.toLocaleString('th-TH')}
+                  <span
+                    title={`คนไปส่งจัดแล้ว ${visibleSendOffCounts.assigned.toLocaleString('th-TH')} จาก ${visibleSendOffCounts.applicable.toLocaleString('th-TH')} กรุ๊ป`}
+                    className="flex shrink-0 items-center gap-1 tabular-nums zego-text-secondary"
+                  >
+                    <Icon name="plane" className="h-3.5 w-3.5 zego-text-success" />
+                    <span className="sr-only">คนไปส่ง</span>
+                    {visibleSendOffCounts.assigned.toLocaleString('th-TH')}/{visibleSendOffCounts.applicable.toLocaleString('th-TH')}
                   </span>
                 )}
                 {visibleGroupCodes !== visiblePeriods.length && (
@@ -879,8 +1162,24 @@ export default function CalendarPage() {
             )}
           </div>
 
+          {/* สวิตช์ "แสดงครบ" — ทรงเดียวกับปุ่มเลือกมุมมองข้าง ๆ (กรอบมน 12px สูง 34px ตัวอักษร 12px) ให้เป็นชุดเดียวกัน · จอเล็กไม่มี (hidden! — กฎ .zego-segmented อยู่นอก layer ชนะคลาส Tailwind ปกติ) */}
+          {view === 'week' && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showAll}
+              onClick={() => setShowAll(!showAll)}
+              title={showAll ? 'กลับไปแสดงแบบย่อ (วันละ 6 กรุ๊ป)' : 'แสดงกรุ๊ปครบทุกตัวในแต่ละวัน'}
+              className="zego-segmented h-[34px] shrink-0 items-center gap-2 px-3 max-md:hidden!"
+            >
+              <span aria-hidden="true" className={cx('relative h-4 w-7 shrink-0 rounded-full transition-colors', showAll ? 'bg-emerald-500' : 'bg-[var(--zego-border-strong)]')}>
+                <span className={cx('absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-all', showAll ? 'left-3.5' : 'left-0.5')} />
+              </span>
+              <span className={cx('whitespace-nowrap text-xs font-bold', showAll ? 'zego-text' : 'zego-text-tertiary')}>แสดงครบ</span>
+            </button>
+          )}
           {/* จอเล็ก: ไม่มีมุมมอง "ตาราง" (ปุ่มที่ 3) — ทั้งเดือนบีบในจอแคบอ่านไม่ได้ */}
-          <div className="max-md:w-full max-md:[&_.zego-segmented]:flex! max-md:[&_.zego-segmented__button]:flex-1 max-md:[&_.zego-segmented__button:nth-child(3)]:hidden!">
+          <div className="[&_.zego-segmented__button]:min-h-[26px]! max-md:w-full max-md:[&_.zego-segmented]:flex! max-md:[&_.zego-segmented__button]:flex-1 max-md:[&_.zego-segmented__button:nth-child(3)]:hidden!">
           <SegmentedControl label="เลือกมุมมองปฏิทิน" value={view} onChange={changeView} options={[{ value: 'month', label: 'เดือน' }, { value: 'week', label: 'สัปดาห์' }, { value: 'timeline', label: 'ตาราง' }]} />
           </div>
         </div>
@@ -895,7 +1194,7 @@ export default function CalendarPage() {
             <div className="min-w-[42rem]">
               {view === 'month' ? (
                 <div className="zego-border-color zego-surface-soft-bg grid grid-cols-7 border-b">
-                  {TH_WEEKDAYS_SHORT.map((d, i) => <div key={d} className={cx('zego-border-color border-r px-2 py-2 text-center text-xs font-semibold last:border-r-0', i === 0 || i === 6 ? 'bg-rose-100 text-rose-600' : 'zego-text-tertiary')}>{d}</div>)}
+                  {TH_WEEKDAYS_SHORT.map((d, i) => <div key={d} className={cx('zego-border-color border-r px-2 py-2 text-center text-xs font-semibold last:border-r-0', i === 0 || i === 6 ? 'bg-rose-50/60 text-rose-600' : 'zego-text-tertiary')}>{d}</div>)}
                 </div>
               ) : (
                 <div className="zego-border-color zego-surface-soft-bg grid grid-cols-7 border-b">
@@ -944,10 +1243,16 @@ export default function CalendarPage() {
               {mobileMonthGrid()}
               {holidaySummary(monthCells)}
             </div>
-            <div className="hidden overflow-x-auto md:block" onScroll={syncHeadScroll}>
+            <div className="hidden overflow-x-auto overflow-y-hidden md:block" onScroll={syncHeadScroll}>
               <div className="min-w-[42rem]">
-                <div className="zego-border-color grid grid-cols-7 border-l">{monthCells.map((cell) => dayCell(cell, false))}</div>
+                <div className="zego-border-color grid grid-cols-7 border-l">{monthCells.map((cell) => monthSummaryCell(cell))}</div>
               </div>
+              <p className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pt-3 text-xs zego-text-tertiary">
+                <span>ตัวเลข = จำนวนกรุ๊ปที่ออกเดินทางวันนั้น · คลิกวันเพื่อดูรายการ</span>
+                <span className="inline-flex items-center gap-1"><span className="font-semibold zego-text">12</span> ยังไม่จัด</span>
+                <span className="inline-flex items-center gap-1"><span className="font-semibold text-amber-600">12</span> จัดบางส่วน</span>
+                <span className="inline-flex items-center gap-1"><span className="font-semibold text-emerald-600">12</span> จัดครบ</span>
+              </p>
               {holidaySummary(monthCells)}
             </div>
           </>
@@ -959,7 +1264,7 @@ export default function CalendarPage() {
               {mobileWeekList()}
               {holidaySummary(weekCells)}
             </div>
-            <div className="hidden overflow-x-auto md:block" onScroll={syncHeadScroll}>
+            <div className="hidden overflow-x-auto overflow-y-hidden md:block" onScroll={syncHeadScroll}>
               <div className="min-w-[42rem]">
                 <div className="zego-border-color grid grid-cols-7 border-l">{weekCells.map((cell) => dayCell(cell, true))}</div>
               </div>
@@ -1061,6 +1366,8 @@ export default function CalendarPage() {
           )
         )}
       </Card>
+      {view === 'month' && wide && dayPanel()}
+      </div>
 
       {/* รายการกรุ๊ปทั้งหมดของวันที่กด — เห็นครบทุกกรุ๊ป ไม่ถูกตัดด้วย "+N พีเรียด" ในช่องปฏิทิน */}
       <Drawer
@@ -1168,6 +1475,117 @@ function Row({ label, value, mono, full }: { label: string; value: ReactNode; mo
     <div className={full ? 'col-span-2' : undefined}>
       <dt className="text-xs zego-text-disabled">{label}</dt>
       <dd className={cx('zego-text font-medium', mono && 'font-mono')}>{value}</dd>
+    </div>
+  );
+}
+
+/* ------------------------------ แถบตัวกรองแบบปุ่มแคปซูล ------------------------------ */
+
+const ASSIGN_STATE_OPTIONS = [{ value: 'all', label: 'ทั้งหมด' }, { value: 'assigned', label: 'จัดแล้ว' }, { value: 'unassigned', label: 'ยังไม่จัด' }];
+
+/** ข้อความบนปุ่มหัวหน้าทัวร์/คนไปส่ง — สถานะ (ถ้ากรอง) + จำนวนคนที่เลือก */
+function assignSummary(state: 'all' | 'assigned' | 'unassigned', picked: number): string | undefined {
+  const parts = [state === 'assigned' ? 'จัดแล้ว' : state === 'unassigned' ? 'ยังไม่จัด' : null, picked > 0 ? `${picked} คน` : null].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
+/**
+ * ปุ่มตัวกรองทรงแคปซูล — "ชื่อ: ค่าที่เลือก ▾" · กดแล้วเปิดกล่องเลือกใต้ปุ่ม
+ * ปิดเมื่อคลิกนอกกล่องหรือกด Escape · active = กรองอยู่ (ไม่ใช่ค่าเริ่มต้น) → สีเขียว
+ * ขนาดตัวอักษรกำหนดที่ span — กฎ global `button { font-size: inherit }` ชนะคลาสบนปุ่ม
+ */
+function FilterPill({ label, summary, active, width = 'w-56', children }: {
+  label: string;
+  summary?: string;
+  active: boolean;
+  width?: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+  /*
+    กล่องเลือกชิดซ้ายของปุ่มเป็นค่าเริ่มต้น — ปุ่มท้าย ๆ แถว (เช่น "คนไปส่ง") กล่องจะล้นขอบขวาจอ
+    วัดหลังวาดแล้วเลื่อนกล่องกลับเข้ามา (แก้ style ตรง ๆ ไม่ผ่าน state จึงไม่วาดซ้ำ/ไม่กระพริบ)
+  */
+  const panelRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    if (!open || !el) return;
+    el.style.left = '0px';
+    const overflow = el.getBoundingClientRect().right - (document.documentElement.clientWidth - 16);
+    if (overflow > 0) el.style.left = `${-overflow}px`;
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cx(
+          'inline-flex h-9 max-w-[18rem] items-center gap-1.5 rounded-full border px-3.5 transition',
+          active ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'zego-border-color zego-surface-bg zego-text-secondary zego-hover-surface',
+          open && 'ring-2 ring-emerald-200',
+        )}
+      >
+        <span className="min-w-0 truncate text-sm">
+          {label}
+          {summary && <>: <span className="font-semibold">{summary}</span></>}
+        </span>
+        <Icon name="chevronDown" className={cx('h-4 w-4 shrink-0 opacity-60 transition', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div ref={panelRef} role="dialog" aria-label={label} className={cx('zego-card-surface absolute left-0 top-full z-40 mt-1.5 max-w-[calc(100vw-2rem)] p-3 shadow-lg', width)}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** รายการติ๊กได้หลายค่า (ค่าว่าง = ไม่กรอง) · รายการยาวเลื่อนในกล่อง */
+function CheckList({ value, onChange, options }: { value: string[]; onChange: (v: string[]) => void; options: { value: string; label: string }[] }) {
+  const toggle = (v: string) => {
+    const next = value.includes(v) ? value.filter((x) => x !== v) : [...value, v];
+    onChange(options.filter((o) => next.includes(o.value)).map((o) => o.value));
+  };
+  return (
+    <div>
+      <ul className="max-h-64 space-y-0.5 overflow-y-auto">
+        {options.map((o) => (
+          <li key={o.value}>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm zego-hover-surface">
+              <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={value.includes(o.value)} onChange={() => toggle(o.value)} />
+              <span className="min-w-0 truncate zego-text">{o.label}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      {value.length > 0 && (
+        <button type="button" onClick={() => onChange([])} className="mt-2 px-2 font-medium zego-text-info hover:underline"><span className="text-xs">ล้างที่เลือก</span></button>
+      )}
+    </div>
+  );
+}
+
+/** รายการเลือกได้ค่าเดียว */
+function RadioList({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
+  return (
+    <div role="radiogroup" className="space-y-0.5">
+      {options.map((o) => (
+        <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm zego-hover-surface">
+          <input type="radio" className="h-4 w-4 accent-emerald-600" checked={value === o.value} onChange={() => onChange(o.value)} />
+          <span className="zego-text">{o.label}</span>
+        </label>
+      ))}
     </div>
   );
 }

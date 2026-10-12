@@ -15,7 +15,7 @@ import { makeStatusEvent } from '@/lib/logic/workflow';
 import { firstFreeSlot, slotOptions } from '@/lib/logic/appointmentSlots';
 import { nextAppointmentId } from '@/services/appointmentStore';
 import { APPOINTMENT_MODE } from '@/lib/labels';
-import { Button } from '@/components/ui/Primitives';
+import { Button, Callout } from '@/components/ui/Primitives';
 import { Modal } from '@/components/ui/Modal';
 import { SelectInput, TextArea } from '@/components/ui/FormField';
 import { DateField } from '@/components/ui/DateInput';
@@ -24,7 +24,13 @@ import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 
 const DURATION = 30;
 
-export function RequestClearModal({ period, leaderId, onClose }: { period: TourPeriodMaster; leaderId: string; onClose: () => void }) {
+export function RequestClearModal({ period, leaderId, missing, onClose }: {
+  period: TourPeriodMaster;
+  leaderId: string;
+  /** สิ่งที่ยังขาด (เช่น "ต้องทำ: เบี้ยเลี้ยง (ยังไม่ทำใบเบิก)") — มีค่า = นัดล่วงหน้าทั้งที่ยังไม่ครบ */
+  missing?: string | null;
+  onClose: () => void;
+}) {
   const { appointments, saveAppointment, currentUser, saving } = useDemo();
   // เริ่มที่พรุ่งนี้ ช่องว่างช่องแรก
   const [date, setDate] = useState(() => addDays(toISODate(new Date()), 1));
@@ -72,6 +78,11 @@ export function RequestClearModal({ period, leaderId, onClose }: { period: TourP
       }
     >
       <div className="space-y-3">
+        {missing && (
+          <Callout tone="amber" title="กรุ๊ปนี้ยังไม่ครบ">
+            {missing} — นัดล่วงหน้าได้ แต่ต้องทำให้ครบก่อนวันนัด ไม่งั้นบัญชีอาจขอเลื่อนนัด
+          </Callout>
+        )}
         <DateField
           label="วันที่"
           required

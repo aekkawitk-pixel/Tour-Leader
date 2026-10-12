@@ -77,6 +77,8 @@ export default function GuideSettlementClaimPage() {
   const [detail, setDetail] = useState<ExpenseRequest | null>(null);
   /** กรุ๊ปที่กำลังขอนัดเคลียร์เงิน */
   const [requestFor, setRequestFor] = useState<(typeof groups)[number]['period'] | null>(null);
+  /** สิ่งที่กรุ๊ปนั้นยังขาดตอนขอนัด (null = ครบแล้ว) — แสดงเตือนในหน้าต่างนัด */
+  const [requestMissing, setRequestMissing] = useState<string | null>(null);
   /** นัดเคลียร์เงินของกรุ๊ปที่ยังมีผล (ไม่นับที่ยกเลิก) — ล่าสุดก่อน */
   const clearAptOf = (periodId: string): Appointment | null => appointments
     .filter((a) => a.leaderId === leaderId && a.kind === 'clear' && a.jobId === periodId && a.status !== 'cancelled')
@@ -189,12 +191,30 @@ export default function GuideSettlementClaimPage() {
                     </Link>
                   );
                 }
-                return ready.ready ? (
-                  <div className="px-4 pb-3">
-                    <Button variant="primary" icon="calendar" className="w-full justify-center" onClick={() => setRequestFor(period)}>
-                      ทำนัดหมายเคลียร์เงิน
-                    </Button>
-                  </div>
+                /*
+                  ครบแล้ว → ปุ่มหลัก · จบทริปแล้วแต่ยังไม่ครบ → นัดล่วงหน้าได้ (ปุ่มรอง) แล้วไปทำส่วนที่ขาดให้ทันก่อนวันนัด
+                  ยังไม่จบทริป → ยังนัดไม่ได้ บอกว่านัดได้ตั้งแต่เมื่อไร
+                */
+                if (ready.ready || ended) {
+                  return (
+                    <div className="px-4 pb-3">
+                      <Button
+                        variant={ready.ready ? 'primary' : 'secondary'}
+                        icon="calendar"
+                        className="w-full justify-center"
+                        onClick={() => { setRequestFor(period); setRequestMissing(ready.ready ? null : ready.detail); }}
+                      >
+                        ทำนัดหมายเคลียร์เงิน
+                      </Button>
+                      {!ready.ready && <p className="mt-1 text-center text-[11px] text-amber-800">นัดล่วงหน้าได้ · ทำส่วนที่ขาดให้ครบก่อนวันนัด</p>}
+                    </div>
+                  );
+                }
+                return tripStarted(period, today) ? (
+                  <p className="px-4 pb-3 text-xs zego-text-tertiary">
+                    <Icon name="calendar" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
+                    นัดเคลียร์เงินได้หลังจบทริป ({formatDate(period.endDate || period.startDate)})
+                  </p>
                 ) : null;
               })()}
 
@@ -273,7 +293,7 @@ export default function GuideSettlementClaimPage() {
 
 
       <GuideExpenseDetailDrawer expense={detail} onClose={() => setDetail(null)} />
-      {requestFor && leaderId && <RequestClearModal period={requestFor} leaderId={leaderId} onClose={() => setRequestFor(null)} />}
+      {requestFor && leaderId && <RequestClearModal period={requestFor} leaderId={leaderId} missing={requestMissing} onClose={() => setRequestFor(null)} />}
     </div>
   );
 }
