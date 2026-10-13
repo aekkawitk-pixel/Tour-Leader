@@ -8,10 +8,9 @@
  * ค่าเริ่มต้นเป็นมุมมองปฏิทิน — แต่ละวันแสดง "จำนวนกรุ๊ปที่นัดมา" (+ นัดที่ไม่ผูกกรุ๊ป)
  * กดวัน → แผงรายละเอียดการนัดของวันนั้น (เวลา กรุ๊ป หัวหน้าทัวร์ ประเภท สถานะ ผู้นัด/เมื่อไร) → กดนัดเพื่อจัดการ
  * ปุ่ม + มุมวัน = สร้างนัดวันนั้น
- * การ์ด "พร้อมนัดเคลียร์เงิน" — กรุ๊ปที่จบทริปและหัวหน้าทัวร์ทำครบแล้ว ยังไม่มีนัด → กดนัดได้เลย (lib/logic/clearQueue.ts)
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { can } from '@/lib/permissions';
 import Link from 'next/link';
@@ -39,13 +38,9 @@ import { Icon } from '@/components/ui/Icon';
 import { AppointmentFormModal } from '@/components/appointments/AppointmentFormModal';
 import { FreeSlotPicker, isFreeChoice, useBookableDays } from '@/components/appointments/FreeSlotPicker';
 import type { Appointment, AppointmentKind, AppointmentStatus } from '@/types';
-import { groupsReadyToClear, moneyGroupIds } from '@/lib/logic/clearQueue';
-import { leaderDisplayName } from '@/lib/logic/leaderExpertise';
-import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
-import { loadGroupClears } from '@/services/groupClearStore';
 
 export default function AppointmentsPage() {
-  const { appointments, leaders, jobs, currentUser, changeAppointmentStatus, saving, envelopes, expenses } =
+  const { appointments, leaders, jobs, currentUser, changeAppointmentStatus, saving } =
     useDemo();
   // วันที่จริงของเครื่อง — นัดหมายเป็นข้อมูลจริง (ไม่ใช้วันจำลองของ Demo ที่ตรึงไว้ ก.ค. 2569)
   const today = toISODate(new Date());
@@ -64,16 +59,6 @@ export default function AppointmentsPage() {
   const [leaderFilter, setLeaderFilter] = useState('all');
 
   const [formOpen, setFormOpen] = useState(false);
-  /** นัดจากการ์ด "พร้อมนัดเคลียร์เงิน" — ตั้งกรุ๊ป + หัวหน้าทัวร์ไว้ให้ */
-  const [presetGroup, setPresetGroup] = useState<{ jobId: string; leaderId: string } | null>(null);
-  const [showAllReady, setShowAllReady] = useState(false);
-  /** กรุ๊ปที่ปิดเคลียร์แล้ว (localStorage) */
-  const [closedIds, setClosedIds] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    const recs = loadGroupClears();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จากภายนอก (localStorage) ตอน mount
-    setClosedIds(new Set(Object.keys(recs).filter((id) => recs[id].closedAt)));
-  }, []);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** วันที่เปิดดูรายละเอียดการนัด (มุมมองปฏิทิน) */
@@ -156,23 +141,6 @@ export default function AppointmentsPage() {
 
   const canManage = can(currentUser.role, 'appointment.manage');
 
-  /** กรุ๊ปที่พร้อมนัดเคลียร์เงิน — จบทริป · หัวหน้าทัวร์ทำครบ · ยังไม่มีนัด · ยังไม่ปิด */
-  const readyGroups = useMemo(() => {
-    const periods = moneyGroupIds(envelopes, expenses)
-      .map((id) => getTourPeriodById(id))
-      .filter((p): p is NonNullable<typeof p> => !!p);
-    const confirmed = new Map(loadActiveGuideAssignments()
-      .filter((a) => a.assignmentStatus === 'CONFIRMED')
-      .map((a) => [a.periodId, a.tourLeaderId]));
-    return groupsReadyToClear({ periods, today, envelopes, expenses, appointments, closedIds }).map((c) => {
-      const p = getTourPeriodById(c.periodId)!;
-      const leaderId = confirmed.get(c.periodId) ?? c.summary.perDiem?.requesterId ?? c.summary.receipts[0]?.requesterId ?? '';
-      const leader = leaders.find((l) => l.id === leaderId);
-      return { ...c, p, leaderId, leaderName: leader ? leaderDisplayName(leader) : (c.summary.perDiem?.requesterName ?? '—') };
-    });
-  }, [envelopes, expenses, appointments, closedIds, leaders, today]);
-  const READY_PREVIEW = 8;
-  const readyShown = showAllReady ? readyGroups : readyGroups.slice(0, READY_PREVIEW);
 
   const submitReschedule = async (newDate: string, newTime: string, note: string) => {
     if (!selected) return;
@@ -241,47 +209,6 @@ export default function AppointmentsPage() {
         <StatCard dense label="เข้าพบแล้ว" value={attended.length} tone="green" hint="เสร็จสิ้นแล้ว" />
       </div>
 
-      {/* กรุ๊ปพร้อมนัดเคลียร์เงิน — หัวหน้าทัวร์ทำครบแล้ว ยังไม่มีนัด */}
-      {can(currentUser.role, 'appointment.create') && readyGroups.length > 0 && (
-        <Card className="mb-5 ring-1 ring-emerald-200">
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <div>
-              <p className="text-sm font-semibold zego-text">พร้อมนัดเคลียร์เงิน ({readyGroups.length} กรุ๊ป)</p>
-              <p className="text-xs zego-text-tertiary">จบทริปแล้ว หัวหน้าทัวร์ส่งครบทุกอย่าง (ซองเงิน · ใบเสร็จ · เบี้ยเลี้ยง) — ยังไม่มีนัด · เรียงจบทริปนานสุดก่อน</p>
-            </div>
-          </div>
-          <ul className="divide-y divide-[var(--zego-border-soft)] rounded-lg border zego-border-color">
-            {readyShown.map((g) => (
-              <li key={g.periodId} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium zego-text">
-                    {g.p.groupCode} <span className="font-normal zego-text-secondary">· {g.leaderName}</span>
-                  </p>
-                  <p className="text-xs zego-text-tertiary">{g.p.displayName}</p>
-                  <p className="text-xs zego-text-tertiary">
-                    กลับ {formatDate(g.p.endDate)} · {g.readiness.checks.map((c) => `${c.label} ${c.text}`).join(' · ')}
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon="calendar"
-                  disabled={!g.leaderId}
-                  title={g.leaderId ? undefined : 'กรุ๊ปนี้ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม'}
-                  onClick={() => { setEditingId(null); setPresetDate(undefined); setPresetGroup({ jobId: g.periodId, leaderId: g.leaderId }); setFormOpen(true); }}
-                >
-                  นัดหมาย
-                </Button>
-              </li>
-            ))}
-          </ul>
-          {readyGroups.length > READY_PREVIEW && (
-            <button type="button" className="mt-2 text-xs font-medium zego-text-info hover:underline" onClick={() => setShowAllReady((v) => !v)}>
-              {showAllReady ? 'แสดงน้อยลง' : `แสดงทั้งหมด ${readyGroups.length} กรุ๊ป`}
-            </button>
-          )}
-        </Card>
-      )}
 
       {overlapIds.size > 0 && (
         <div className="mb-5">
@@ -490,23 +417,23 @@ export default function AppointmentsPage() {
                             onClick={() => setDayOpen(cell.date)}
                             title={`ช่วง${period.label} (${period.range}) · ดูการนัด ${part.length} รายการ`}
                             className={cx(
-                              'flex w-full flex-col items-start justify-center gap-0.5 rounded-lg px-2 py-1 text-left transition max-sm:items-center max-sm:px-0.5',
+                              'flex w-full min-w-0 items-baseline gap-x-1.5 overflow-hidden whitespace-nowrap rounded-lg px-2 py-1 text-left transition max-sm:justify-center max-sm:px-0.5',
                               period.key === 'morning'
                                 ? (waiting > 0 || asking > 0 ? 'bg-amber-50 hover:bg-amber-100 sm:bg-emerald-50 sm:hover:bg-emerald-100' : 'bg-emerald-50 hover:bg-emerald-100')
-                                : (waiting > 0 || asking > 0 ? 'bg-amber-50 hover:bg-amber-100 sm:bg-sky-50 sm:hover:bg-sky-100' : 'bg-sky-50 hover:bg-sky-100'),
+                                : (waiting > 0 || asking > 0 ? 'bg-amber-50 hover:bg-amber-100 sm:bg-[#f5ebe0] sm:hover:bg-[#ecdcc8]' : 'bg-[#f5ebe0] hover:bg-[#ecdcc8]'),
                             )}
                           >
-                            <span className={cx('flex items-baseline gap-1.5 leading-none', period.key === 'morning' ? 'text-emerald-800' : 'text-sky-800')}>
+                            <span className={cx('flex shrink-0 items-baseline gap-1.5 leading-none', period.key === 'morning' ? 'text-emerald-800' : 'text-[#6b4423]')}>
                               <span className="text-[11px] font-semibold">{period.label}</span>
                               <span className="text-sm font-bold">{groups > 0 ? groups : part.length}</span>
                               <span className="text-[11px] font-medium max-sm:hidden">{groups > 0 ? 'กรุ๊ป' : 'นัด'}</span>
                             </span>
-                            {groups > 0 && noGroup > 0 && <span className={cx('text-[10px] max-sm:hidden', period.key === 'morning' ? 'text-emerald-700' : 'text-sky-700')}>+ นัดอื่น {noGroup}</span>}
-                            {/* จอเล็ก: พื้นส้ม = มีรอยืนยัน/ขอเลื่อน (รายละเอียดดูในหน้าต่างของวัน) */}
+                            {groups > 0 && noGroup > 0 && <span className={cx('shrink-0 text-[10px] max-sm:hidden', period.key === 'morning' ? 'text-emerald-700' : 'text-[#8a5a2b]')}>+ นัดอื่น {noGroup}</span>}
+                            {/* บรรทัดเดียวกับจำนวนกรุ๊ป (คำย่อ รอ = รอยืนยัน · เลื่อน = ขอเลื่อน — ชี้ดูคำเต็ม) · จอเล็ก: พื้นส้ม = มีรอยืนยัน/ขอเลื่อน */}
                             {(waiting > 0 || asking > 0) && (
-                              <span className="flex flex-wrap gap-x-1.5 text-[10px] font-medium max-sm:hidden">
-                                {waiting > 0 && <span className="text-amber-700">รอยืนยัน {waiting}</span>}
-                                {asking > 0 && <span className="text-violet-700">ขอเลื่อน {asking}</span>}
+                              <span className="min-w-0 truncate text-[10px] font-medium max-sm:hidden">
+                                {waiting > 0 && <span className="text-amber-700" title={`รอยืนยัน ${waiting} นัด`}>· รอ {waiting}</span>}
+                                {asking > 0 && <span className="text-violet-700" title={`ขอเลื่อน ${asking} นัด`}> · เลื่อน {asking}</span>}
                               </span>
                             )}
                           </button>
@@ -561,7 +488,7 @@ export default function AppointmentsPage() {
                   return [
                     newPeriod && (
                       <li key={`h-${period.key}`} className={cx('flex items-baseline gap-2 border-b pb-1 zego-border-color', i > 0 && 'pt-2')}>
-                        <span className={cx('text-sm font-bold', period.key === 'morning' ? 'text-emerald-800' : 'text-sky-800')}>ช่วง{period.label}</span>
+                        <span className={cx('text-sm font-bold', period.key === 'morning' ? 'text-emerald-800' : 'text-[#6b4423]')}>ช่วง{period.label}</span>
                         <span className="text-xs zego-text-tertiary">{period.range} น. · {count} นัด</span>
                       </li>
                     ),
@@ -746,12 +673,16 @@ export default function AppointmentsPage() {
         onClose={() => {
           setFormOpen(false);
           setEditingId(null);
-          setPresetGroup(null);
         }}
         appointment={editing}
         presetDate={presetDate}
-        presetJobId={presetGroup?.jobId}
-        presetLeaderId={presetGroup?.leaderId}
+        // กรุ๊ปมีนัดเคลียร์อยู่แล้ว → ปิดฟอร์ม แล้วเปิดนัดเดิมพร้อมหน้าต่างเลื่อนนัด
+        onOpenExisting={(id) => {
+          setFormOpen(false);
+          setEditingId(null);
+          setSelectedId(id);
+          setRescheduleOpen(true);
+        }}
       />
     </>
   );

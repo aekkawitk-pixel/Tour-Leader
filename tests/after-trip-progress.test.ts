@@ -13,7 +13,7 @@ test('หลังเดินทาง — ยังไม่ทำอะไร
   const r = run({});
   assert.equal(r.next.label, 'เบิกเบี้ยเลี้ยง');
   assert.equal(r.next.href, '/guide/settlement/allowance?period=P1');
-  assert.equal(r.steps[0].value, 'ยังไม่มี');
+  assert.equal(r.steps[0].value, 'ยังไม่มี (ไม่บังคับ)');
   assert.equal(r.recordHref, '/guide/expenses/record?filter=after&period=P1');
 });
 
@@ -55,4 +55,8 @@ test('หลังเดินทาง — ขอนัดเองแล้ว
 test('หลังเดินทาง — รอฝั่งการเงิน/บัญชี ไม่มีปุ่ม', () => {
   assert.equal(run({ perDiem: doc('approved'), clearAppointment: apt('confirmed') }).next.label, 'เข้าพบตามนัด 2026-10-20 10:00');
   assert.equal(run({ perDiem: doc('paid'), clearAppointment: apt('attended') }).next.label, 'รอการเงินปิดเคลียร์');
+});
+
+test('หลังเดินทาง — นัดที่ยืนยันแล้วบอกสถานะต่อท้ายวันเวลา', () => {
+  assert.equal(run({ perDiem: doc('submitted'), clearAppointment: apt('confirmed') }).steps[2].value, '2026-10-20 10:00 · ยืนยันแล้ว');
 });

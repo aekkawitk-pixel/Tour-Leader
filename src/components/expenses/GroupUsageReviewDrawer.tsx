@@ -11,7 +11,7 @@
  * ใบที่ต้องตีตกบางบรรทัด / ส่งกลับแก้ / ปฏิเสธ → "เปิดตรวจ" ไปหน้าตรวจรายใบ (ExpenseDrawer) แล้วกลับมาที่นี่
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog, Drawer } from '@/components/ui/Modal';
 import { Button, cx, StatusBadge } from '@/components/ui/Primitives';
 import { useDemo } from '@/store/DemoStore';
@@ -29,6 +29,7 @@ export function GroupUsageReviewDrawer({
   onClose,
   onOpenReport,
   onNext,
+  focusReportId,
   nextLabel,
 }: {
   groupId: string | null;
@@ -37,6 +38,8 @@ export function GroupUsageReviewDrawer({
   /** ไปกรุ๊ปถัดไปที่รอตรวจ (ไม่มี = กรุ๊ปสุดท้าย) */
   onNext?: () => void;
   nextLabel?: string;
+  /** เปิดจากใบเสร็จใบหนึ่งในมุมมองรายการ — เลื่อนไปที่ใบนั้นและเน้นให้เห็น */
+  focusReportId?: string | null;
 }) {
   const { expenses, approveExpenseLines, pushToast, saving } = useDemo();
   /** ใบเสร็จที่เลือก — ผูกกับกรุ๊ป · ยังไม่แตะ = ใช้ชุดที่เลือกให้ล่วงหน้า */
@@ -46,6 +49,12 @@ export function GroupUsageReviewDrawer({
   const [busy, setBusy] = useState(false);
 
   const review = useMemo(() => (groupId ? groupUsageReview(expenses, groupId) : null), [expenses, groupId]);
+  // เลื่อนไปที่ใบเสร็จที่กดมา (รอแผงเปิดเสร็จก่อน)
+  useEffect(() => {
+    if (!groupId || !focusReportId) return;
+    const t = window.setTimeout(() => document.querySelector(`[data-report-id="${CSS.escape(focusReportId)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 250);
+    return () => window.clearTimeout(t);
+  }, [groupId, focusReportId]);
   if (!groupId || !review) return null;
 
   const rows = review.sections.flatMap((s) => s.rows);
@@ -177,7 +186,7 @@ export function GroupUsageReviewDrawer({
                     const key = usageRowKey(r);
                     const together = pendingByReport.get(r.report.id) ?? 0;
                     return (
-                      <li key={key} className={cx('flex flex-wrap items-center gap-3 px-3 py-2.5', selected.has(key) && 'bg-emerald-50/50')}>
+                      <li key={key} data-report-id={r.report.id} className={cx('flex flex-wrap items-center gap-3 px-3 py-2.5', selected.has(key) && 'bg-emerald-50/50', r.report.id === focusReportId && 'ring-2 ring-inset ring-sky-400')}>
                         <input
                           type="checkbox"
                           className="h-4 w-4 shrink-0 accent-emerald-600 disabled:opacity-30"

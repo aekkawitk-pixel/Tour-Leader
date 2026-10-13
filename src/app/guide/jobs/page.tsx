@@ -19,7 +19,13 @@ import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { boardStatusMeta } from '@/lib/logic/guideBoard';
-import { formatDateRange, toISODate } from '@/lib/format';
+import { formatDate, formatDateRange, toISODate } from '@/lib/format';
+import { tripEnded, tripStarted } from '@/lib/logic/tripPhase';
+import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
+import { afterTripProgress } from '@/lib/logic/afterTripProgress';
+import { jobNextStep, type NextStepTone } from '@/lib/logic/guideJobNextStep';
+import { loadGroupClears } from '@/services/groupClearStore';
+import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import { Card, EmptyState, StatusBadge, cx } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import { MonthHeader, MonthYearSelect, useMonthGroups } from '@/components/ui/MonthFilter';
@@ -120,6 +126,8 @@ export default function GuideJobsPage() {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium zego-text">{period.groupCode} · {period.displayName}</p>
                             <p className="text-xs zego-text-tertiary">{period.countryName} · {formatDateRange(period.startDate, period.endDate)}</p>
+                            {/* ขั้นต่อไป — บอกว่ากรุ๊ปนี้ต้องทำอะไรต่อ */}
+                            <div className="mt-1"><NextStepChip period={period} /></div>
                           </div>
                           <div className="flex shrink-0 flex-col items-end gap-1">
                             <StatusBadge meta={boardStatusMeta(assignment.assignmentStatus)} size="sm" />
@@ -330,6 +338,8 @@ function JobsCalendar({ jobs, startMonth }: { jobs: Job[]; startMonth?: string |
                     </div>
                     <p className="line-clamp-2 text-xs zego-text-secondary" title={period.displayName}>{period.displayName}</p>
                     <p className="text-[11px] zego-text-tertiary">{period.countryName} · {formatDateRange(period.startDate, period.endDate)}</p>
+                    {/* ขั้นต่อไป — บอกว่ากรุ๊ปนี้ต้องทำอะไรต่อ */}
+                    <NextStepChip period={period} />
                     <EnvelopeChip periodId={period.internalId} />
                   </div>
                 </Link>
@@ -368,6 +378,49 @@ function EnvelopeChip({ periodId }: { periodId: string }) {
     <span className="flex items-center gap-1.5">
       <span className="text-[11px] zego-text-tertiary">ซองเงิน</span>
       <StatusPill label={label} tone={tone} />
+    </span>
+  );
+}
+
+const NEXT_STEP_STYLE: Record<NextStepTone, string> = {
+  action: 'bg-amber-100 text-amber-900 ring-amber-300',
+  waiting: 'bg-sky-50 text-sky-800 ring-sky-200',
+  done: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
+  idle: 'zego-surface-soft-bg zego-text-secondary ring-[var(--zego-border-soft)]',
+};
+
+/**
+ * ป้าย "ขั้นต่อไป" ของกรุ๊ป — บอกว่าต้องทำอะไรต่อโดยไม่ต้องเปิดดูทีละกรุ๊ป (jobNextStep)
+ * ส้ม = คุณต้องทำ · ฟ้า = รอฝั่งการเงิน · เขียว = เรียบร้อย · เทา = ยังไม่ถึงเวลา
+ */
+function NextStepChip({ period }: { period: TourPeriodMaster }) {
+  const { currentUser, envelopes, expenses, appointments } = useDemo();
+  const leaderId = ownLeaderScope(currentUser);
+  const today = toISODate(new Date());
+  const pid = period.internalId;
+  const ended = tripEnded(period, today);
+  const clearApt = appointments
+    .filter((a) => a.leaderId === leaderId && a.kind === 'clear' && a.jobId === pid && a.status !== 'cancelled')
+    .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`))[0] ?? null;
+  const step = jobNextStep({
+    started: tripStarted(period, today),
+    ended,
+    closed: !!loadGroupClears()[pid]?.closedAt,
+    envelopesToAck: envelopes.filter((e) => e.periodId === pid && (leaderEnvelopeState(e, leaderId) === 'to_ack' || leaderEnvelopeState(e, leaderId) === 'in_transit')).length,
+    afterTrip: ended
+      ? afterTripProgress({
+        periodId: pid,
+        receipts: expenses.filter((e) => e.jobId === pid && e.category === 'actual' && e.requesterId === leaderId && e.status !== 'cancelled'),
+        perDiem: leaderId ? activeLeaderClaim(expenses, pid, leaderId, 'per_diem') : null,
+        clearAppointment: clearApt,
+        formatWhen: (a) => `${formatDate(a.date)} ${a.time} น.`,
+      })
+      : null,
+  });
+  return (
+    <span className={cx('inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', NEXT_STEP_STYLE[step.tone])}>
+      <Icon name={step.tone === 'done' ? 'check' : step.tone === 'action' ? 'chevronRight' : 'clock'} className="h-3 w-3 shrink-0" />
+      <span className="truncate">{step.tone === 'action' ? `ต้องทำ: ${step.label}` : step.label}</span>
     </span>
   );
 }

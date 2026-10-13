@@ -16,6 +16,7 @@ import { loadPeriodOverrides } from '@/services/periodOverrideStore';
 import { periodVersion } from '@/services/periodCacheBus';
 import { loadPeriodArchive, loadZegoImport, type ArchivedPeriod } from '@/services/zegoImportStore';
 import { zegoToTourPeriodMaster } from '@/data/zego/zegoToMaster';
+import { loadDemoPeriods } from '@/services/demoPeriodStore';
 import type {
   MasterHistoryEntry, SourceSystem, SyncReport, TourPeriodFilters, TourPeriodMaster, ValidationResult,
 } from '@/data/schedule/masterTypes';
@@ -39,16 +40,18 @@ export interface PeriodSourceInfo {
  *  ข้อมูลที่นำเข้าเป็นของผู้ใช้แต่ละเครื่อง ไม่ใช่ข้อมูลร่วมของทั้งระบบ)
  */
 function baseRecords(): TourPeriodMaster[] {
+  // พีเรียดตัวอย่างสำหรับ Demo (ถ้าโหลดไว้) ต่อท้ายเสมอ — ไม่แทนที่ชุดหลัก
+  const demo = loadDemoPeriods();
   const imported = loadZegoImport();
   if (imported && imported.periods.length > 0) {
-    return zegoToTourPeriodMaster({
+    return [...zegoToTourPeriodMaster({
       programs: imported.programs,
       periods: imported.periods,
       importedAt: imported.importedAt,
       sourceUpdatedAt: imported.sourceUpdatedAt,
-    });
+    }), ...demo];
   }
-  return buildTourPeriodMaster();
+  return demo.length > 0 ? [...buildTourPeriodMaster(), ...demo] : buildTourPeriodMaster();
 }
 
 /** แหล่งข้อมูลพีเรียดที่ระบบกำลังใช้อยู่ตอนนี้ */

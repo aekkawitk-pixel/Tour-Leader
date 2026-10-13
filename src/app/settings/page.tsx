@@ -25,6 +25,7 @@ import { Icon } from '@/components/ui/Icon';
 import { SendOffFeeSettings } from '@/components/settings/SendOffFeeSettings';
 import { TipRateSettings } from '@/components/settings/TipRateSettings';
 import { TestDataReset } from '@/components/settings/TestDataReset';
+import { DemoScenarioLoader } from '@/components/settings/DemoScenarioLoader';
 import type {
   Country,
   DemoUser,
@@ -607,7 +608,11 @@ export default function SettingsPage() {
         ) : tab === 'tipRates' ? (
           <TipRateSettings />
         ) : tab === 'testReset' ? (
-          <TestDataReset />
+          <>
+            <DemoScenarioLoader />
+            <div className="my-6 zego-divider-top" />
+            <TestDataReset />
+          </>
         ) : tab === 'users' ? (
           <>
             <CardHeader

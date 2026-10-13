@@ -5,7 +5,7 @@
  * สถานะ: รอตรวจ · ให้แก้ไข · ตรวจแล้ว · ปฏิเสธ · ยกเลิกแล้ว — การโอนเงิน (รอจ่าย / จ่ายแล้ว) อยู่ที่เมนู "จ่ายเงิน" (/payments)
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import Link from 'next/link';
 import { can, canViewPath } from '@/lib/permissions';
@@ -50,6 +50,23 @@ function reviewStatusOf(e: ExpenseRequest): ExpenseStatus {
 type ReviewTab = 'all' | ExpenseKind;
 const reviewKindOf = expenseKindOf;
 const REVIEW_TABS = (['per_diem', 'actual', 'sendoff', 'other'] as const).map((key) => ({ key, label: EXPENSE_KIND_LABEL[key] }));
+
+/** มุมมองตาราง — รายการ (ทีละใบ) / กรุ๊ป (แถวละกรุ๊ป) · จำไว้ในเครื่อง */
+type ReviewView = 'list' | 'group';
+const VIEW_KEY = 'expensesReviewView';
+
+/** 1 แถวของมุมมองกรุ๊ป — ใบทั้งหมดของกรุ๊ปในแท็บ/คำค้นปัจจุบัน */
+interface ReviewGroup {
+  key: string;
+  jobId: string;
+  docs: ExpenseRequest[];
+  /** สรุปใบเสร็จค่าใช้จ่ายจริง (เทียบใบเบิก) — ไม่มีใบเสร็จ = null */
+  usage: UsageGroupSummary | null;
+  /** ใบเบิก (เบี้ยเลี้ยง / ค่าส่งกรุ๊ป / อื่น ๆ) */
+  claims: ExpenseRequest[];
+  status: UsageGroupStatus;
+  latest: string;
+}
 
 export default function ExpensesPage() {
   const { expenses, jobs, leaders, currentUser, resetSubmittedExpenses } = useDemo();
@@ -139,37 +156,74 @@ export default function ExpensesPage() {
   );
 
   /*
-    แท็บค่าใช้จ่ายจริง — 1 แถว = 1 กรุ๊ป (ปกติหลักพันกรุ๊ป · ใบเสร็จหลายหมื่นใบ) กดแถว = ตรวจทั้งกรุ๊ปในหน้าเดียว
-    คำค้นกรองก่อน แล้วค่อยรวมเป็นกรุ๊ป · ชิปสถานะเป็นของกรุ๊ป (รอตรวจ / รอหัวหน้าทัวร์แก้ / ตรวจครบ)
+    มุมมอง: รายการ (ทีละใบ · ค่าเริ่มต้น) หรือ กรุ๊ป (แถวละกรุ๊ป) — ใช้ได้ทุกแท็บ จำค่าที่เลือกไว้ในเครื่อง
+    ตัวเลขบนแท็บนับเป็น "ใบ" เสมอ ทุกแท็บหน่วยเดียวกัน (ทั้งหมด = ผลรวมของแท็บย่อย)
+    ใบเสร็จค่าใช้จ่ายจริงตรวจผ่านหน้าตรวจทั้งกรุ๊ปเสมอ (เทียบใบเบิกเงินทดรอง) — กดจากมุมมองรายการก็เปิดหน้านั้นแล้วเลื่อนไปที่ใบที่กด
   */
-  const groupMode = tab === 'actual';
-  const groups = useMemo(() => (groupMode ? summarizeUsageGroups(beforeStatus, expenses) : []), [groupMode, beforeStatus, expenses]);
+  const [view, setView] = useState<ReviewView>('list');
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- อ่านค่าที่จำไว้ (localStorage) ครั้งเดียวตอน mount
+      if (window.localStorage.getItem(VIEW_KEY) === 'group') setView('group');
+    } catch { /* ไม่มี storage */ }
+  }, []);
+  const pickView = (v: ReviewView) => {
+    setView(v);
+    try { window.localStorage.setItem(VIEW_KEY, v); } catch { /* แค่ไม่จำ */ }
+  };
+  const groupMode = view === 'group';
+  /** ใบเสร็จที่กดมาจากมุมมองรายการ — เน้นในหน้าตรวจทั้งกรุ๊ป */
+  const [focusReport, setFocusReport] = useState<string | null>(null);
+
+  /*
+    มุมมองกรุ๊ป — รวมทุกใบของกรุ๊ปเดียวกัน (ใบเสร็จ + เบี้ยเลี้ยง + อื่น ๆ) เป็น 1 แถว
+    ใบค่าส่งกรุ๊ปรายเดือน / ใบที่ไม่ผูกกรุ๊ป = แถวของตัวเอง · สถานะกรุ๊ป: มีใบรอตรวจ → รอตรวจ · มีใบให้แก้ไข → ให้แก้ไข · ไม่งั้น ตรวจแล้ว
+  */
+  const usageGroups = useMemo(() => summarizeUsageGroups(beforeStatus, expenses), [beforeStatus, expenses]);
+  const groups = useMemo<ReviewGroup[]>(() => {
+    if (!groupMode) return [];
+    const usageBy = new Map(usageGroups.map((g) => [g.jobId, g]));
+    const byKey = new Map<string, ExpenseRequest[]>();
+    for (const e of beforeStatus) {
+      const key = e.claimMonth || !e.jobId ? `doc:${e.id}` : e.jobId;
+      byKey.set(key, [...(byKey.get(key) ?? []), e]);
+    }
+    const ORDER: Record<UsageGroupStatus, number> = { pending: 0, revise: 1, done: 2 };
+    return [...byKey].map(([key, docs]) => {
+      const usage = docs.some(isUsageReport) ? usageBy.get(docs[0].jobId) ?? null : null;
+      const claims = docs.filter((e) => !isUsageReport(e));
+      const status: UsageGroupStatus = (usage?.pending ?? 0) > 0 || claims.some((c) => c.status === 'submitted') ? 'pending'
+        : (usage?.revise ?? 0) > 0 || claims.some((c) => c.status === 'revise') ? 'revise' : 'done';
+      return { key, jobId: docs[0].jobId, docs, usage, claims, status, latest: docs.map(requestedAtOf).sort().at(-1) ?? '' };
+    }).sort((a, b) => ORDER[a.status] - ORDER[b.status] || b.latest.localeCompare(a.latest));
+  }, [groupMode, beforeStatus, usageGroups]);
   const groupCounts = useMemo(() => {
     const m = new Map<UsageGroupStatus, number>();
     for (const g of groups) m.set(g.status, (m.get(g.status) ?? 0) + 1);
     return m;
   }, [groups]);
   const shownGroups = groupStatus === 'all' ? groups : groups.filter((g) => g.status === groupStatus);
-  /** กรุ๊ปถัดไปที่รอตรวจ (ตามลำดับในตาราง ต่อจากกรุ๊ปที่เปิดอยู่ · หมดแล้ววนกลับต้นรายการ) */
+  /** กรุ๊ปถัดไปที่มีใบเสร็จรอตรวจ (ต่อจากกรุ๊ปที่เปิดอยู่ · หมดแล้ววนกลับต้นรายการ) — ใช้ได้ทั้งสองมุมมอง */
   const nextGroup = (() => {
     if (!reviewGroup) return null;
-    const waiting = shownGroups.filter((g) => g.status === 'pending' && g.jobId !== reviewGroup);
-    const at = shownGroups.findIndex((g) => g.jobId === reviewGroup);
-    return waiting.find((g) => shownGroups.indexOf(g) > at) ?? waiting[0] ?? null;
+    const waiting = usageGroups.filter((g) => g.status === 'pending' && g.jobId !== reviewGroup);
+    const at = usageGroups.findIndex((g) => g.jobId === reviewGroup);
+    return waiting.find((g) => usageGroups.indexOf(g) > at) ?? waiting[0] ?? null;
   })();
+  /** เปิดตรวจ — ใบเสร็จไปหน้าตรวจทั้งกรุ๊ป (เลื่อนไปที่ใบนั้น) · ใบเบิกอื่นเปิดรายใบ */
+  const openDoc = (e: ExpenseRequest) => {
+    if (isUsageReport(e)) { setFocusReport(e.id); setReviewGroup(e.jobId); }
+    else setSelectedId(e.id);
+  };
 
   const pendingCount = scoped.filter((e) => e.status === 'submitted').length;
   const reviseCount = scoped.filter((e) => e.status === 'revise').length;
 
-  // แท็บ "อื่น ๆ" ขึ้นเฉพาะเมื่อมีใบ (เช่น ใบที่สร้างในระบบ / ใบเก่า) — ไม่มีแท็บว่างค้าง
+  // แท็บ "อื่น ๆ" ขึ้นเฉพาะเมื่อมีใบ (เช่น ใบที่สร้างในระบบ / ใบเก่า) — ไม่มีแท็บว่างค้าง · ตัวเลข = จำนวนใบ
   const tabs = [
     { key: 'all', label: 'ทั้งหมด', badge: scoped.length },
     ...REVIEW_TABS
-      .map((t) => {
-        const inTab = scoped.filter((e) => reviewKindOf(e) === t.key);
-        // ค่าใช้จ่ายจริงแสดงแถวละกรุ๊ป → ตัวเลขบนแท็บ = จำนวนกรุ๊ป (ตรงกับจำนวนแถว)
-        return { key: t.key, label: t.label, badge: t.key === 'actual' ? new Set(inTab.map((e) => e.jobId)).size : inTab.length };
-      })
+      .map((t) => ({ key: t.key, label: t.label, badge: scoped.filter((e) => reviewKindOf(e) === t.key).length }))
       .filter((t) => t.key !== 'other' || t.badge > 0),
   ];
 
@@ -246,13 +300,15 @@ export default function ExpensesPage() {
 
   const hasFilter = query.trim() !== '' || (groupMode ? groupStatus !== 'all' : activeStatus !== 'all');
 
-  /** คอลัมน์แบบกรุ๊ป (แท็บค่าใช้จ่ายจริง) */
-  const groupColumns: Column<UsageGroupSummary>[] = [
+  /** คอลัมน์มุมมองกรุ๊ป — คอลัมน์ใบเสร็จ/เทียบใบเบิก ขึ้นเมื่อมีกรุ๊ปที่มีใบเสร็จ · คอลัมน์ใบเบิก ขึ้นเมื่อมีใบเบิก */
+  const anyUsage = groups.some((g) => g.usage);
+  const anyClaims = groups.some((g) => g.claims.length > 0);
+  const groupColumns: Column<ReviewGroup>[] = [
     {
       key: 'group',
       header: 'รายการทัวร์',
       render: (g) => {
-        const r = refOf(g.reports[0]);
+        const r = refOf(g.docs[0]);
         return (
           <div className="min-w-[14rem] max-w-[24rem]">
             <p className="zego-text whitespace-nowrap font-medium">{r.title}</p>
@@ -264,40 +320,57 @@ export default function ExpensesPage() {
     },
     {
       key: 'leader',
-      header: 'หัวหน้าทัวร์',
+      header: 'ผู้ทำรายการ',
       render: (g) => (
         <div>
-          <p className="zego-text whitespace-nowrap">{requesterLabel(g.reports[0], leaders)}</p>
+          <p className="zego-text whitespace-nowrap">{requesterLabel(g.docs[0], leaders)}</p>
           <p className="zego-text-tertiary whitespace-nowrap text-xs tabular-nums">ส่งล่าสุด {formatDateTime(g.latest)}</p>
         </div>
       ),
     },
-    {
-      key: 'receipts',
-      header: 'ใบเสร็จ',
-      render: (g) => (
-        <div className="whitespace-nowrap">
-          {g.pending > 0
-            ? <p className="zego-text font-medium">รอตรวจ <span className="tabular-nums">{g.pending}</span></p>
-            : <p className="zego-text-secondary">ไม่มีรอตรวจ</p>}
-          <p className="zego-text-tertiary text-xs">จากทั้งหมด <span className="tabular-nums">{g.receipts}</span> ใบ</p>
-        </div>
-      ),
-    },
-    {
-      key: 'budget',
-      header: 'เทียบใบเบิก',
-      hideOnMobile: true,
-      // จุดที่ผู้ตรวจต้องดูเอง — รายการที่ใช้เกิน / ใบเสร็จนอกรายการเบิก
-      render: (g) => (g.over === 0 && g.outside === 0
-        ? <span className="text-xs font-medium text-emerald-700">ไม่เกินงบ</span>
-        : (
-          <div className="space-y-0.5 whitespace-nowrap text-xs">
-            {g.over > 0 && <p className="font-medium text-rose-700">เกิน {g.over} รายการ</p>}
-            {g.outside > 0 && <p className="zego-text-warning">นอกรายการเบิก {g.outside} ใบ</p>}
+    ...(anyUsage ? [
+      {
+        key: 'receipts',
+        header: 'ใบเสร็จ',
+        render: (g: ReviewGroup) => (!g.usage ? <span className="zego-text-tertiary">—</span> : (
+          <div className="whitespace-nowrap">
+            {g.usage.pending > 0
+              ? <p className="zego-text font-medium">รอตรวจ <span className="tabular-nums">{g.usage.pending}</span></p>
+              : <p className="zego-text-secondary">ไม่มีรอตรวจ</p>}
+            <p className="zego-text-tertiary text-xs">จากทั้งหมด <span className="tabular-nums">{g.usage.receipts}</span> ใบ</p>
           </div>
         )),
-    },
+      },
+      {
+        key: 'budget',
+        header: 'เทียบใบเบิก',
+        hideOnMobile: true,
+        // จุดที่ผู้ตรวจต้องดูเอง — รายการที่ใช้เกิน / ใบเสร็จนอกรายการเบิก
+        render: (g: ReviewGroup) => (!g.usage ? <span className="zego-text-tertiary">—</span> : g.usage.over === 0 && g.usage.outside === 0
+          ? <span className="text-xs font-medium text-emerald-700">ไม่เกินงบ</span>
+          : (
+            <div className="space-y-0.5 whitespace-nowrap text-xs">
+              {g.usage.over > 0 && <p className="font-medium text-rose-700">เกิน {g.usage.over} รายการ</p>}
+              {g.usage.outside > 0 && <p className="zego-text-warning">นอกรายการเบิก {g.usage.outside} ใบ</p>}
+            </div>
+          )),
+      },
+    ] : []),
+    ...(anyClaims ? [{
+      key: 'claims',
+      header: 'ใบเบิก',
+      // เบี้ยเลี้ยง / ค่าส่งกรุ๊ป / อื่น ๆ ของกรุ๊ปนี้ — ใบละบรรทัดพร้อมสถานะ
+      render: (g: ReviewGroup) => (g.claims.length === 0 ? <span className="zego-text-tertiary">—</span> : (
+        <div className="space-y-1">
+          {g.claims.map((c) => (
+            <p key={c.id} className="flex items-center gap-1.5 whitespace-nowrap text-xs">
+              <span className="zego-text-secondary">{EXPENSE_KIND_LABEL[reviewKindOf(c)]}</span>
+              <StatusBadge meta={expenseStatusMeta(c, reviewStatusOf(c))} size="sm" />
+            </p>
+          ))}
+        </div>
+      )),
+    }] : []),
     {
       key: 'status',
       header: 'สถานะ',
@@ -373,7 +446,26 @@ export default function ExpensesPage() {
       </div>
 
       <Card className="mb-5">
-        <Tabs items={tabs} value={tab} onChange={(k) => setTab(k as ReviewTab)} />
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <Tabs items={tabs} value={tab} onChange={(k) => setTab(k as ReviewTab)} />
+          </div>
+          {/* มุมมอง — รายการ (ทีละใบ) / กรุ๊ป (รวมใบของกรุ๊ปเดียวกัน) · จำค่าไว้ */}
+          <div className="mb-1 flex shrink-0 rounded-lg zego-surface-soft-bg p-0.5" role="group" aria-label="มุมมอง">
+            {([['list', 'list', 'รายการ'], ['group', 'briefcase', 'กรุ๊ป']] as const).map(([v, icon, label]) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                onClick={() => pickView(v)}
+                className={cx('inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition', view === v ? 'bg-emerald-600 text-white' : 'zego-text-secondary zego-hover-surface')}
+              >
+                <Icon name={icon} className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="mt-4 space-y-3">
           <SearchBox
@@ -420,10 +512,14 @@ export default function ExpensesPage() {
           <DataTable
             columns={groupColumns}
             rows={pageSlice(shownGroups)}
-            rowKey={(g) => g.jobId}
-            onRowClick={(g) => setReviewGroup(g.jobId)}
+            rowKey={(g) => g.key}
+            // มีใบเสร็จ = ตรวจทั้งกรุ๊ป · ไม่มี = เปิดใบเบิกที่รอตรวจ (หรือใบแรก)
+            onRowClick={(g) => {
+              if (g.usage) { setFocusReport(null); setReviewGroup(g.jobId); }
+              else setSelectedId((g.claims.find((c) => c.status === 'submitted') ?? g.claims[0]).id);
+            }}
             emptyIcon={hasFilter ? 'search' : 'receipt'}
-            emptyTitle={hasFilter ? 'ไม่พบกรุ๊ปที่ตรงกับเงื่อนไข' : 'ยังไม่มีใบเสร็จค่าใช้จ่ายจริงที่ส่งมา'}
+            emptyTitle={hasFilter ? 'ไม่พบกรุ๊ปที่ตรงกับเงื่อนไข' : 'ยังไม่มีใบที่ส่งมาในหมวดนี้'}
             emptyDescription={hasFilter ? 'ลองปรับคำค้นหาหรือเปลี่ยนตัวกรองสถานะ' : undefined}
           />
         ) : (
@@ -431,7 +527,7 @@ export default function ExpensesPage() {
             columns={columns}
             rows={pageSlice(filtered)}
             rowKey={(e) => e.id}
-            onRowClick={(e) => setSelectedId(e.id)}
+            onRowClick={openDoc}
             emptyIcon={hasFilter ? 'search' : 'receipt'}
             emptyTitle={hasFilter ? 'ไม่พบใบเบิกที่ตรงกับเงื่อนไข' : 'ยังไม่มีใบเบิกในหมวดนี้'}
             emptyDescription={
@@ -471,9 +567,10 @@ export default function ExpensesPage() {
 
       <GroupUsageReviewDrawer
         groupId={reviewGroup}
-        onClose={() => setReviewGroup(null)}
+        focusReportId={focusReport}
+        onClose={() => { setReviewGroup(null); setFocusReport(null); }}
         onOpenReport={(id) => { setFromGroup(reviewGroup); setReviewGroup(null); setSelectedId(id); }}
-        onNext={nextGroup ? () => setReviewGroup(nextGroup.jobId) : undefined}
+        onNext={nextGroup ? () => { setFocusReport(null); setReviewGroup(nextGroup.jobId); } : undefined}
         nextLabel={nextGroup ? refOf(nextGroup.reports[0]).title : undefined}
       />
 

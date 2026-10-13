@@ -41,7 +41,8 @@ export function afterTripProgress(input: {
   const revise = receipts.filter((r) => r.status === 'revise').length;
   const receiptStep: AfterTripStep = revise > 0
     ? { label: 'ใบเสร็จ', value: `${receipts.length} รายการ · ต้องแก้ ${revise}`, state: 'action' }
-    : { label: 'ใบเสร็จ', value: receipts.length > 0 ? `${receipts.length} รายการ` : 'ยังไม่มี', state: receipts.length > 0 ? 'done' : 'todo' };
+    // ไม่มีใบเสร็จได้ (บางกรุ๊ปไม่มีค่าใช้จ่าย) — บอกว่าไม่บังคับ ไม่ให้ดูเหมือนค้าง
+    : { label: 'ใบเสร็จ', value: receipts.length > 0 ? `${receipts.length} รายการ` : 'ยังไม่มี (ไม่บังคับ)', state: receipts.length > 0 ? 'done' : 'todo' };
 
   // 2) เบี้ยเลี้ยง
   const perDiemStep: AfterTripStep = !perDiem
@@ -57,7 +58,8 @@ export function afterTripProgress(input: {
     : apt.status === 'pending' && apt.requestedByLeader ? { label: 'นัดเคลียร์', value: `${input.formatWhen(apt)} · รอการเงินยืนยัน`, state: 'waiting' }
     : apt.status === 'pending' ? { label: 'นัดเคลียร์', value: `${input.formatWhen(apt)} · รอคุณยืนยัน`, state: 'action' }
     : apt.status === 'attended' ? { label: 'นัดเคลียร์', value: 'เข้าพบแล้ว', state: 'done' }
-    : { label: 'นัดเคลียร์', value: `${input.formatWhen(apt)}${apt.status === 'rescheduled' ? ' · ขอเลื่อนแล้ว' : ''}`, state: 'waiting' };
+    // บอกสถานะต่อท้ายวันเวลาเสมอ — วันเวลาอย่างเดียวไม่รู้ว่ายืนยันแล้วหรือยัง
+    : { label: 'นัดเคลียร์', value: `${input.formatWhen(apt)} · ${apt.status === 'rescheduled' ? 'ขอเลื่อนแล้ว' : 'ยืนยันแล้ว'}`, state: 'waiting' };
 
   const steps = [receiptStep, perDiemStep, aptStep];
 

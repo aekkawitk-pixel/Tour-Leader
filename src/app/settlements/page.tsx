@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { Button, Card, cx, PageHeader } from '@/components/ui/Primitives';
+import { Icon } from '@/components/ui/Icon';
 import { FilterBox, FILTER_INPUT } from '@/components/ui/FilterBox';
 import { MultiSelectControl } from '@/components/ui/MultiSelect';
 import { formatCurrency, formatDate, formatDateRange, toISODate } from '@/lib/format';
@@ -45,6 +46,8 @@ const STAGE_HINT: Record<GroupClearStage, string> = {
   closed: 'ปิดแล้ว เช็กลิสต์ผ่านครบ',
   closed_partial: 'ปิดแล้ว ยังมีข้อค้าง',
 };
+/** การ์ดแถวบน = งานที่บัญชีต้องลงมือ (ที่เหลือเป็นชิปแถวล่าง) */
+const PRIMARY_FILTERS: string[] = ['waiting_docs', 'ready', 'waiting_leader', 'overdue', 'followup'];
 const money = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function GroupClearPage() {
@@ -56,16 +59,15 @@ export default function GroupClearPage() {
     setRecords(loadGroupClears());
   }, []);
   const [filter, setFilter] = useState<Filter>('all');
-  // แถบค้นหา — ไม่เลือกประเทศ = ทุกประเทศ · ช่วงเดินทางเริ่มต้น = หลังเดินทาง (กรุ๊ปที่ต้องเคลียร์เงิน)
+  // แถบค้นหา — ไม่เลือกประเทศ = ทุกประเทศ · หน้านี้แสดงเฉพาะกรุ๊ปที่ออกเดินทางแล้ว (ก่อนเดินทางยังไม่มีอะไรให้เคลียร์)
   const [countrySel, setCountrySel] = useState<string[]>([]);
   const [codeQ, setCodeQ] = useState('');
   const [tourQ, setTourQ] = useState('');
   const [leaderQ, setLeaderQ] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [trip, setTrip] = useState<'before' | 'after'>('after');
   const [openId, setOpenId] = useState<string | null>(null);
-  /** จอเล็ก: ประเทศ / รายการทัวร์ / หัวหน้าทัวร์ / ช่วงวันที่ พับไว้ — เหลือรหัสกรุ๊ปกับช่วงเดินทาง */
+  /** จอเล็ก: ประเทศ / รายการทัวร์ / หัวหน้าทัวร์ / ช่วงวันที่ พับไว้ — เหลือรหัสกรุ๊ป */
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   /** หัวหน้าทัวร์ของกรุ๊ป — คอนเฟิร์มแล้วก่อน ไม่มีจึงใช้ผู้ส่งใบเสร็จ/ใบเบิก */
@@ -107,7 +109,7 @@ export default function GroupClearPage() {
   }, [envelopes, expenses, records, leaderOf, today]);
 
   /*
-    แถบค้นหา — ประเทศ (หลายประเทศ) · รหัสกรุ๊ป · รายการทัวร์ · หัวหน้าทัวร์ · ช่วงวันที่เดินทาง · ก่อน/หลังเดินทาง
+    แถบค้นหา — ประเทศ (หลายประเทศ) · รหัสกรุ๊ป · รายการทัวร์ · หัวหน้าทัวร์ · ช่วงวันที่เดินทาง
     การ์ดสรุปนับตามผลค้นหา · ไม่ระบุวันที่ = ไม่กรองวันที่
   */
   const countries = useMemo(() => [...new Set(rows.map((r) => r.p.countryName).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)), [rows]);
@@ -120,16 +122,15 @@ export default function GroupClearPage() {
     if (!has(r.p.groupCode, codeN)) return false;
     if (!has([r.p.displayName, r.p.tourName, r.p.programCode].join(' '), tourN)) return false;
     if (!has(r.leader?.name, leaderN)) return false;
-    // ก่อนเดินทาง = ยังไม่ออกเดินทาง · หลังเดินทาง = ออกเดินทางแล้ว (รวมกำลังเดินทาง) — เกณฑ์เดียวกับหน้าจัดการค่าใช้จ่ายกรุ๊ป
-    if (trip === 'before' && r.p.startDate < today) return false;
-    if (trip === 'after' && r.p.startDate >= today) return false;
+    // เฉพาะกรุ๊ปที่ออกเดินทางแล้ว (รวมกำลังเดินทาง) — ก่อนเดินทางเรื่องซองอยู่ที่หน้าจัดการค่าใช้จ่ายกรุ๊ป ยังไม่มีอะไรให้เคลียร์
+    if (r.p.startDate >= today) return false;
     // ช่วงวันที่ — กรุ๊ปที่เดินทางคาบเกี่ยวช่วงที่เลือก
     if (dateFrom && r.p.endDate < dateFrom) return false;
     if (dateTo && r.p.startDate > dateTo) return false;
     return true;
   });
-  const searching = !!(countrySel.length > 0 || codeN || tourN || leaderN || dateFrom || dateTo || trip !== 'after');
-  const clearSearch = () => { setCountrySel([]); setCodeQ(''); setTourQ(''); setLeaderQ(''); setDateFrom(''); setDateTo(''); setTrip('after'); };
+  const searching = !!(countrySel.length > 0 || codeN || tourN || leaderN || dateFrom || dateTo);
+  const clearSearch = () => { setCountrySel([]); setCodeQ(''); setTourQ(''); setLeaderQ(''); setDateFrom(''); setDateTo(''); };
   const matches = (s: GroupClearSummary, f: Filter) => f === 'all' || (f === 'overdue' ? s.overdue : s.stage === f);
   const rowMatches = (r: (typeof rows)[number], f: Filter) => (f === 'followup' ? r.openFollowUps.length > 0 : matches(r.s, f));
   const shown = searched.filter((r) => rowMatches(r, filter));
@@ -141,7 +142,7 @@ export default function GroupClearPage() {
     { key: 'followup', label: 'ยอดค้างติดตาม', hint: 'เงินขาด / เกิน ที่ยังไม่ปิดยอด', tone: '#be123c' },
   ];
   const open = rows.find((r) => r.p.internalId === openId);
-  const th = 'px-3 py-2.5 text-xs font-medium zego-text-tertiary';
+  const th = 'whitespace-nowrap px-3 py-2.5 text-xs font-medium zego-text-tertiary';
 
   /*
     1 กรุ๊ป → เนื้อหาแต่ละช่องคิดครั้งเดียว วางได้ 2 แบบ
@@ -258,7 +259,7 @@ export default function GroupClearPage() {
           const ap = clearAppointmentOf(appointments, p.internalId);
           if (!ap || isClosed) return null;
           return (
-            <p className={cx('mt-0.5 whitespace-nowrap text-[11px]', ap.status === 'rescheduled' ? 'font-semibold text-violet-700' : 'zego-text-secondary')}>
+            <p className={cx('mt-0.5 max-w-[13rem] text-[11px] leading-snug', ap.status === 'rescheduled' ? 'font-semibold text-violet-700' : 'zego-text-secondary')}>
               นัด {formatDate(ap.date)} {ap.time} · {appointmentStatusMeta(ap).label}
             </p>
           );
@@ -325,13 +326,16 @@ export default function GroupClearPage() {
 
     return (
       <tr key={p.internalId} className="zego-hover-surface">
-        <td className="px-3 py-2.5 align-top whitespace-nowrap zego-text-secondary">{p.countryName || '—'}</td>
+        {/* กรุ๊ป — รหัส · โปรแกรม · ประเทศ + วันเดินทาง · หัวหน้าทัวร์ รวมช่องเดียว (เดิมแยก 4 คอลัมน์ ตารางกว้างจนปุ่มท้ายแถวล้นจอ) */}
         <td className="px-3 py-2.5 align-top">
           <p className="whitespace-nowrap font-semibold zego-text">{p.groupCode}</p>
-          <p className="max-w-[11rem] truncate text-xs zego-text-tertiary">{p.displayName}</p>
+          <p className="max-w-[15rem] truncate text-xs zego-text-secondary" title={p.displayName}>{p.displayName}</p>
+          <p className="whitespace-nowrap text-xs tabular-nums zego-text-tertiary">{p.countryName || '—'} · {formatDateRange(p.startDate, p.endDate)}</p>
+          <p className="mt-0.5 flex max-w-[15rem] items-center gap-1 text-xs" title={leader?.name}>
+            <Icon name="guide" className="h-3 w-3 shrink-0 zego-text-tertiary" />
+            {leader ? <span className="truncate zego-text">{leader.name}</span> : <span className="zego-text-tertiary">ยังไม่มีหัวหน้าทัวร์</span>}
+          </p>
         </td>
-        <td className="px-3 py-2.5 align-top tabular-nums zego-text">{formatDateRange(p.startDate, p.endDate)}</td>
-        <td className="px-3 py-2.5 align-top">{leader ? <span className="zego-text">{leader.name}</span> : <span className="zego-text-tertiary">—</span>}</td>
         {/*
           เงินในซอง / ใช้แล้ว — คอลัมน์เดียว แยกทีละสกุล
             บรรทัดบน: ในซอง / ใช้แล้ว (ส่งแลนด์ + ใบเสร็จตามรายการเบิกที่ตรวจแล้ว)
@@ -339,10 +343,19 @@ export default function GroupClearPage() {
             บรรทัดล่าง: ผล — คิดแบบรอตรวจผ่านหมดแล้ว (ใกล้ยอดเคลียร์จริงที่สุด) · ปิดแล้วแสดงเงินที่รับคืนจริง
           นอกรายการเบิกไม่ใช่เงินในซอง — บรรทัดเล็กท้ายช่อง · รายละเอียด (แลนด์/ใบเสร็จ) ดูในแผงของกรุ๊ป
         */}
-        <td className="min-w-[15rem] px-3 py-2.5 align-top tabular-nums">{moneyEl}</td>
-        <td className="px-3 py-2.5 align-top">{perDiemEl}</td>
+        {/* เงินในซอง / ใช้แล้ว + เบี้ยเลี้ยง ช่องเดียว (แบบเดียวกับการ์ดบนจอเล็ก) — ลดความกว้างตาราง */}
+        <td className="min-w-[12.5rem] px-3 py-2.5 align-top tabular-nums">
+          {moneyEl}
+          {/* เบี้ยเลี้ยงบรรทัดเดียว: ยอด · สถานะ */}
+          <p className="mt-1.5 zego-divider-top pt-1.5 whitespace-nowrap text-[11px]">
+            <span className="zego-text-tertiary">เบี้ยเลี้ยง </span>
+            {s.perDiem
+              ? <><span className="font-medium zego-text">{expenseOriginalTotals(s.perDiem).map((t) => formatCurrency(t.amount, t.currency)).join(' · ')}</span><span className="zego-text-tertiary"> · {EXPENSE_STATUS[s.perDiem.status].label}</span></>
+              : <span className="zego-text-tertiary">{notEnded ? 'ส่งได้หลังจบทริป' : 'ยังไม่มีใบเบิก'}</span>}
+          </p>
+        </td>
         <td className="px-3 py-2.5 align-top">{statusEl}</td>
-        <td className="px-3 py-2.5 text-right align-top">{actionEl}</td>
+        <td className="sticky right-0 w-px whitespace-nowrap zego-surface-bg px-3 py-2.5 text-right align-top shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]">{actionEl}</td>
       </tr>
     );
   };
@@ -351,33 +364,60 @@ export default function GroupClearPage() {
     <>
       <PageHeader
         title="เคลียร์เงินกรุ๊ป"
-        description="สรุปเงินของแต่ละกรุ๊ป แยกทีละสกุล: ในซอง − ส่งแลนด์ − ใบเสร็จตามรายการเบิกที่ตรวจแล้ว = คงเหลือ (หัวหน้าทัวร์ต้องคืน / บริษัทจ่ายเพิ่ม) · นอกรายการเบิกไม่หักจากซอง · เบี้ยเลี้ยงโอนแยก"
+        description="คงเหลือแยกทีละสกุล = ในซอง − ส่งแลนด์ − ใบเสร็จตามรายการเบิกที่ตรวจแล้ว · นอกรายการเบิกไม่หักจากซอง · เบี้ยเลี้ยงโอนแยก"
       />
 
-      {/* สรุปสถานะ — แตะเพื่อกรอง · จอเล็ก: การ์ดย่อ 3 ต่อแถว (ชื่อ + ตัวเลข ไม่มีคำอธิบาย) */}
-      <div className="mb-4 grid grid-cols-3 gap-1.5 sm:grid-cols-5 sm:gap-2 xl:grid-cols-10">
-        {cards.map((f) => {
+      {/*
+        สรุปสถานะ — แตะเพื่อกรอง
+          แถวบน: การ์ดงานที่บัญชีต้องทำ (ใหญ่ มีคำอธิบาย 1 บรรทัด)
+          แถวล่าง: ชิปสถานะอื่น (ทั้งหมด · กำลังเดินทาง · ปิดแล้ว) — แสดงเมื่อมีกรุ๊ปหรือกำลังเลือกอยู่
+      */}
+      <div className="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {cards.filter((f) => PRIMARY_FILTERS.includes(f.key)).map((f) => {
           const count = searched.filter((r) => rowMatches(r, f.key)).length;
           const active = filter === f.key;
           return (
             <button
               key={f.key}
               type="button"
+              onClick={() => setFilter(active ? 'all' : f.key)}
+              aria-pressed={active}
+              title={f.hint}
+              className={cx('zego-card-surface flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition', active ? 'ring-2 ring-emerald-500' : 'hover:ring-1 hover:ring-emerald-200')}
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium zego-text">{f.label}</span>
+                <span className="block truncate text-[11px] zego-text-tertiary">{f.hint}</span>
+              </span>
+              <span className="shrink-0 text-2xl font-bold tabular-nums" style={{ color: count > 0 ? f.tone : undefined }}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        {cards.filter((f) => !PRIMARY_FILTERS.includes(f.key)).map((f) => {
+          const count = searched.filter((r) => rowMatches(r, f.key)).length;
+          const active = filter === f.key;
+          if (f.key !== 'all' && count === 0 && !active) return null;
+          return (
+            <button
+              key={f.key}
+              type="button"
               onClick={() => setFilter(f.key)}
               aria-pressed={active}
-              className={cx('zego-card-surface rounded-xl px-2 py-1.5 text-left transition sm:px-3 sm:py-2.5', active ? 'ring-2 ring-emerald-500' : 'hover:ring-1 hover:ring-emerald-200')}
+              title={f.hint}
+              className={cx('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition', active ? 'border-emerald-600 bg-emerald-600 font-semibold text-white' : 'zego-border-color zego-text-secondary zego-hover-surface')}
             >
-              <p className="line-clamp-2 text-[11px] leading-tight zego-text-tertiary sm:text-xs">{f.label}</p>
-              <p className="text-lg font-bold tabular-nums sm:text-2xl" style={{ color: count > 0 && f.key !== 'all' ? f.tone : undefined }}>{count}</p>
-              <p className="hidden text-[11px] zego-text-tertiary sm:block">{f.hint}</p>
+              {f.label}
+              <span className={cx('tabular-nums', active ? 'text-white' : 'font-semibold zego-text')}>{count}</span>
             </button>
           );
         })}
       </div>
 
       {/* แถบค้นหา — แบบเดียวกับหน้าจัดการค่าใช้จ่ายกรุ๊ป: กล่องละ 1 เงื่อนไข */}
-      <div className="mb-4 flex flex-wrap items-stretch gap-2 2xl:flex-nowrap">
-        <FilterBox icon="plane" label="เลือกประเทศ" className={cx('w-full sm:w-44', !filtersOpen && 'max-md:hidden')} group>
+      <div className="mb-4 flex flex-wrap items-stretch gap-2 xl:flex-nowrap">
+        <FilterBox icon="plane" label="เลือกประเทศ" className={cx('w-full sm:w-40', !filtersOpen && 'max-md:hidden')} group>
           <MultiSelectControl
             ariaLabel="เลือกประเทศ"
             value={countrySel}
@@ -390,7 +430,7 @@ export default function GroupClearPage() {
             panelClassName="w-max min-w-full"
           />
         </FilterBox>
-        <div className="flex w-full items-stretch gap-2 sm:w-44 max-md:order-first">
+        <div className="flex w-full items-stretch gap-2 sm:w-40 max-md:order-first">
           <FilterBox icon="briefcase" label="รหัสกรุ๊ป" className="min-w-0 flex-1">
             <input aria-label="รหัสกรุ๊ป" value={codeQ} onChange={(e) => setCodeQ(e.target.value)} placeholder="กรองข้อมูล..." className={FILTER_INPUT} />
           </FilterBox>
@@ -404,10 +444,10 @@ export default function GroupClearPage() {
             );
           })()}
         </div>
-        <FilterBox icon="list" label="รายการทัวร์" className={cx('min-w-[10rem] flex-1', !filtersOpen && 'max-md:hidden')}>
+        <FilterBox icon="list" label="รายการทัวร์" className={cx('min-w-[8rem] flex-1', !filtersOpen && 'max-md:hidden')}>
           <input aria-label="รายการทัวร์" value={tourQ} onChange={(e) => setTourQ(e.target.value)} placeholder="กรองข้อมูล..." className={FILTER_INPUT} />
         </FilterBox>
-        <FilterBox icon="users" label="หัวหน้าทัวร์" className={cx('w-full sm:w-48', !filtersOpen && 'max-md:hidden')}>
+        <FilterBox icon="users" label="หัวหน้าทัวร์" className={cx('w-full sm:w-44', !filtersOpen && 'max-md:hidden')}>
           <input aria-label="หัวหน้าทัวร์" value={leaderQ} onChange={(e) => setLeaderQ(e.target.value)} placeholder="กรองข้อมูล..." className={FILTER_INPUT} />
         </FilterBox>
         <div className={cx('flex w-full shrink-0 items-stretch gap-1 sm:w-auto', !filtersOpen && 'max-md:hidden')}>
@@ -427,21 +467,6 @@ export default function GroupClearPage() {
             <input type="date" aria-label="ถึงวันที่" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={FILTER_INPUT} />
           </FilterBox>
         </div>
-        <FilterBox icon="plane" label="ช่วงเดินทาง" className="w-full sm:w-auto" group>
-          <span className="flex gap-1" role="group" aria-label="ช่วงเดินทาง">
-            {([['before', 'ก่อนเดินทาง'], ['after', 'หลังเดินทาง']] as const).map(([v, label]) => (
-              <button
-                key={v}
-                type="button"
-                aria-pressed={trip === v}
-                onClick={() => setTrip(v)}
-                className={cx('whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs transition', trip === v ? 'bg-emerald-600 font-semibold text-white' : 'zego-text-secondary zego-hover-surface')}
-              >
-                {label}
-              </button>
-            ))}
-          </span>
-        </FilterBox>
         {searching && (
           <Button variant="ghost" size="sm" className="self-center" onClick={clearSearch}>ล้างตัวกรอง</Button>
         )}
@@ -462,14 +487,10 @@ export default function GroupClearPage() {
             <table className="w-full text-sm">
               <thead className="zego-surface-soft-bg text-left">
                 <tr>
-                  <th className={th}>ประเทศ</th>
-                  <th className={th}>รหัสกรุ๊ป</th>
-                  <th className={th}>วันเดินทางไป-กลับ</th>
-                  <th className={th}>หัวหน้าทัวร์</th>
-                  <th className={th}>เงินในซอง / ใช้แล้ว</th>
-                  <th className={th}>เบี้ยเลี้ยง</th>
+                  <th className={th}>กรุ๊ป</th>
+                  <th className={th}>เงินในซอง / ใช้แล้ว · เบี้ยเลี้ยง</th>
                   <th className={th}>สถานะ</th>
-                  <th className={`${th} text-right`}>Action</th>
+                  <th className={`${th} sticky right-0 zego-surface-soft-bg text-right`}>Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--zego-border-soft)]">

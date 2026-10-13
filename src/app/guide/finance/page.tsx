@@ -20,14 +20,14 @@ import { ownLeaderScope } from '@/lib/permissions';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { leaderEnvelopeState } from '@/lib/logic/cashEnvelope';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
-import { formatCurrency, formatDate, formatDateRange, toISODate } from '@/lib/format';
+import { addDays, diffDays, formatCurrency, formatDate, formatDateRange, toISODate } from '@/lib/format';
 import { Card, cx } from '@/components/ui/Primitives';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { tripEnded, tripOngoing } from '@/lib/logic/tripPhase';
 import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
 import { afterTripProgress, type StepState } from '@/lib/logic/afterTripProgress';
 import { receiptsBlockedReason } from '@/lib/logic/clearReadiness';
-import { followUpOpen, followUpRemaining } from '@/lib/logic/groupClear';
+import { CLEAR_DUE_DAYS, followUpOpen, followUpRemaining } from '@/lib/logic/groupClear';
 import { FOLLOW_UP_REASON, loadGroupClears } from '@/services/groupClearStore';
 import type { Appointment } from '@/types';
 
@@ -58,17 +58,27 @@ export default function GuideFinancePage() {
 
   // กำลังเดินทาง — เร็วสุดก่อน
   const ongoing = myPeriods.filter((p) => tripOngoing(p, today)).sort((a, b) => a.startDate.localeCompare(b.startDate));
-  // จบทริปแล้ว การเงินยังไม่ปิดเคลียร์ — ล่าสุดก่อน
+  /*
+    จบทริปแล้ว การเงินยังไม่ปิดเคลียร์ — เรียงตามความเร่งด่วน: วันที่ต้องทำให้ทันเร็วสุดก่อน
+      มีนัดเคลียร์ (ยังไม่เข้าพบ) = วันนัด · ยังไม่มีนัด = วันกลับ (+ กำหนดเคลียร์ของบริษัท ถ้าตั้งไว้)
+    กรุ๊ปที่กลับมานานแล้วและยังไม่นัดจึงขึ้นบนสุด
+  */
   const afterGroups = myPeriods
     .filter((p) => tripEnded(p, today) && !clears[p.internalId]?.closedAt)
-    .sort((a, b) => b.endDate.localeCompare(a.endDate))
     .map((period) => {
       const receipts = expenses.filter((e) => e.jobId === period.internalId && e.category === 'actual' && e.requesterId === leaderId && e.status !== 'cancelled');
       const clearApt = myApts
         .filter((a) => a.kind === 'clear' && a.jobId === period.internalId)
         .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`))[0] ?? null;
+      const upcomingApt = clearApt && clearApt.status !== 'attended' ? clearApt : null;
+      const dueBy = upcomingApt ? `${upcomingApt.date} ${upcomingApt.time}` : CLEAR_DUE_DAYS === null ? period.endDate : addDays(period.endDate, CLEAR_DUE_DAYS);
       return {
         period,
+        upcomingApt,
+        dueBy,
+        // กลับมาแล้วกี่วัน · เกินกำหนดเคลียร์ของบริษัท (มีเมื่อบริษัทตั้ง CLEAR_DUE_DAYS แล้วเท่านั้น)
+        daysSinceReturn: diffDays(period.endDate, today),
+        overdue: !upcomingApt && CLEAR_DUE_DAYS !== null && diffDays(period.endDate, today) > CLEAR_DUE_DAYS,
         progress: afterTripProgress({
           periodId: period.internalId,
           receipts,
@@ -77,7 +87,8 @@ export default function GuideFinancePage() {
           formatWhen: whenOf,
         }),
       };
-    });
+    })
+    .sort((a, b) => a.dueBy.localeCompare(b.dueBy));
 
   // ยอดค้างติดตาม — หลังการเงินปิดเคลียร์แบบมีค้าง
   const followUps = myPeriods.flatMap((period) => (clears[period.internalId]?.followUps ?? []).filter(followUpOpen).map((f) => ({ f, period })));
@@ -141,9 +152,16 @@ export default function GuideFinancePage() {
         ))}
 
         {/* จบทริปแล้ว — บอกว่าค้างขั้นไหน และขั้นต่อไปคืออะไร */}
-        {afterGroups.map(({ period, progress }) => (
+        {afterGroups.map(({ period, progress, upcomingApt, daysSinceReturn, overdue }) => (
           <Card key={period.internalId} className="space-y-2.5">
-            <GroupHeader href={groupHref(period.internalId)} code={period.groupCode} sub={`กลับ ${formatDate(period.endDate)}`} />
+            <GroupHeader
+              href={groupHref(period.internalId)}
+              code={period.groupCode}
+              sub={`กลับ ${formatDate(period.endDate)}`}
+              // ยังไม่มีนัด — บอกว่ากลับมานานแค่ไหนแล้ว (แดง = เกินกำหนดเคลียร์ของบริษัท · มีนัดแล้วไม่ต้องเตือน)
+              tag={!upcomingApt && daysSinceReturn > 0 ? `ค้างเคลียร์ ${daysSinceReturn} วัน` : undefined}
+              tagTone={overdue ? 'red' : 'amber'}
+            />
             <ol className="space-y-1">
               {progress.steps.map((st) => (
                 <li key={st.label} className="flex items-center gap-2 text-xs">
@@ -160,7 +178,13 @@ export default function GuideFinancePage() {
                 ? <span className="text-xs zego-text-disabled">บันทึกใบเสร็จ · รับซองก่อน</span>
                 : <Link href={progress.recordHref} className="text-xs font-medium zego-text-info hover:underline">บันทึกใบเสร็จ</Link>}
               {progress.next.href ? (
-                <NextButton href={progress.next.href} label={progress.next.label} />
+                <span className="flex flex-col items-end gap-0.5">
+                  <NextButton href={progress.next.href} label={progress.next.label} />
+                  {/* นัดแล้วแต่ยังมีงานค้าง — ต้องทำให้ทันก่อนวันนัด (ยกเว้นขั้นที่เป็นการยืนยันนัดเอง) */}
+                  {upcomingApt && progress.next.href !== '/guide/settlement/appointments' && (
+                    <span className="text-[11px] font-medium text-amber-800">ทำก่อนวันนัด {formatDate(upcomingApt.date)}</span>
+                  )}
+                </span>
               ) : (
                 <span className="text-xs zego-text-tertiary">{progress.next.label}</span>
               )}
@@ -190,13 +214,19 @@ function QuickAction({ href, icon, label, description, badge }: { href: string; 
 }
 
 /** หัวการ์ดกรุ๊ป — แตะ = ส่วนบัญชี-การเงินในหน้ารายละเอียดงาน */
-function GroupHeader({ href, code, sub, tag }: { href: string; code: string; sub: string; tag?: string }) {
+const TAG_TONE = {
+  sky: 'bg-sky-50 text-sky-700',
+  amber: 'bg-amber-100 text-amber-800',
+  red: 'bg-rose-100 text-rose-700',
+} as const;
+
+function GroupHeader({ href, code, sub, tag, tagTone = 'sky' }: { href: string; code: string; sub: string; tag?: string; tagTone?: keyof typeof TAG_TONE }) {
   return (
     <Link href={href} className="-m-1 flex items-center justify-between gap-2 rounded-lg p-1 zego-hover-surface">
       <span className="min-w-0">
         <span className="flex items-center gap-1.5">
           <span className="text-sm font-semibold zego-text">{code}</span>
-          {tag && <span className="rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">{tag}</span>}
+          {tag && <span className={cx('rounded-full px-1.5 py-0.5 text-[10px] font-medium', TAG_TONE[tagTone])}>{tag}</span>}
         </span>
         <span className="block truncate text-xs zego-text-tertiary">{sub}</span>
       </span>

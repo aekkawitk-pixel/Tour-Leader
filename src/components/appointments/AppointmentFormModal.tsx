@@ -19,6 +19,9 @@ import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { hasTimeOverlap } from '@/lib/logic/conflicts';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import { formatDate, formatDateRange, toISODate, toISODateTime } from '@/lib/format';
+import { clearReadiness } from '@/lib/logic/clearReadiness';
+import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
+import { loadGroupClears } from '@/services/groupClearStore';
 import type { Appointment, AppointmentKind, AppointmentMode } from '@/types';
 
 interface FormState {
@@ -44,6 +47,8 @@ export function AppointmentFormModal(props: {
   /** วันที่ตั้งต้น (เช่น กดวันในปฏิทิน) */
   presetDate?: string;
   onCreated?: (appointment: Appointment) => void;
+  /** กรุ๊ปที่เลือกมีนัดเคลียร์อยู่แล้ว → พาไปเลื่อนนัดเดิม (ไม่มี = บอกให้ไปเลื่อนเองที่เมนูนัดหมาย) */
+  onOpenExisting?: (appointmentId: string) => void;
 }) {
   if (!props.open) return null;
   return <AppointmentForm key={props.appointment?.id ?? 'new'} {...props} />;
@@ -56,6 +61,7 @@ function AppointmentForm({
   presetJobId,
   presetDate,
   onCreated,
+  onOpenExisting,
 }: {
   onClose: () => void;
   appointment: Appointment | null;
@@ -63,10 +69,13 @@ function AppointmentForm({
   presetJobId?: string;
   presetDate?: string;
   onCreated?: (appointment: Appointment) => void;
+  onOpenExisting?: (appointmentId: string) => void;
 }) {
   const {
     leaders,
     appointments,
+    envelopes,
+    expenses,
     saveAppointment,
     createAppointmentId,
     saving,
@@ -140,6 +149,8 @@ function AppointmentForm({
     if (!form.jobId) next.jobId = 'กรุณาเลือกรหัสกรุ๊ป';
     else if (!form.leaderId) next.jobId = 'กรุ๊ปนี้ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม — นัดหมายไม่ได้';
     // นัดเคลียร์เงินต้องผูกกรุ๊ป · ประเภทอื่นไม่ผูกก็ได้
+    // กรุ๊ปนี้มีนัดเคลียร์อยู่แล้ว — สร้างใหม่จะซ้ำ ต้องเลื่อนนัดเดิมแทน
+    if (bookedClash) next.jobId = 'กรุ๊ปนี้มีนัดเคลียร์เงินแล้ว — เลื่อนนัดเดิมแทนการสร้างใหม่';
     if (!form.staffName.trim()) next.staffName = 'กรุณาระบุเจ้าหน้าที่ผู้รับผิดชอบ';
     if (!form.location.trim()) next.location = 'กรุณาระบุสถานที่';
     setErrors(next);
@@ -175,7 +186,8 @@ function AppointmentForm({
 
   /*
     กรุ๊ปที่นัดได้ = กรุ๊ปหลังเดินทาง (จบทริปแล้ว — วันกลับนับเป็นจบทริป) ที่มีหัวหน้าทัวร์คอนเฟิร์มแล้ว
-    (ระบบใส่หัวหน้าทัวร์ให้จากกรุ๊ป) · เพิ่งกลับล่าสุดก่อน · นัดเดิมที่ผูกกรุ๊ปไว้แล้วยังแสดงค้างได้
+    (ระบบใส่หัวหน้าทัวร์ให้จากกรุ๊ป) · นัดเดิมที่ผูกกรุ๊ปไว้แล้วยังแสดงค้างได้
+    แต่ละกรุ๊ปบอกความพร้อม (กติกาเดียวกับฝั่งหัวหน้าทัวร์ — clearReadiness) เรียง: พร้อมนัด → ยังไม่ครบ → นัดแล้ว → ปิดเคลียร์แล้ว
   */
   const groupOptions = useMemo(() => {
     const leaderByPeriod = new Map<string, string>();
@@ -184,19 +196,37 @@ function AppointmentForm({
     }
     if (appointment?.jobId && !leaderByPeriod.has(appointment.jobId)) leaderByPeriod.set(appointment.jobId, appointment.leaderId);
     const today = toISODate(new Date());
+    const clears = loadGroupClears();
     return [...leaderByPeriod]
       .map(([id, leaderId]) => {
         const p = getTourPeriodById(id);
         const l = leaders.find((x) => x.id === leaderId);
-        return { id, leaderId, p, code: p?.groupCode ?? periodCodeOf(id), leaderName: l ? `${l.firstName} ${l.lastName}`.trim() : leaderId };
+        const ready = p ? clearReadiness({
+          started: true,
+          ended: true,
+          startText: formatDate(p.startDate),
+          endText: formatDate(p.endDate || p.startDate),
+          envs: envelopes.filter((e) => e.periodId === id && e.sealed),
+          receipts: expenses.filter((e) => e.jobId === id && e.category === 'actual' && e.requesterId === leaderId && e.status !== 'cancelled'),
+          perDiem: activeLeaderClaim(expenses, id, leaderId, 'per_diem'),
+        }) : null;
+        // นัดเคลียร์ที่ยังมีผลของกรุ๊ปนี้ (ไม่นับนัดที่กำลังแก้อยู่)
+        const booked = appointments.find((a) => a.id !== appointment?.id && a.kind === 'clear' && a.jobId === id && a.status !== 'cancelled' && a.status !== 'attended');
+        const readiness: GroupReadiness = clears[id]?.closedAt ? { rank: 3, label: 'ปิดเคลียร์แล้ว', tone: 'slate' }
+          : booked ? { rank: 2, label: `นัดแล้ว ${formatDate(booked.date)} ${booked.time} น. · เลือกเพื่อเลื่อนนัดเดิม`, tone: 'sky', bookedId: booked.id, bookedWhen: `${formatDate(booked.date)} ${booked.time} น.` }
+            : ready?.ready ? { rank: 0, label: 'พร้อมนัด — เอกสารครบแล้ว', tone: 'emerald' }
+              : { rank: 1, label: ready?.detail ?? 'ยังไม่ครบ', tone: 'amber' };
+        return { id, leaderId, p, code: p?.groupCode ?? periodCodeOf(id), leaderName: l ? `${l.firstName} ${l.lastName}`.trim() : leaderId, readiness };
       })
       // หลังเดินทางเท่านั้น — กรุ๊ปที่ยังไม่กลับยังไม่มีอะไรให้เคลียร์/ส่งเอกสาร
       .filter((g) => g.id === appointment?.jobId || (!!g.p && g.p.endDate <= today))
-      .sort((a, b) => (b.p?.endDate ?? '').localeCompare(a.p?.endDate ?? ''));
-  }, [leaders, appointment]);
+      .sort((a, b) => a.readiness.rank - b.readiness.rank || (b.p?.endDate ?? '').localeCompare(a.p?.endDate ?? ''));
+  }, [leaders, appointment, appointments, envelopes, expenses]);
   const [groupQuery, setGroupQuery] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickedGroup = groupOptions.find((g) => g.id === form.jobId);
+  /** สร้างนัดเคลียร์ใหม่ให้กรุ๊ปที่มีนัดอยู่แล้ว = นัดซ้ำ (แก้นัดเดิมไม่นับ) */
+  const bookedClash = !appointment && form.kind === 'clear' ? pickedGroup?.readiness.bookedId ?? null : null;
   const gq = groupQuery.trim().toLowerCase();
   const groupMatches = groupOptions
     .filter((g) => !gq || [g.code, g.p?.displayName ?? '', g.leaderName].join(' ').toLowerCase().includes(gq))
@@ -220,7 +250,7 @@ function AppointmentForm({
           <Button variant="secondary" onClick={onClose} disabled={saving}>
             ยกเลิก
           </Button>
-          <Button variant="primary" onClick={submit} loading={saving}>
+          <Button variant="primary" onClick={submit} loading={saving} disabled={!!bookedClash}>
             {appointment ? 'บันทึกการแก้ไข' : 'สร้างนัดหมาย'}
           </Button>
         </>
@@ -291,6 +321,7 @@ function AppointmentForm({
                   {pickedGroup.p && <span className="text-xs tabular-nums zego-text-secondary">{formatDateRange(pickedGroup.p.startDate, pickedGroup.p.endDate)}</span>}
                 </span>
                 <span className="block truncate text-xs zego-text-secondary" title={pickedGroup.p?.displayName}>{pickedGroup.p?.displayName ?? '—'}</span>
+                <ReadinessTag readiness={pickedGroup.readiness} />
               </span>
               <span className="shrink-0 text-xs zego-text-info">เปลี่ยน</span>
             </button>
@@ -323,6 +354,7 @@ function AppointmentForm({
                       </span>
                       <span className="block truncate text-xs zego-text-secondary" title={g.p?.displayName}>{g.p?.displayName ?? '—'}</span>
                       <span className="block truncate text-xs zego-text-tertiary">หัวหน้าทัวร์ {g.leaderName}</span>
+                      <ReadinessTag readiness={g.readiness} />
                     </button>
                   </li>
                 ))}
@@ -332,7 +364,21 @@ function AppointmentForm({
               )}
             </div>
           )}
-          {errors.jobId && <p className="mt-1 text-xs text-rose-600">{errors.jobId}</p>}
+          {errors.jobId && !bookedClash && <p className="mt-1 text-xs text-rose-600">{errors.jobId}</p>}
+          {bookedClash && !pickerOpen && (
+            <div className="mt-2">
+              <Callout tone="amber" title={`กรุ๊ปนี้มีนัดเคลียร์เงินแล้ว ${pickedGroup?.readiness.bookedWhen ?? ''}`}>
+                สร้างนัดใหม่จะซ้ำกัน — ถ้าต้องการเปลี่ยนวันเวลา ให้เลื่อนนัดเดิม
+                {onOpenExisting ? (
+                  <span className="mt-2 block">
+                    <Button variant="primary" size="sm" icon="calendar" onClick={() => onOpenExisting(bookedClash)}>เลื่อนนัดเดิม</Button>
+                  </span>
+                ) : (
+                  <span className="block">ไปที่เมนูนัดหมาย แล้วเปิดนัด {bookedClash} → เลื่อนนัด</span>
+                )}
+              </Callout>
+            </div>
+          )}
         </div>
 
         {/* หัวหน้าทัวร์ — แยกบรรทัด ใส่ให้อัตโนมัติจากกรุ๊ปที่เลือก */}
@@ -368,5 +414,24 @@ function AppointmentForm({
         />
       </div>
     </Modal>
+  );
+}
+
+/** bookedId = นัดเคลียร์ที่ยังมีผลของกรุ๊ปนี้ — มีแล้วห้ามสร้างนัดซ้ำ ให้เลื่อนนัดเดิมแทน */
+type GroupReadiness = { rank: number; label: string; tone: 'emerald' | 'amber' | 'sky' | 'slate'; bookedId?: string; bookedWhen?: string };
+
+const READINESS_TAG: Record<GroupReadiness['tone'], string> = {
+  emerald: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
+  amber: 'bg-amber-50 text-amber-800 ring-amber-200',
+  sky: 'bg-sky-50 text-sky-800 ring-sky-200',
+  slate: 'bg-slate-100 text-slate-600 ring-slate-200',
+};
+
+/** ความพร้อมให้นัดของกรุ๊ป — เขียว พร้อมนัด · ส้ม ยังไม่ครบ (บอกสิ่งที่ขาด) · ฟ้า นัดแล้ว · เทา ปิดเคลียร์แล้ว */
+function ReadinessTag({ readiness }: { readiness: GroupReadiness }) {
+  return (
+    <span className={cx('mt-1 inline-flex max-w-full rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset', READINESS_TAG[readiness.tone])}>
+      <span className="truncate">{readiness.label}</span>
+    </span>
   );
 }
