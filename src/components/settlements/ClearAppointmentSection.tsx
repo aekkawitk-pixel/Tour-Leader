@@ -11,17 +11,14 @@
 import { useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { Button, Callout, StatusBadge } from '@/components/ui/Primitives';
-import { APPOINTMENT_MODE, appointmentStatusMeta } from '@/lib/labels';
+import { APPOINTMENT_MODE, APPOINTMENT_OFFICE_LOCATION, appointmentStatusMeta } from '@/lib/labels';
 import { formatDate, toISODate, toISODateTime } from '@/lib/format';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import { clearAppointmentOf } from '@/services/appointmentStore';
 import { firstFreeSlot, SLOT_DURATIONS, slotOptions } from '@/lib/logic/appointmentSlots';
 import type { Appointment, AppointmentMode } from '@/types';
 
-const DEFAULT_LOCATION: Record<Exclude<AppointmentMode, 'document'>, string> = {
-  office: 'บริษัท ซีโก้ ทราเวล จำกัด ห้องการเงิน ชั้น 1',
-  online: 'ลิงก์ประชุมออนไลน์ (ส่งให้ทางไลน์)',
-};
+const DEFAULT_LOCATION = APPOINTMENT_OFFICE_LOCATION;
 
 export function ClearAppointmentSection({
   periodId,
@@ -46,8 +43,8 @@ export function ClearAppointmentSection({
     // นัดห่างกันช่วงละ 30 นาที — นัดใหม่ตั้งต้นที่ช่องว่างช่องแรกของวัน
     time: appt?.time ?? firstFreeSlot(appointments, today, 30),
     durationMinutes: String(appt?.durationMinutes ?? 30),
-    mode: (appt?.mode === 'online' ? 'online' : 'office') as 'office' | 'online',
-    location: appt?.location ?? DEFAULT_LOCATION.office,
+    // นัดเดิมที่เป็นออนไลน์ แก้แล้วกลายเป็นเข้าสำนักงาน — ใช้สถานที่ตั้งต้นแทนลิงก์เดิม
+    location: appt && appt.mode === 'office' ? appt.location : DEFAULT_LOCATION,
     note: appt?.note ?? '',
   }));
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
@@ -59,7 +56,7 @@ export function ClearAppointmentSection({
     const when = `${formatDate(form.date)} ${form.time} น.`;
     const fields = {
       date: form.date, time: form.time, durationMinutes: Number(form.durationMinutes) || 30,
-      mode: form.mode as AppointmentMode, location: form.location.trim(), note: form.note.trim(),
+      mode: 'office' as AppointmentMode, location: form.location.trim(), note: form.note.trim(),
       leaderId: leader.id, staffName: currentUser.name,
     };
     // แก้นัด → กลับเป็นรอหัวหน้าทัวร์ยืนยัน · นัดใหม่ = สร้างนัด kind 'clear' ผูกกรุ๊ป
@@ -122,16 +119,8 @@ export function ClearAppointmentSection({
               </select>
             </label>
           </div>
-          <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
-            <label className="block">
-              <span className={label}>รูปแบบ</span>
-              <select className={input} value={form.mode} onChange={(e) => { const m = e.target.value as 'office' | 'online'; set('mode', m); set('location', DEFAULT_LOCATION[m]); }}>
-                <option value="office">{APPOINTMENT_MODE.office.label}</option>
-                <option value="online">{APPOINTMENT_MODE.online.label}</option>
-              </select>
-            </label>
-            <label className="block"><span className={label}>สถานที่ / ลิงก์</span><input className={input} value={form.location} onChange={(e) => set('location', e.target.value)} /></label>
-          </div>
+          {/* รูปแบบนัดมีแบบเดียว = เข้าสำนักงาน (ไม่มีนัดออนไลน์แล้ว) */}
+          <label className="block"><span className={label}>สถานที่ <span className="font-normal zego-text-tertiary">· {APPOINTMENT_MODE.office.label}</span></span><input className={input} value={form.location} onChange={(e) => set('location', e.target.value)} /></label>
           <label className="block"><span className={label}>หมายเหตุถึงหัวหน้าทัวร์ <span className="font-normal zego-text-tertiary">(ไม่บังคับ)</span></span><input className={input} value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="เช่น นำเงินคืนและใบเสร็จตัวจริงมาด้วย" /></label>
           {form.date && form.date < today && <p className="text-xs zego-text-danger">วันที่ต้องไม่ก่อนวันนี้</p>}
           <div className="flex justify-end gap-2">

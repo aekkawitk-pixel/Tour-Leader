@@ -25,6 +25,7 @@ import { advanceDocsReleased, leaderBudgetItems, recordedByBudgetLine } from '@/
 import { Button, Card, cx } from '@/components/ui/Primitives';
 import { baseControl, SelectInput, TextArea } from '@/components/ui/FormField';
 import { DateField } from '@/components/ui/DateInput';
+import { Modal } from '@/components/ui/Modal';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { groupAmountsByCurrency } from './expenseAmounts';
 import { CurrencyStack } from './CurrencyStack';
@@ -167,6 +168,8 @@ export function ExpenseQuickForm({
   }, [expenses, budgetItems]);
   /** กำลังเลือกรายการเบิก (วิธี "ตามรายการเบิก") — เลือกแล้วกลับไปหน้าเลือกวิธีเพื่อเลือกหลักฐานต่อ */
   const [pickingBudget, setPickingBudget] = useState(() => initialPickBudget && budgetItems.length > 0);
+  /** เปลี่ยน/เลือกรายการเบิกระหว่างกรอกฟอร์ม (หลังเลือกหลักฐานแล้ว) */
+  const [changingBudget, setChangingBudget] = useState(false);
   /**
    * หัวข้อที่เลือกในหน้าแรก — null = ยังไม่เลือก (แสดง 2 หัวข้อ)
    * 'budget' = ตามรายการเบิก (เลือกรายการ → เลือกหลักฐาน) · 'outside' = นอกเหนือรายการเบิก (เลือกหลักฐานเลย)
@@ -595,8 +598,9 @@ export function ExpenseQuickForm({
         </div>
       )}
 
-      {/* ผูกรายการเบิกได้ทางเดียว = วิธี "ตามรายการเบิก" · วิธีอื่นทั้งหมด = นอกรายการเบิก (ไม่มีดรอปดาวน์ให้เลือกเองในฟอร์ม)
-          เปลี่ยนหลักฐาน: กด "เปลี่ยน" → กลับหน้าเลือกวิธีในหัวข้อเดิม (ย้อนกลับต่อได้ถึงหน้าหัวข้อ) */}
+      {/* รายการเบิก — เลือกมาก่อนตั้งแต่ขั้นแรก แต่ยังเปลี่ยนได้ระหว่างกรอก (ข้อมูลที่กรอกไว้ไม่หาย)
+          ตามรายการเบิก → "เปลี่ยน" เลือกรายการอื่น หรือ "ไม่อยู่ในรายการเบิก" · นอกรายการเบิก → "เลือกรายการเบิก" (ถ้ากรุ๊ปมีรายการ)
+          เปลี่ยนหลักฐาน: กด "เปลี่ยน" ที่ช่องหลักฐาน → กลับหน้าเลือกวิธีในหัวข้อเดิม */}
       {selectedBudget ? (
         <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs">
           <Icon name="receipt" className="mt-0.5 h-4 w-4 shrink-0 text-sky-700" />
@@ -609,12 +613,50 @@ export function ExpenseQuickForm({
                 ` · คงเหลือ ${formatCurrency(remainingOf(selectedBudget), selectedBudget.currency)}`}
             </span>
           </span>
+          <button type="button" onClick={() => setChangingBudget(true)} className="shrink-0 font-medium text-sky-800 underline">
+            เปลี่ยน
+          </button>
         </div>
       ) : (
-        <p className="flex items-center gap-1.5 rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-secondary">
+        <div className="flex items-center gap-1.5 rounded-lg zego-surface-soft-bg px-3 py-2 text-xs zego-text-secondary">
           <Icon name="info" className="h-3.5 w-3.5 shrink-0" />
-          นอกรายการเบิก
-        </p>
+          <span className="flex-1">นอกรายการเบิก</span>
+          {budgetItems.length > 0 && (
+            <button type="button" onClick={() => setChangingBudget(true)} className="shrink-0 font-medium zego-text-info underline">
+              เลือกรายการเบิก
+            </button>
+          )}
+        </div>
+      )}
+      {changingBudget && (
+        <Modal
+          open
+          onClose={() => setChangingBudget(false)}
+          size="md"
+          title={selectedBudget ? 'เปลี่ยนรายการเบิก' : 'เลือกรายการเบิก'}
+          footer={
+            <div className="flex w-full flex-wrap justify-between gap-2">
+              {selectedBudget ? (
+                <Button variant="ghost" onClick={() => { setBudgetLineId(''); setScope('outside'); setChangingBudget(false); }}>ไม่อยู่ในรายการเบิก</Button>
+              ) : <span />}
+              <Button variant="secondary" onClick={() => setChangingBudget(false)}>ปิด</Button>
+            </div>
+          }
+        >
+          <AdvanceRequestPicker
+            period={period}
+            documents={advanceDocs}
+            usedByBudget={usedByBudget}
+            selectedLineId={budgetLineId}
+            onPick={(id) => {
+              // กลางฟอร์ม: ไม่เติมยอดทับ (ผู้ใช้อาจกรอก/สแกนยอดไว้แล้ว) — pickBudget เติมเฉพาะช่องที่ยังว่าง
+              pickBudget(id);
+              setScope('budget');
+              setChangingBudget(false);
+            }}
+            onBack={() => setChangingBudget(false)}
+          />
+        </Modal>
       )}
 
       <SelectInput

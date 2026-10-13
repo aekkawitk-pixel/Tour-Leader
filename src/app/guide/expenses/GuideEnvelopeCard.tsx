@@ -9,13 +9,13 @@
  * - รับแล้ว → เห็นยอดคงเหลือในซอง · บันทึก "ส่งเงินให้แลนด์" (ชื่อแลนด์ ยอด สกุลเงิน)
  *   รูปใบรับเงิน/หลักฐานจากแลนด์ไม่บังคับ — แนบตอนบันทึก หรือกด "แนบหลักฐาน" ภายหลังก็ได้
  *   ใช้ตามรายการ = บันทึกใบเสร็จตามปกติ ยอดถูกหักจากซองให้อัตโนมัติ
- * - เปิดใช้แล้วยอดในซองไม่ตรงหน้าซอง → "แจ้งยอดในซองไม่ตรง" การเงินเห็นทันที (ไม่มีการนับซ้ำตอนรับ)
+ * - ปัญหาซอง (ยอดในซองไม่ตรงหน้าซอง / กลับแล้วยังไม่ได้รับซอง) → ปุ่มเดียว "แจ้งปัญหาซอง" เลือกเรื่องในหน้าต่าง การเงินเห็นทันที (ไม่มีการนับซ้ำตอนรับ)
  */
 
 import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
-import { Button, Card } from '@/components/ui/Primitives';
+import { Button, Card, cx } from '@/components/ui/Primitives';
 import { Modal } from '@/components/ui/Modal';
 import { TextArea, TextInput } from '@/components/ui/FormField';
 import { Icon } from '@/components/ui/Icon';
@@ -47,7 +47,8 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
   const showUse = mode !== 'receive';
   const { expenses, envelopes, saveEnvelope, currentUser, leaders, noEnvelopeMarks } = useDemo();
   const [landOpen, setLandOpen] = useState(false);
-  const [mismatchOpen, setMismatchOpen] = useState(false);
+  /** แจ้งปัญหาซอง (ไม่ได้รับซอง / ยอดในซองไม่ตรง) — ปุ่มเดียว เลือกเรื่องในหน้าต่าง */
+  const [problemOpen, setProblemOpen] = useState(false);
   /** ซองที่กำลังยืนยันรับ — ยืนยันอย่างเดียว ไม่บังคับแนบรูป */
   const [ackTarget, setAckTarget] = useState<CashEnvelope | null>(null);
   /** ยืนยันรับทุกซองที่รออยู่ในครั้งเดียว (กรุ๊ปที่มีหลายซอง) */
@@ -60,9 +61,6 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
   const [forwardTarget, setForwardTarget] = useState<CashEnvelope | null>(null);
   const [forwardTo, setForwardTo] = useState('');
   const [forwardNote, setForwardNote] = useState('');
-  /** ซองที่กำลังแจ้งว่าไม่ได้รับ (แจ้งได้เมื่อเดินทางกลับแล้ว) */
-  const [notRecvTarget, setNotRecvTarget] = useState<CashEnvelope | null>(null);
-  const [notRecvNote, setNotRecvNote] = useState('');
   /** ซองที่รับแล้วซึ่งกางดูรายละเอียดอยู่ (หน้ารับซอง ซองที่รับแล้วย่อไว้เป็นบรรทัดเดียว) */
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const toggleOpen = (id: string) => setOpenIds((prev) => {
@@ -88,6 +86,13 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
   const started = !!period && tripStarted(period, todayISO);
   /** ซองที่ยังต้องกดยืนยันรับ (ออกจากการเงินแล้ว ยังไม่ถูกส่งคืน) — ใช้บอก "ขั้นต่อไป" ที่หัวรายการ */
   const toAck = envs.filter((e) => envelopeStage(e) === 'handed_over' && !e.staffReturn && !(carrierOf(e.handover) && !e.staffAck));
+  /*
+    แจ้งปัญหาซองได้ 2 เรื่อง — ซองที่ยังไม่ได้รับ (แจ้งได้เมื่อเดินทางกลับแล้ว) · ซองที่รับแล้วแต่ยอดไม่ตรง
+    ไม่มีซองที่แจ้งได้ = ไม่แสดงปุ่ม
+  */
+  const notReceivable = receiving && ended ? toAck.filter((e) => !e.notReceived && !e.leaderAck) : [];
+  const mismatchable = received.filter((e) => !e.mismatch);
+  const canReport = notReceivable.length + mismatchable.length > 0;
   const reportNotReceived = async (env: CashEnvelope, note: string) => {
     await saveEnvelope(
       { ...env, notReceived: { at: toISODateTime(new Date()), byName: leaderName, note } },
@@ -335,17 +340,10 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
                 {/* กดรับได้เมื่อซองออกจากการเงินแล้ว (รวมระหว่างทาง — หน้างานอาจฝากคนอื่นนำมาให้)
                     เจ้าหน้าที่ส่งกรุ๊ปยังไม่ได้รับซองจากการเงิน = ขั้นตอนยังมาไม่ถึง ไม่มีปุ่ม · ส่งคืนการเงินแล้วก็ไม่มี */}
                 {stage === 'handed_over' && !env.staffReturn && !(carrierOf(env.handover) && !env.staffAck) && (receiving ? (
-                  <div className="space-y-1.5">
-                    <Button variant="primary" size="sm" className="w-full" icon="camera" onClick={() => setAckTarget(env)}>
-                      ยืนยันการรับ (แนบรูป)
-                    </Button>
-                    {/* เดินทางกลับแล้วยังไม่ได้รับเงิน → แจ้งการเงิน */}
-                    {ended && !env.notReceived && (
-                      <Button variant="secondary" size="sm" className="w-full" icon="warning" onClick={() => { setNotRecvNote(''); setNotRecvTarget(env); }}>
-                        แจ้งไม่ได้รับซอง
-                      </Button>
-                    )}
-                  </div>
+                  // ไม่ได้รับซอง → ปุ่ม "แจ้งปัญหาซอง" ท้ายการ์ด (ปุ่มเดียวกับแจ้งยอดในซองไม่ตรง)
+                  <Button variant="primary" size="sm" className="w-full" icon="camera" onClick={() => setAckTarget(env)}>
+                    ยืนยันการรับ (แนบรูป)
+                  </Button>
                 ) : (
                   <Link href={`/guide/jobs/${periodId}`} className="inline-flex items-center gap-1 text-[11px] font-medium zego-text-info hover:underline">
                     ยังไม่ได้ยืนยันรับ — ไปยืนยันที่ งานของฉัน
@@ -359,36 +357,6 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
         </>
       )}
 
-      {notRecvTarget && (
-        <Modal
-          open
-          onClose={() => setNotRecvTarget(null)}
-          size="sm"
-          title={`แจ้งไม่ได้รับ${envelopeName(notRecvTarget)}`}
-          description={`ยอดหน้าซอง ${fmt(notRecvTarget.sealed?.faceTotals ?? [])}`}
-          footer={
-            <div className="grid w-full grid-cols-2 gap-2">
-              <Button variant="secondary" onClick={() => setNotRecvTarget(null)}>ยกเลิก</Button>
-              <Button
-                variant="danger"
-                disabled={!notRecvNote.trim()}
-                onClick={async () => { await reportNotReceived(notRecvTarget, notRecvNote.trim()); setNotRecvTarget(null); }}
-              >
-                ส่งแจ้งการเงิน
-              </Button>
-            </div>
-          }
-        >
-          <TextArea
-            label="รายละเอียด"
-            required
-            rows={3}
-            value={notRecvNote}
-            onChange={(e) => setNotRecvNote(e.target.value)}
-            placeholder="เช่น เจ้าหน้าที่ส่งกรุ๊ปไม่ได้มาส่งที่สนามบิน / ไม่มีใครนำซองมาให้ระหว่างเดินทาง"
-          />
-        </Modal>
-      )}
       {ackAllOpen && (
         <PhotoConfirmModal
           title={`ยืนยันรับทั้ง ${toAck.length} ซอง`}
@@ -501,12 +469,14 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
           )}
           <div className="grid grid-cols-2 gap-2">
             <Button variant="primary" size="sm" icon="plane" onClick={() => setLandOpen(true)} disabled={landable.length === 0}>ส่งเงินให้แลนด์</Button>
-            <Button variant="secondary" size="sm" icon="warning" onClick={() => setMismatchOpen(true)} disabled={received.every((e) => e.mismatch)}>
-              แจ้งยอดในซองไม่ตรง
-            </Button>
+            <Button variant="secondary" size="sm" icon="warning" onClick={() => setProblemOpen(true)} disabled={!canReport}>แจ้งปัญหาซอง</Button>
           </div>
           <p className="text-[11px] zego-text-tertiary">ใช้จ่ายตามรายการ = บันทึกใบเสร็จตามปกติ ระบบหักจากยอดในซองให้เอง</p>
         </>
+      )}
+      {/* ไม่มีส่วนใช้เงิน (หน้ารับซอง / ยังไม่ได้รับซองไหนเลย) — ปุ่มแจ้งปัญหาซองแยกไว้ท้ายการ์ด */}
+      {!(showUse && received.length > 0) && canReport && (
+        <Button variant="secondary" size="sm" className="w-full" icon="warning" onClick={() => setProblemOpen(true)}>แจ้งปัญหาซอง</Button>
       )}
 
       {landOpen && (
@@ -529,13 +499,16 @@ export function GuideEnvelopeCard({ periodId, mode, groupLabel }: {
           }}
         />
       )}
-      {mismatchOpen && (
-        <MismatchModal
-          envelopes={received.filter((e) => !e.mismatch)}
-          onClose={() => setMismatchOpen(false)}
-          onSave={async (env, note) => {
-            await saveEnvelope({ ...env, mismatch: { at: toISODateTime(new Date()), byName: leaderName, note } }, 'แจ้งยอดในซองไม่ตรง', `${envelopeName(env)} · ${note}`);
-            setMismatchOpen(false);
+      {problemOpen && (
+        <EnvelopeProblemModal
+          notReceivable={notReceivable}
+          mismatchable={mismatchable}
+          fmt={fmt}
+          onClose={() => setProblemOpen(false)}
+          onSave={async (kind, env, note) => {
+            if (kind === 'not_received') await reportNotReceived(env, note);
+            else await saveEnvelope({ ...env, mismatch: { at: toISODateTime(new Date()), byName: leaderName, note } }, 'แจ้งยอดในซองไม่ตรง', `${envelopeName(env)} · ${note}`);
+            setProblemOpen(false);
           }}
         />
       )}
@@ -636,17 +609,43 @@ function LandPaymentModal({
   );
 }
 
-function MismatchModal({
-  envelopes,
+type EnvelopeProblem = 'not_received' | 'mismatch';
+
+const PROBLEM: Record<EnvelopeProblem, { label: string; hint: string; placeholder: string }> = {
+  not_received: {
+    label: 'ไม่ได้รับซอง',
+    hint: 'เดินทางกลับแล้วแต่ยังไม่ได้รับซองนี้',
+    placeholder: 'เช่น เจ้าหน้าที่ส่งกรุ๊ปไม่ได้มาส่งที่สนามบิน / ไม่มีใครนำซองมาให้ระหว่างเดินทาง',
+  },
+  mismatch: {
+    label: 'ยอดในซองไม่ตรง',
+    hint: 'ยอดเงินในซองไม่ตรงกับยอดหน้าซอง',
+    placeholder: 'เช่น ยอดจริง 1,576,607 เยน ขาด 10,000 เยน (ธนบัตร 10,000 เยน 1 ใบ)',
+  },
+};
+
+/**
+ * แจ้งปัญหาซอง — ปุ่มเดียว เลือกเรื่องที่จะแจ้ง (มีให้เลือกเฉพาะเรื่องที่มีซองแจ้งได้) แล้วเลือกซอง
+ * ไม่ได้รับซอง = ซองที่ส่งมอบแล้วแต่ยังไม่ยืนยันรับ (หลังเดินทางกลับ) · ยอดไม่ตรง = ซองที่รับแล้ว · การเงินเห็นทันที
+ */
+function EnvelopeProblemModal({
+  notReceivable,
+  mismatchable,
+  fmt,
   onClose,
   onSave,
 }: {
-  envelopes: CashEnvelope[];
+  notReceivable: CashEnvelope[];
+  mismatchable: CashEnvelope[];
+  fmt: (list: { amount: number; currency: string }[]) => string;
   onClose: () => void;
-  onSave: (env: CashEnvelope, note: string) => Promise<void>;
+  onSave: (kind: EnvelopeProblem, env: CashEnvelope, note: string) => Promise<void>;
 }) {
-  const [envId, setEnvId] = useState(envelopes[0]?.id ?? '');
-  const env = envelopes.find((e) => e.id === envId);
+  const options = (['not_received', 'mismatch'] as EnvelopeProblem[]).filter((k) => (k === 'not_received' ? notReceivable : mismatchable).length > 0);
+  const [kind, setKind] = useState<EnvelopeProblem>(options[0] ?? 'mismatch');
+  const list = kind === 'not_received' ? notReceivable : mismatchable;
+  const [envId, setEnvId] = useState(list[0]?.id ?? '');
+  const env = list.find((e) => e.id === envId) ?? list[0];
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   return (
@@ -654,8 +653,8 @@ function MismatchModal({
       open
       onClose={onClose}
       size="sm"
-      title="แจ้งยอดในซองไม่ตรง"
-      description="ยอดเงินในซองไม่ตรงกับยอดหน้าซอง — การเงินจะเห็นทันที"
+      title="แจ้งปัญหาซอง"
+      description={env ? `${envelopeName(env)} · ยอดหน้าซอง ${fmt(env.sealed?.faceTotals ?? [])}` : undefined}
       footer={
         <div className="grid w-full grid-cols-2 gap-2">
           <Button variant="secondary" onClick={onClose} disabled={saving}>ยกเลิก</Button>
@@ -666,7 +665,7 @@ function MismatchModal({
             onClick={async () => {
               setSaving(true);
               try {
-                await onSave(env!, note.trim());
+                await onSave(kind, env!, note.trim());
               } finally {
                 setSaving(false);
               }
@@ -678,15 +677,26 @@ function MismatchModal({
       }
     >
       <div className="space-y-3">
-      <EnvelopeSelect envelopes={envelopes} value={envId} onChange={setEnvId} />
-      <TextArea
-        label="รายละเอียด"
-        required
-        rows={3}
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder="เช่น ยอดจริง 1,576,607 เยน ขาด 10,000 เยน (ธนบัตร 10,000 เยน 1 ใบ)"
-      />
+        {options.length > 1 && (
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="เรื่องที่แจ้ง">
+            {options.map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="radio"
+                aria-checked={k === kind}
+                onClick={() => { setKind(k); setEnvId((k === 'not_received' ? notReceivable : mismatchable)[0]?.id ?? ''); }}
+                className={cx('rounded-lg border px-2 py-2 text-left transition', k === kind ? 'border-rose-400 bg-rose-50' : 'zego-border-color zego-hover-surface')}
+              >
+                <span className="block text-sm font-semibold zego-text">{PROBLEM[k].label}</span>
+                <span className="block text-[11px] leading-tight zego-text-tertiary">{PROBLEM[k].hint}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {options.length === 1 && <p className="text-sm font-semibold zego-text">{PROBLEM[kind].label} <span className="text-xs font-normal zego-text-tertiary">· {PROBLEM[kind].hint}</span></p>}
+        <EnvelopeSelect envelopes={list} value={env?.id ?? ''} onChange={setEnvId} />
+        <TextArea label="รายละเอียด" required rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder={PROBLEM[kind].placeholder} />
       </div>
     </Modal>
   );

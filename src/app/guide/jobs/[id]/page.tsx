@@ -27,6 +27,7 @@ import { Icon } from '@/components/ui/Icon';
 import type { TourSector } from '@/data/schedule/masterTypes';
 import { GuideEnvelopeCard } from '../../expenses/GuideEnvelopeCard';
 import { SpendSummaryCard } from '../../expenses/SpendSummaryCard';
+import { GroupFinancePanel } from '../../finance/GroupFinancePanel';
 import { leaderBudgetItems } from '@/lib/logic/groupBudget';
 
 function Row({ label, value }: { label: string; value?: React.ReactNode }) {
@@ -185,6 +186,9 @@ export default function GuideJobDetailPage() {
 
       {/* ขั้นตอนรับซองเงินของกรุ๊ป — ยืนยันการรับ + แนบรูป (ไม่บังคับ) · ไม่มีเอกสารเบิก = ไม่แสดง */}
       <GuideEnvelopeCard periodId={period.internalId} mode="receive" />
+
+      {/* บัญชี-การเงินของกรุ๊ปนี้ — ใบเสร็จ · เบี้ยเลี้ยง · นัดเคลียร์เงิน (ยังไม่ออกเดินทางและไม่มีรายการ = ไม่แสดง) */}
+      <GroupFinancePanel period={period} />
 
       {period.remark && (
         <Card>

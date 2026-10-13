@@ -76,6 +76,26 @@ export default function GuideAllowancePage() {
   const periodFilter = validPeriodFilter(pickedPeriod, [...monthCounts.keys()], today);
   const shownGroups = myGroups.filter((p) => matchesPeriodFilter(p.startDate, periodFilter));
 
+  /*
+    ?period=<id> (จากส่วนบัญชี-การเงินในหน้ารายละเอียดงาน) → เปิดฟอร์มเบี้ยเลี้ยงของกรุ๊ปนั้นทันที
+    ปิด/บันทึกแล้วกลับไปหน้ากรุ๊ปเดิม — หัวหน้าทัวร์ไม่ต้องหากรุ๊ปเองในรายการนี้
+  */
+  const [fromGroup, setFromGroup] = useState(false);
+  useEffect(() => {
+    const pid = new URLSearchParams(window.location.search).get('period');
+    const period = pid ? myGroups.find((p) => p.internalId === pid) : undefined;
+    if (!period) return;
+    const existing = leaderId ? activeLeaderClaim(expenses, period.internalId, leaderId, 'per_diem') : null;
+    // ใบที่อนุมัติ/ดำเนินการแล้วแก้ไม่ได้ — แค่เลื่อนไปเดือนของกรุ๊ปนั้น ไม่เปิดฟอร์ม
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จาก URL ครั้งเดียวตอน mount
+    setPickedPeriod(monthOf(period));
+    if (existing && !EDITABLE.has(existing.status)) return;
+    setFromGroup(true);
+    setOpen({ kind: 'per_diem', period, existing });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const backToGroup = () => { if (fromGroup) window.history.back(); };
+
   const save = async (kind: LeaderClaimKind, period: TourPeriodMaster, line: { purpose: string; amount: number; description: string; quantity: number; unitPrice: number }, note: string, existing: ExpenseRequest | null) => {
     const at = toISODateTime(new Date());
     const lines = [{
@@ -261,8 +281,8 @@ export default function GuideAllowancePage() {
           paxSource={paxFromAdvanceDoc(open.period.internalId)}
           defaultPhone={leaderPhone}
           canSubmit={DEMO_SUBMIT_BEFORE_TRIP_END || tripEnded(open.period, today)}
-          onClose={() => setOpen(null)}
-          onSave={(lines, form, note, submit) => saveForm(open.period, lines, form, note, open.existing, submit)}
+          onClose={() => { setOpen(null); backToGroup(); }}
+          onSave={async (lines, form, note, submit) => { await saveForm(open.period, lines, form, note, open.existing, submit); backToGroup(); }}
         />
       )}
       {open && open.kind === 'tip' && (

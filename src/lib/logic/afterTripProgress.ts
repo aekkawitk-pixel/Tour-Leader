@@ -1,8 +1,8 @@
 /**
- * ความคืบหน้าหลังเดินทางของแต่ละกรุ๊ป — ใช้ที่แท็บ "หลังเดินทาง" (หน้าบัญชี-การเงิน ฝั่งหัวหน้าทัวร์)
+ * ความคืบหน้าหลังเดินทางของแต่ละกรุ๊ป — ใช้ที่การ์ดกรุ๊ปในหน้าบัญชี-การเงิน (ฝั่งหัวหน้าทัวร์)
  * บอกว่ากรุ๊ปไหนค้างขั้นไหน และขั้นต่อไปต้องทำอะไร โดยไม่ต้องเปิดดูทีละหน้า
  *
- * ลำดับขั้น: ใบเสร็จ → เบี้ยเลี้ยง → นัดเคลียร์เงิน (ทำครบแล้วหัวหน้าทัวร์ขอนัดเองได้ที่หน้าตรวจสอบ · หรือการเงินนัดมา แล้วหัวหน้าทัวร์ยืนยัน)
+ * ลำดับขั้น: ใบเสร็จ → เบี้ยเลี้ยง → นัดเคลียร์เงิน (ทำครบแล้วหัวหน้าทัวร์ขอนัดเองได้ที่ส่วนบัญชี-การเงินของหน้ากรุ๊ป · หรือการเงินนัดมา แล้วหัวหน้าทัวร์ยืนยัน)
  * กรุ๊ปที่การเงินปิดเคลียร์แล้ว = เสร็จ ไม่ต้องแสดงในรายการค้าง
  */
 
@@ -62,13 +62,16 @@ export function afterTripProgress(input: {
   const steps = [receiptStep, perDiemStep, aptStep];
 
   // ขั้นต่อไป — ไล่ตามลำดับ เจอเรื่องที่หัวหน้าทัวร์ต้องทำก่อนชนะ
+  // ส่วนบัญชี-การเงินในหน้ารายละเอียดงานของกรุ๊ปนี้ (ใบเสร็จ · เบี้ยเลี้ยง · ปุ่มทำนัดเคลียร์เงิน)
+  const groupHref = `/guide/jobs/${encodeURIComponent(periodId)}#finance`;
   let next: AfterTripProgress['next'];
-  if (revise > 0) next = { label: 'แก้ไขใบเสร็จ', href: `/guide/settlement/claim?period=${encodeURIComponent(periodId)}` };
+  if (revise > 0) next = { label: 'แก้ไขใบเสร็จ', href: groupHref };
   // นัดรอยืนยันมีวันเวลากำกับ — ต้องตอบก่อนเรื่องอื่นที่ไม่มีกำหนด
   else if (apt?.status === 'pending' && !apt.requestedByLeader) next = { label: 'ยืนยันนัดเคลียร์เงิน', href: '/guide/settlement/appointments' };
-  else if (!perDiem || perDiem.status === 'draft' || perDiem.status === 'revise') next = { label: perDiem ? 'ส่งใบเบิกเบี้ยเลี้ยง' : 'เบิกเบี้ยเลี้ยง', href: '/guide/settlement/allowance' };
-  // ส่งเบี้ยเลี้ยงแล้ว ยังไม่มีนัด → ไปหน้าตรวจสอบ (เช็กครบทุกหัวข้อ แล้วกดนัดเคลียร์เงินได้ที่นั่น)
-  else if (!apt) next = { label: 'นัดเคลียร์เงิน', href: `/guide/settlement/claim?period=${encodeURIComponent(periodId)}` };
+  // เปิดฟอร์มเบี้ยเลี้ยงของกรุ๊ปนี้ตรง ๆ (บันทึกแล้วกลับมาหน้าเดิม)
+  else if (!perDiem || perDiem.status === 'draft' || perDiem.status === 'revise') next = { label: perDiem ? 'ส่งใบเบิกเบี้ยเลี้ยง' : 'เบิกเบี้ยเลี้ยง', href: `/guide/settlement/allowance?period=${encodeURIComponent(periodId)}` };
+  // ส่งเบี้ยเลี้ยงแล้ว ยังไม่มีนัด → หน้ากรุ๊ป (เช็กครบทุกหัวข้อ แล้วกดนัดเคลียร์เงินได้ที่นั่น)
+  else if (!apt) next = { label: 'นัดเคลียร์เงิน', href: groupHref };
   else if (apt.status === 'pending') next = { label: 'รอการเงินยืนยันนัด' };
   else if (apt.status === 'attended') next = { label: 'รอการเงินปิดเคลียร์' };
   else next = { label: `เข้าพบตามนัด ${input.formatWhen(apt)}` };

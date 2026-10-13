@@ -31,13 +31,13 @@ import {
 } from '@/components/ui/Primitives';
 import { StatCard } from '@/components/ui/Charts';
 import { SelectInput, TextArea } from '@/components/ui/FormField';
-import { DateField } from '@/components/ui/DateInput';
-import { slotOptions } from '@/lib/logic/appointmentSlots';
+import { DAY_PERIODS, periodOf } from '@/lib/logic/appointmentSlots';
 import { SegmentedControl } from '@/components/ui/Tabs';
 import { ConfirmDialog, Drawer, Modal } from '@/components/ui/Modal';
 import { Timeline } from '@/components/ui/Timeline';
 import { Icon } from '@/components/ui/Icon';
 import { AppointmentFormModal } from '@/components/appointments/AppointmentFormModal';
+import { FreeSlotPicker, isFreeChoice, useBookableDays } from '@/components/appointments/FreeSlotPicker';
 import type { Appointment, AppointmentKind, AppointmentStatus } from '@/types';
 import { groupsReadyToClear, moneyGroupIds } from '@/lib/logic/clearQueue';
 import { leaderDisplayName } from '@/lib/logic/leaderExpertise';
@@ -80,9 +80,6 @@ export default function AppointmentsPage() {
   const [dayOpen, setDayOpen] = useState<string | null>(null);
 
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
-  const [newDate, setNewDate] = useState('');
-  const [newTime, setNewTime] = useState('');
-  const [rescheduleNote, setRescheduleNote] = useState('');
   const [cancelOpen, setCancelOpen] = useState(false);
 
   const selected = appointments.find((a) => a.id === selectedId) ?? null;
@@ -177,14 +174,14 @@ export default function AppointmentsPage() {
   const READY_PREVIEW = 8;
   const readyShown = showAllReady ? readyGroups : readyGroups.slice(0, READY_PREVIEW);
 
-  const submitReschedule = async () => {
-    if (!selected || !newDate || !newTime) return;
+  const submitReschedule = async (newDate: string, newTime: string, note: string) => {
+    if (!selected) return;
     setRescheduleOpen(false);
     // เจ้าหน้าที่เลื่อนนัด → กลับเป็นรอหัวหน้าทัวร์ยืนยันวันเวลาใหม่
     await changeAppointmentStatus(
       selected.id,
       'pending',
-      rescheduleNote.trim() ||
+      note.trim() ||
         `เลื่อนจาก ${formatDate(selected.date)} ${selected.time} เป็น ${formatDate(newDate)} ${newTime}`,
       newDate,
       newTime,
@@ -478,23 +475,33 @@ export default function AppointmentsPage() {
                           </button>
                         )}
                       </div>
-                      {/* สรุปของวัน — จำนวนกรุ๊ปที่นัดมา · กดดูรายละเอียดการนัด */}
-                      {list.length > 0 && (() => {
-                        const groups = new Set(list.filter((a) => a.jobId).map((a) => a.jobId)).size;
-                        const noGroup = list.filter((a) => !a.jobId).length;
-                        const waiting = list.filter((a) => a.status === 'pending').length;
-                        const asking = list.filter((a) => a.status === 'rescheduled').length;
+                      {/* สรุปของวัน แยกช่วงเช้า/บ่าย — จำนวนกรุ๊ปที่นัดมา · กดดูรายละเอียดการนัด */}
+                      {DAY_PERIODS.map((period) => {
+                        const part = list.filter((a) => periodOf(a.time) === period.key);
+                        if (part.length === 0) return null;
+                        const groups = new Set(part.filter((a) => a.jobId).map((a) => a.jobId)).size;
+                        const noGroup = part.filter((a) => !a.jobId).length;
+                        const waiting = part.filter((a) => a.status === 'pending').length;
+                        const asking = part.filter((a) => a.status === 'rescheduled').length;
                         return (
                           <button
+                            key={period.key}
                             type="button"
                             onClick={() => setDayOpen(cell.date)}
-                            title={`ดูการนัด ${list.length} รายการ`}
-                            className={cx('flex w-full flex-1 flex-col items-start justify-center gap-0.5 rounded-lg px-2 py-1.5 text-left transition max-sm:items-center max-sm:px-0.5', waiting > 0 || asking > 0 ? 'bg-amber-50 hover:bg-amber-100 sm:bg-emerald-50 sm:hover:bg-emerald-100' : 'bg-emerald-50 hover:bg-emerald-100')}
+                            title={`ช่วง${period.label} (${period.range}) · ดูการนัด ${part.length} รายการ`}
+                            className={cx(
+                              'flex w-full flex-col items-start justify-center gap-0.5 rounded-lg px-2 py-1 text-left transition max-sm:items-center max-sm:px-0.5',
+                              period.key === 'morning'
+                                ? (waiting > 0 || asking > 0 ? 'bg-amber-50 hover:bg-amber-100 sm:bg-emerald-50 sm:hover:bg-emerald-100' : 'bg-emerald-50 hover:bg-emerald-100')
+                                : (waiting > 0 || asking > 0 ? 'bg-amber-50 hover:bg-amber-100 sm:bg-sky-50 sm:hover:bg-sky-100' : 'bg-sky-50 hover:bg-sky-100'),
+                            )}
                           >
-                            <span className="text-base font-bold leading-none text-emerald-800">
-                              {groups > 0 ? groups : list.length} <span className="text-[11px] font-medium max-sm:hidden">{groups > 0 ? 'กรุ๊ป' : 'นัด'}</span>
+                            <span className={cx('flex items-baseline gap-1.5 leading-none', period.key === 'morning' ? 'text-emerald-800' : 'text-sky-800')}>
+                              <span className="text-[11px] font-semibold">{period.label}</span>
+                              <span className="text-sm font-bold">{groups > 0 ? groups : part.length}</span>
+                              <span className="text-[11px] font-medium max-sm:hidden">{groups > 0 ? 'กรุ๊ป' : 'นัด'}</span>
                             </span>
-                            {groups > 0 && noGroup > 0 && <span className="text-[10px] text-emerald-700 max-sm:hidden">+ นัดอื่น {noGroup}</span>}
+                            {groups > 0 && noGroup > 0 && <span className={cx('text-[10px] max-sm:hidden', period.key === 'morning' ? 'text-emerald-700' : 'text-sky-700')}>+ นัดอื่น {noGroup}</span>}
                             {/* จอเล็ก: พื้นส้ม = มีรอยืนยัน/ขอเลื่อน (รายละเอียดดูในหน้าต่างของวัน) */}
                             {(waiting > 0 || asking > 0) && (
                               <span className="flex flex-wrap gap-x-1.5 text-[10px] font-medium max-sm:hidden">
@@ -504,7 +511,7 @@ export default function AppointmentsPage() {
                             )}
                           </button>
                         );
-                      })()}
+                      })}
                     </div>
                   );
                 })}
@@ -544,10 +551,20 @@ export default function AppointmentsPage() {
               <EmptyState icon="clock" title="ไม่มีนัดในวันนี้" />
             ) : (
               <ul className="space-y-3">
-                {list.map((a) => {
+                {list.map((a, i) => {
                   const p = a.jobId ? getTourPeriodById(a.jobId) : null;
                   const made = a.history[0];
-                  return (
+                  // หัวข้อช่วงเช้า/บ่าย — ก่อนนัดแรกของแต่ละช่วง (list เรียงตามเวลาแล้ว)
+                  const period = DAY_PERIODS.find((d) => d.key === periodOf(a.time))!;
+                  const newPeriod = i === 0 || periodOf(list[i - 1].time) !== period.key;
+                  const count = list.filter((x) => periodOf(x.time) === period.key).length;
+                  return [
+                    newPeriod && (
+                      <li key={`h-${period.key}`} className={cx('flex items-baseline gap-2 border-b pb-1 zego-border-color', i > 0 && 'pt-2')}>
+                        <span className={cx('text-sm font-bold', period.key === 'morning' ? 'text-emerald-800' : 'text-sky-800')}>ช่วง{period.label}</span>
+                        <span className="text-xs zego-text-tertiary">{period.range} น. · {count} นัด</span>
+                      </li>
+                    ),
                     <li key={a.id} className={cx('rounded-xl border p-3', overlapIds.has(a.id) ? 'border-amber-300 bg-amber-50/40' : 'zego-border-color')}>
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
@@ -575,8 +592,8 @@ export default function AppointmentsPage() {
                       <div className="mt-2 flex justify-end">
                         <Button variant="secondary" size="sm" onClick={() => { setDayOpen(null); setSelectedId(a.id); }}>จัดการนัด</Button>
                       </div>
-                    </li>
-                  );
+                    </li>,
+                  ];
                 })}
               </ul>
             )}
@@ -608,12 +625,7 @@ export default function AppointmentsPage() {
                   </Button>
                   <Button
                     variant="secondary"
-                    onClick={() => {
-                      setNewDate(selected.date);
-                      setNewTime(selected.time);
-                      setRescheduleNote('');
-                      setRescheduleOpen(true);
-                    }}
+                    onClick={() => setRescheduleOpen(true)}
                     disabled={saving}
                   >
                     เลื่อนนัด
@@ -666,7 +678,7 @@ export default function AppointmentsPage() {
               <Row label="หัวหน้าทัวร์" value={leaderName(selected.leaderId)} />
               <Row label="กรุ๊ป" value={groupOf(selected)} />
               <Row label="เจ้าหน้าที่" value={selected.staffName} />
-              <Row label="สถานที่ / ลิงก์" value={selected.location} />
+              <Row label="สถานที่" value={selected.location} />
               <Row label="ระยะเวลา" value={`${selected.durationMinutes} นาที`} />
             </dl>
 
@@ -699,50 +711,15 @@ export default function AppointmentsPage() {
         )}
       </Drawer>
 
-      {/* เลื่อนนัด */}
-      <Modal
-        open={rescheduleOpen}
-        onClose={() => setRescheduleOpen(false)}
-        size="sm"
-        title="เลื่อนนัดหมาย"
-        description={selected?.id}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setRescheduleOpen(false)} disabled={saving}>
-              ยกเลิก
-            </Button>
-            <Button variant="primary" onClick={submitReschedule} loading={saving}>
-              บันทึกการเลื่อนนัด
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <DateField
-              label="วันที่ใหม่"
-              required
-              value={newDate}
-              onChange={(v) => setNewDate(v)}
-            />
-            {/* ช่องเวลาห่างกัน 30 นาที — บอกช่องที่มีนัดแล้ว (ไม่นับนัดนี้เอง) */}
-            <SelectInput
-              label="เวลาใหม่"
-              required
-              value={newTime}
-              onChange={(e) => setNewTime(e.target.value)}
-              options={slotOptions(appointments, newDate, selected?.durationMinutes ?? 30, selected?.id, newTime).map((o) => ({ value: o.value, label: o.label }))}
-            />
-          </div>
-          <TextArea
-            label="เหตุผลการเลื่อน"
-            rows={3}
-            value={rescheduleNote}
-            onChange={(e) => setRescheduleNote(e.target.value)}
-            hint="เว้นว่างได้ ระบบจะบันทึกวันเดิม–วันใหม่ให้อัตโนมัติ"
-          />
-        </div>
-      </Modal>
+      {/* เลื่อนนัด — เลือกได้เฉพาะช่องที่บัญชีว่าง (เหมือนฝั่งหัวหน้าทัวร์) */}
+      {rescheduleOpen && selected && (
+        <RescheduleModal
+          appointment={selected}
+          saving={saving}
+          onClose={() => setRescheduleOpen(false)}
+          onSubmit={(date, time, note) => void submitReschedule(date, time, note)}
+        />
+      )}
 
       <ConfirmDialog
         open={cancelOpen}
@@ -786,5 +763,51 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
       <dt className="zego-text-tertiary w-32 shrink-0">{label}</dt>
       <dd className="zego-text-secondary min-w-0 flex-1">{value}</dd>
     </div>
+  );
+}
+
+/** เจ้าหน้าที่เลื่อนนัด — เลือกวันเวลาใหม่จากช่องที่บัญชีว่างเท่านั้น (ช่องเดิมของนัดนี้นับว่าว่าง) */
+function RescheduleModal({ appointment: a, saving, onClose, onSubmit }: {
+  appointment: Appointment;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (date: string, time: string, note: string) => void;
+}) {
+  const { appointments } = useDemo();
+  const days = useBookableDays(appointments, a.durationMinutes, a.id);
+  // หัวหน้าทัวร์เสนอวันเวลามา (คำขอเลื่อนแบบเดิม) ก็ยังต้องเลือกจากช่องว่าง — เริ่มที่ช่องว่างแรกที่ไม่ใช่เวลาเดิม
+  const first = days.find((d) => d.date !== a.date || d.free.some((t) => t !== a.time)) ?? days[0];
+  const [date, setDate] = useState(() => first?.date ?? '');
+  const [time, setTime] = useState(() => first?.free.find((t) => first.date !== a.date || t !== a.time) ?? '');
+  const [note, setNote] = useState('');
+  const valid = isFreeChoice(days, date, time) && !(date === a.date && time === a.time);
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title="เลื่อนนัดหมาย"
+      description={`${a.id} · นัดเดิม ${formatDate(a.date)} ${a.time} น.`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>ยกเลิก</Button>
+          <Button variant="primary" onClick={() => onSubmit(date, time, note)} loading={saving} disabled={!valid}>บันทึกการเลื่อนนัด</Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {a.status === 'rescheduled' && a.leaderNote && (
+          <Callout tone="amber" title="หัวหน้าทัวร์ขอเลื่อนนัด">{a.leaderNote}</Callout>
+        )}
+        <FreeSlotPicker days={days} date={date} time={time} duration={a.durationMinutes} onChange={(d, t) => { setDate(d); setTime(t); }} />
+        <TextArea
+          label="เหตุผลการเลื่อน"
+          rows={3}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          hint="เว้นว่างได้ ระบบจะบันทึกวันเดิม–วันใหม่ให้อัตโนมัติ"
+        />
+      </div>
+    </Modal>
   );
 }

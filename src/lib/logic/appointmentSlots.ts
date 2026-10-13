@@ -40,6 +40,46 @@ export function slotOptions(appointments: Appointment[], date: string, duration:
   });
 }
 
+/** ช่องที่ว่างจริงของวัน (ไม่ชนนัดไหนเลย) — ใช้ตอนขอนัด/เลื่อนนัด: เลือกได้เฉพาะเวลาที่ฝ่ายบัญชีว่าง · excludeId = นัดที่กำลังเลื่อน (ช่องเดิมของมันนับว่าว่าง) */
+export function freeSlots(appointments: Appointment[], date: string, duration: number, excludeId?: string): string[] {
+  return slotOptions(appointments, date, duration, excludeId).filter((o) => !o.busy).map((o) => o.value);
+}
+
+/**
+ * วันที่ฝ่ายบัญชีรับนัดได้ — วันทำงานถัดจาก `from` (ไม่รวม from) ที่ยังมีช่องว่าง เรียงตามวัน
+ * isWorkday มาจากผู้เรียก (dayTypeOf + วันหยุดในเมนูวันหยุด) — ไฟล์นี้ไม่ผูกกับที่เก็บวันหยุด
+ */
+export function bookableDays(
+  appointments: Appointment[],
+  from: string,
+  count: number,
+  duration: number,
+  isWorkday: (iso: string) => boolean,
+  excludeId?: string,
+): { date: string; free: string[] }[] {
+  const out: { date: string; free: string[] }[] = [];
+  const d = new Date(`${from}T00:00:00`);
+  // มองไปข้างหน้าไม่เกิน 60 วัน — กันวนไม่จบถ้าช่วงนั้นเต็มหมด
+  for (let i = 0; i < 60 && out.length < count; i++) {
+    d.setDate(d.getDate() + 1);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (!isWorkday(iso)) continue;
+    const free = freeSlots(appointments, iso, duration, excludeId);
+    if (free.length > 0) out.push({ date: iso, free });
+  }
+  return out;
+}
+
+/** ช่วงของวัน — เช้า 09:00–12:00 · บ่าย 12:01–18:00 (นัดก่อน 09:00 นับเช้า · หลัง 18:00 นับบ่าย) */
+export type DayPeriod = 'morning' | 'afternoon';
+export const DAY_PERIODS: { key: DayPeriod; label: string; range: string }[] = [
+  { key: 'morning', label: 'เช้า', range: '09.00–12.00' },
+  { key: 'afternoon', label: 'บ่าย', range: '12.01–18.00' },
+];
+export function periodOf(time: string): DayPeriod {
+  return toMin(time) <= toMin('12:00') ? 'morning' : 'afternoon';
+}
+
 /** ช่องว่างช่องแรกของวัน (ไม่มีว่าง = ช่องแรกของวัน) */
 export function firstFreeSlot(appointments: Appointment[], date: string, duration: number, excludeId?: string): string {
   return slotOptions(appointments, date, duration, excludeId).find((o) => !o.busy)?.value ?? DAY_START;

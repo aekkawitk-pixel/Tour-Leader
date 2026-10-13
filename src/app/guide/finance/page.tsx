@@ -1,45 +1,37 @@
 'use client';
 
 /**
- * การเงิน — /guide/finance — รวมเมนู "ค่าใช้จ่าย" + "เคลียร์เงิน" เดิมไว้ที่เดียว
+ * การเงิน — /guide/finance — จัดตามกรุ๊ป (หัวหน้าทัวร์คิดงานเป็นกรุ๊ปอยู่แล้ว)
  *
- * หน้าเดียว ไม่มีแท็บ — หัวเรื่องเรียงตามลำดับงานจริง จึงเห็นเรื่องค้างของทุกช่วงพร้อมกัน
- * (เดิมเป็นแท็บ: ต้องกดแท็บก่อนแล้วค่อยกดหัวข้อ และเรื่องค้างในแท็บอื่นถูกซ่อน)
- * - จัดการซองเงิน: การจัดการซองเงิน → /guide/finance/envelopes (ยืนยันรับ · แนบรูป · ส่งต่อ · ยอดคงเหลือ · ส่งเงินให้แลนด์ · แจ้งยอดไม่ตรง)
- *   ไม่ผูกกับช่วง "ก่อนเดินทาง" — ซองอาจมาถึงช้า (ฝากคนนำมาส่งระหว่างทาง) ยืนยันรับได้ทุกเมื่อ
- * - ระหว่างทาง: กรุ๊ปที่กำลังเดินทาง (แตะแล้วบันทึกใบเสร็จทันที) + บันทึกใบเสร็จ
- *   ใบเสร็จหักจากยอดในซองอัตโนมัติ · เรื่องซองอื่น ๆ (ยอดคงเหลือ · ส่งเงินให้แลนด์ · แจ้งยอดไม่ตรง) อยู่ที่หน้าการจัดการซองเงิน
- * - หลังเดินทาง: การ์ดรายกรุ๊ปที่ยังเคลียร์ไม่จบ (ใบเสร็จ · เบี้ยเลี้ยง · นัดเคลียร์ + ปุ่มขั้นต่อไป — afterTripProgress)
- *   แล้วตามด้วยหัวข้อ: บันทึกใบเสร็จย้อนหลัง · เบิกเบี้ยเลี้ยง · ตรวจสอบก่อนนัดเคลียร์เงิน · นัดหมายเคลียร์เงิน
- * หน้าย่อยกดย้อนกลับมาที่หัวเรื่องนั้น (#envelopes / #during / #after)
+ * 1) ปุ่มด่วน 2 ปุ่ม — งานที่ทำบ่อยและไม่ผูกกรุ๊ปเดียว
+ *    - บันทึกใบเสร็จ → /guide/expenses/record (เลือกกรุ๊ปในหน้านั้น · ใบเสร็จหักจากยอดในซองอัตโนมัติ)
+ *    - ซองเงิน → /guide/finance/envelopes (ยืนยันรับ · ส่งต่อ · ยอดคงเหลือ · ส่งเงินให้แลนด์ · แจ้งยอดไม่ตรง) ตัวเลข = ซองรอรับ
+ *      ซองอาจมาถึงช้า (ฝากคนนำมาส่งระหว่างทาง) จึงไม่ผูกกับช่วงก่อนเดินทาง
+ * 2) ยอดค้างติดตามหลังเคลียร์ (มีเมื่อการเงินปิดเคลียร์แบบมีค้าง)
+ * 3) กรุ๊ปของฉัน — กรุ๊ปที่กำลังเดินทาง + กรุ๊ปที่จบทริปแล้วแต่การเงินยังไม่ปิดเคลียร์
+ *    การ์ดละกรุ๊ป บอกขั้นที่ค้าง (afterTripProgress) + ปุ่มหลักปุ่มเดียว · แตะชื่อกรุ๊ป = ส่วนบัญชี-การเงินในหน้ารายละเอียดงาน
+ * เบิกเบี้ยเลี้ยง / ตรวจสอบก่อนนัด / ทำนัดเคลียร์เงิน อยู่ในหน้ากรุ๊ปแล้ว · ดู/ยืนยันนัดอยู่ที่เมนู "นัดหมาย" แถบล่าง
+ * หน้าย่อยกดย้อนกลับมาที่ #envelopes / #during / #after (id คงไว้ตามลิงก์เดิม)
  */
 
 import Link from 'next/link';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
-import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { leaderEnvelopeState } from '@/lib/logic/cashEnvelope';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
-import { formatDate, formatDateRange, toISODate } from '@/lib/format';
+import { formatCurrency, formatDate, formatDateRange, toISODate } from '@/lib/format';
 import { Card, cx } from '@/components/ui/Primitives';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { tripEnded, tripOngoing } from '@/lib/logic/tripPhase';
 import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
 import { afterTripProgress, type StepState } from '@/lib/logic/afterTripProgress';
 import { receiptsBlockedReason } from '@/lib/logic/clearReadiness';
-import { loadGroupClears } from '@/services/groupClearStore';
+import { followUpOpen, followUpRemaining } from '@/lib/logic/groupClear';
+import { FOLLOW_UP_REASON, loadGroupClears } from '@/services/groupClearStore';
 import type { Appointment } from '@/types';
 
-type Phase = 'envelopes' | 'during' | 'after';
-
-const PHASE_LABEL: Record<Phase, string> = {
-  envelopes: 'จัดการซองเงิน',
-  during: 'ระหว่างทาง',
-  after: 'หลังเดินทาง',
-};
-
-/** จุดสถานะของแต่ละขั้นในการ์ดหลังเดินทาง */
+/** จุดสถานะของแต่ละขั้นในการ์ดกรุ๊ป */
 const STEP_DOT: Record<StepState, string> = {
   done: 'bg-emerald-600 text-white',
   action: 'bg-amber-400',
@@ -47,32 +39,28 @@ const STEP_DOT: Record<StepState, string> = {
   todo: 'border border-slate-300',
 };
 
-type Topic = { href: string; label: string; description: string; icon: IconName; badge?: number };
-
 export default function GuideFinancePage() {
   const { currentUser, envelopes, expenses, appointments } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
+  const today = toISODate(new Date());
 
-  // ซองที่ส่งมอบถึงหัวหน้าทัวร์คนนี้แล้ว แต่ยังไม่กดยืนยันรับ (ไม่นับซองที่เจ้าหน้าที่ส่งคืนการเงินไปแล้ว)
+  // ซองที่ส่งมอบถึงหัวหน้าทัวร์คนนี้แล้ว แต่ยังไม่กดยืนยันรับ (รวมซองระหว่างทาง — กดรับได้เสมอ)
   const envelopesToAck = envelopes.filter(
-    // รอกดรับ — รวมซองระหว่างทาง (หัวหน้าทัวร์กดรับได้เสมอ)
     (e) => leaderEnvelopeState(e, leaderId) === 'to_ack' || leaderEnvelopeState(e, leaderId) === 'in_transit',
   ).length;
-  const today = toISODate(new Date());
-  // กรุ๊ปที่กำลังเดินทางวันนี้ (คอนเฟิร์มแล้ว) — แตะเพื่อบันทึกใบเสร็จของกรุ๊ปนั้นทันที
-  const ongoing = (leaderId ? loadActiveGuideAssignments().filter((a) => a.tourLeaderId === leaderId && a.assignmentStatus === 'CONFIRMED') : [])
-    .map((a) => getTourPeriods().find((p) => p.internalId === a.periodId))
-    .filter((p): p is NonNullable<typeof p> => Boolean(p) && tripOngoing(p!, today))
-    .sort((a, b) => a.startDate.localeCompare(b.startDate));
-  /* ---------------- หลังเดินทาง: ความคืบหน้ารายกรุ๊ป ---------------- */
+
   const myApts = appointments.filter((a) => a.leaderId === leaderId && a.status !== 'cancelled');
-  const pendingClearApts = myApts.filter((a) => a.kind === 'clear' && a.status === 'pending').length;
   const clears = loadGroupClears();
   const whenOf = (a: Appointment) => `${formatDate(a.date)} ${a.time} น.`;
-  // กรุ๊ปที่จบทริปแล้วและการเงินยังไม่ปิดเคลียร์ — ล่าสุดก่อน
-  const afterGroups = (leaderId ? loadActiveGuideAssignments().filter((a) => a.tourLeaderId === leaderId && a.assignmentStatus === 'CONFIRMED') : [])
+  const myPeriods = (leaderId ? loadActiveGuideAssignments().filter((a) => a.tourLeaderId === leaderId && a.assignmentStatus === 'CONFIRMED') : [])
     .map((a) => getTourPeriodById(a.periodId))
-    .filter((p): p is NonNullable<typeof p> => Boolean(p) && tripEnded(p!, today) && !clears[p!.internalId]?.closedAt)
+    .filter((p): p is NonNullable<typeof p> => Boolean(p));
+
+  // กำลังเดินทาง — เร็วสุดก่อน
+  const ongoing = myPeriods.filter((p) => tripOngoing(p, today)).sort((a, b) => a.startDate.localeCompare(b.startDate));
+  // จบทริปแล้ว การเงินยังไม่ปิดเคลียร์ — ล่าสุดก่อน
+  const afterGroups = myPeriods
+    .filter((p) => tripEnded(p, today) && !clears[p.internalId]?.closedAt)
     .sort((a, b) => b.endDate.localeCompare(a.endDate))
     .map((period) => {
       const receipts = expenses.filter((e) => e.jobId === period.internalId && e.category === 'actual' && e.requesterId === leaderId && e.status !== 'cancelled');
@@ -91,70 +79,71 @@ export default function GuideFinancePage() {
       };
     });
 
-  const topics: Record<Phase, Topic[]> = {
-    envelopes: [
-      // รับซอง (ยืนยันรับ / แนบรูป / ส่งต่อ) — ตัวเลข = ซองที่รอคุณยืนยันรับ · ซองที่มาถึงช้าระหว่างทางก็ยืนยันที่นี่
-      { href: '/guide/finance/envelopes', label: 'การจัดการซองเงิน', description: 'รับซอง ส่งต่อซอง ยอดคงเหลือ ส่งเงินให้แลนด์ และแจ้งยอดไม่ตรง', icon: 'money', badge: envelopesToAck },
-    ],
-    during: [
-      // ใบเสร็จหักจากยอดในซองอัตโนมัติ — เรื่องซองอื่น ๆ (คงเหลือ / ส่งแลนด์ / ยอดไม่ตรง) อยู่ที่หัวข้อการจัดการซองเงิน
-      { href: '/guide/expenses/record', label: 'บันทึกใบเสร็จ', description: 'บันทึกค่าใช้จ่าย ระบบหักจากยอดในซองให้อัตโนมัติ', icon: 'camera' },
-    ],
-    after: [
-      { href: '/guide/expenses/record?filter=after', label: 'บันทึกใบเสร็จย้อนหลัง', description: 'บันทึกค่าใช้จ่ายของกรุ๊ปที่กลับมาแล้ว', icon: 'camera' },
-      // ลำดับตามขั้นตอนหลังจบทริป: บันทึกใบเสร็จ → เบิกเบี้ยเลี้ยง → ตรวจสอบรายการก่อนนัดเคลียร์เงิน → นัดหมาย
-      { href: '/guide/settlement/allowance', label: 'เบิกเบี้ยเลี้ยง', description: 'ทำเอกสารค่าใช้จ่ายหัวหน้าทัวร์ (เบี้ยเลี้ยง) แยกต่อกรุ๊ป เมื่อจบทริปแล้ว', icon: 'receipt' },
-      { href: '/guide/settlement/claim', label: 'ตรวจสอบก่อนนัดเคลียร์เงิน', description: 'ดูรายการและสถานะของแต่ละกรุ๊ป ครบแล้วนัดหมายเข้ามาเคลียร์เงิน', icon: 'money' },
-      // ขั้นสุดท้าย — การเงินนัดหลังตรวจเอกสารครบ หัวหน้าทัวร์ยืนยัน/ขอเลื่อนที่นี่ (หน้าเดียวกับเมนู "นัดหมาย" แถบล่าง)
-      { href: '/guide/settlement/appointments', label: 'นัดหมายเคลียร์เงิน', description: 'ดูและยืนยันนัดที่การเงินนัดไว้', icon: 'calendar', badge: pendingClearApts },
-    ],
-  };
+  // ยอดค้างติดตาม — หลังการเงินปิดเคลียร์แบบมีค้าง
+  const followUps = myPeriods.flatMap((period) => (clears[period.internalId]?.followUps ?? []).filter(followUpOpen).map((f) => ({ f, period })));
+  const groupHref = (periodId: string) => `/guide/jobs/${encodeURIComponent(periodId)}#finance`;
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-lg font-bold zego-text">บัญชี-การเงิน</h1>
-        <p className="text-sm zego-text-tertiary">ซองเงิน ค่าใช้จ่าย และเคลียร์เงิน — เรียงตามช่วงของทริป</p>
+        <p className="text-sm zego-text-tertiary">ซองเงิน ใบเสร็จ และเคลียร์เงิน — แยกตามกรุ๊ป</p>
       </div>
 
-      <PhaseSection phase="envelopes">
-        <TopicList topics={topics.envelopes} />
-      </PhaseSection>
+      {/* ปุ่มด่วน — id คงไว้ให้ลิงก์ย้อนกลับเดิม (#during / #envelopes) */}
+      <section id="during" className="scroll-mt-4 grid grid-cols-2 gap-2.5">
+        <QuickAction href="/guide/expenses/record" icon="camera" label="บันทึกใบเสร็จ" description="หักจากยอดในซองให้อัตโนมัติ" />
+        <span id="envelopes" className="contents">
+          <QuickAction href="/guide/finance/envelopes" icon="money" label="ซองเงิน" description="รับซอง ยอดคงเหลือ ส่งแลนด์" badge={envelopesToAck} />
+        </span>
+      </section>
 
-      <PhaseSection phase="during">
-        {/* กรุ๊ปที่กำลังเดินทาง — แตะแล้วบันทึกใบเสร็จของกรุ๊ปนั้นทันที (ไม่มีกรุ๊ป = ไม่แสดงกล่องนี้) */}
-        {ongoing.length > 0 && (
-          <Card padded={false}>
-            <p className="zego-divider-bottom px-4 py-2 text-xs font-semibold zego-text-secondary">กำลังเดินทาง — แตะเพื่อบันทึกใบเสร็จ</p>
-            <ul className="divide-y divide-[var(--zego-border-soft)]">
-              {ongoing.map((p) => (
-                <li key={p.internalId}>
-                  <Link
-                    href={`/guide/expenses/record?period=${encodeURIComponent(p.internalId)}`}
-                    className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left zego-hover-surface"
-                  >
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium zego-text">{p.groupCode}</span>
-                      <span className="block text-xs zego-text-tertiary">{p.countryName} · {formatDateRange(p.startDate, p.endDate)}</span>
-                    </span>
-                    <Icon name="camera" className="h-4 w-4 shrink-0 zego-text-success" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
+      {followUps.length > 0 && (
+        <Card>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold zego-text">
+            <Icon name="warning" className="h-4 w-4 text-rose-600" />ยอดค้างติดตามหลังเคลียร์เงิน
+          </h2>
+          <ul className="divide-y divide-[var(--zego-border-soft)] text-sm">
+            {followUps.map(({ f, period }) => (
+              <li key={f.id} className="flex items-start justify-between gap-3 py-2">
+                <span className="min-w-0">
+                  <span className="block font-medium zego-text">{period.groupCode}</span>
+                  <span className="block text-xs zego-text-tertiary">{FOLLOW_UP_REASON[f.reason]}{f.note ? ` · ${f.note}` : ''}</span>
+                </span>
+                <span className={cx('shrink-0 text-right text-xs font-semibold tabular-nums', f.direction === 'leader_owes' ? 'zego-text-danger' : 'text-violet-700')}>
+                  {f.direction === 'leader_owes' ? 'ต้องคืนบริษัท' : 'บริษัทค้างจ่ายคุณ'}
+                  <span className="block text-sm">{formatCurrency(followUpRemaining(f), f.currency)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs zego-text-tertiary">ชำระเป็นเงินสดหรือโอนที่ฝ่ายการเงิน · ยอดสกุลต่างประเทศชำระเป็นบาทได้ตามอัตราแลกเปลี่ยนวันที่ชำระ · ไม่หักจากเบี้ยเลี้ยง</p>
+        </Card>
+      )}
+
+      <section id="after" aria-labelledby="after-title" className="scroll-mt-4 space-y-2">
+        <h2 id="after-title" className="px-1 text-xs font-semibold tracking-wide zego-text-tertiary">กรุ๊ปของฉัน</h2>
+
+        {ongoing.length === 0 && afterGroups.length === 0 && (
+          <Card>
+            <p className="py-2 text-center text-sm zego-text-tertiary">ไม่มีกรุ๊ปที่กำลังเดินทางหรือรอเคลียร์เงิน</p>
           </Card>
         )}
-        <TopicList topics={topics.during} />
-      </PhaseSection>
 
-      <PhaseSection phase="after">
-        {/* กรุ๊ปที่ยังเคลียร์ไม่จบ — แต่ละกรุ๊ปบอกว่าค้างขั้นไหน และขั้นต่อไปคืออะไร (ไม่มี = ไม่แสดง) */}
+        {/* กำลังเดินทาง — ปุ่มหลัก = บันทึกใบเสร็จของกรุ๊ปนั้น */}
+        {ongoing.map((p) => (
+          <Card key={p.internalId} className="space-y-2">
+            <GroupHeader href={groupHref(p.internalId)} code={p.groupCode} sub={`${p.countryName} · ${formatDateRange(p.startDate, p.endDate)}`} tag="กำลังเดินทาง" />
+            <div className="flex justify-end zego-divider-top pt-2">
+              <NextButton href={`/guide/expenses/record?period=${encodeURIComponent(p.internalId)}`} label="บันทึกใบเสร็จ" />
+            </div>
+          </Card>
+        ))}
+
+        {/* จบทริปแล้ว — บอกว่าค้างขั้นไหน และขั้นต่อไปคืออะไร */}
         {afterGroups.map(({ period, progress }) => (
           <Card key={period.internalId} className="space-y-2.5">
-            <div>
-              <p className="text-sm font-semibold zego-text">{period.groupCode}</p>
-              <p className="text-xs zego-text-tertiary">กลับ {formatDate(period.endDate)}</p>
-            </div>
+            <GroupHeader href={groupHref(period.internalId)} code={period.groupCode} sub={`กลับ ${formatDate(period.endDate)}`} />
             <ol className="space-y-1">
               {progress.steps.map((st) => (
                 <li key={st.label} className="flex items-center gap-2 text-xs">
@@ -171,54 +160,56 @@ export default function GuideFinancePage() {
                 ? <span className="text-xs zego-text-disabled">บันทึกใบเสร็จ · รับซองก่อน</span>
                 : <Link href={progress.recordHref} className="text-xs font-medium zego-text-info hover:underline">บันทึกใบเสร็จ</Link>}
               {progress.next.href ? (
-                <Link href={progress.next.href} className="inline-flex items-center gap-0.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">
-                  {progress.next.label}
-                  <Icon name="chevronRight" className="h-3.5 w-3.5" />
-                </Link>
+                <NextButton href={progress.next.href} label={progress.next.label} />
               ) : (
                 <span className="text-xs zego-text-tertiary">{progress.next.label}</span>
               )}
             </div>
           </Card>
         ))}
-        <TopicList topics={topics.after} />
-      </PhaseSection>
+      </section>
     </div>
   );
 }
 
-/** หัวเรื่องของหน้า — id = ชื่อหัวเรื่อง ให้หน้าย่อยกดย้อนกลับมาตรงหัวเรื่องนี้ได้ (/guide/finance#after) */
-function PhaseSection({ phase, children }: { phase: Phase; children: React.ReactNode }) {
+function QuickAction({ href, icon, label, description, badge }: { href: string; icon: IconName; label: string; description: string; badge?: number }) {
   return (
-    <section id={phase} aria-labelledby={`${phase}-title`} className="scroll-mt-4 space-y-2">
-      <h2 id={`${phase}-title`} className="px-1 text-xs font-semibold tracking-wide zego-text-tertiary">{PHASE_LABEL[phase]}</h2>
-      {children}
-    </section>
+    <Link href={href} className="relative flex flex-col gap-2 rounded-xl border zego-border-color zego-surface-bg p-3 zego-hover-surface">
+      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 zego-text-success">
+        <Icon name={icon} className="h-4.5 w-4.5" />
+      </span>
+      <span>
+        <span className="block text-sm font-semibold zego-text">{label}</span>
+        <span className="block text-[11px] leading-tight zego-text-tertiary">{description}</span>
+      </span>
+      {!!badge && (
+        <span className="zego-count-badge absolute right-2.5 top-2.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold">{badge}</span>
+      )}
+    </Link>
   );
 }
 
-function TopicList({ topics }: { topics: Topic[] }) {
+/** หัวการ์ดกรุ๊ป — แตะ = ส่วนบัญชี-การเงินในหน้ารายละเอียดงาน */
+function GroupHeader({ href, code, sub, tag }: { href: string; code: string; sub: string; tag?: string }) {
   return (
-    <Card padded={false}>
-      <ul className="divide-y divide-[var(--zego-border-soft)]">
-        {topics.map((t) => (
-          <li key={t.href}>
-            <Link href={t.href} className="flex items-center gap-3 px-4 py-3 zego-hover-surface">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 zego-text-success">
-                <Icon name={t.icon} className="h-4.5 w-4.5" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold zego-text">{t.label}</span>
-                <span className="block truncate text-xs zego-text-tertiary">{t.description}</span>
-              </span>
-              {!!t.badge && (
-                <span className="zego-count-badge flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold">{t.badge}</span>
-              )}
-              <Icon name="chevronRight" className="h-4 w-4 shrink-0 zego-text-disabled" />
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </Card>
+    <Link href={href} className="-m-1 flex items-center justify-between gap-2 rounded-lg p-1 zego-hover-surface">
+      <span className="min-w-0">
+        <span className="flex items-center gap-1.5">
+          <span className="text-sm font-semibold zego-text">{code}</span>
+          {tag && <span className="rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">{tag}</span>}
+        </span>
+        <span className="block truncate text-xs zego-text-tertiary">{sub}</span>
+      </span>
+      <Icon name="chevronRight" className="h-4 w-4 shrink-0 zego-text-disabled" />
+    </Link>
+  );
+}
+
+function NextButton({ href, label }: { href: string; label: string }) {
+  return (
+    <Link href={href} className="inline-flex items-center gap-0.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">
+      {label}
+      <Icon name="chevronRight" className="h-3.5 w-3.5" />
+    </Link>
   );
 }

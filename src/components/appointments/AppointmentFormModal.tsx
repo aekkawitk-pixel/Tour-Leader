@@ -13,19 +13,13 @@ import { SelectInput, TextArea, TextInput } from '@/components/ui/FormField';
 import { DateField } from '@/components/ui/DateInput';
 import { firstFreeSlot, SLOT_DURATIONS, slotOptions } from '@/lib/logic/appointmentSlots';
 import { useDemo } from '@/store/DemoStore';
-import { APPOINTMENT_KIND, APPOINTMENT_KIND_OPTIONS, APPOINTMENT_MODE } from '@/lib/labels';
+import { APPOINTMENT_KIND, APPOINTMENT_KIND_OPTIONS, APPOINTMENT_MODE, APPOINTMENT_OFFICE_LOCATION } from '@/lib/labels';
 import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { hasTimeOverlap } from '@/lib/logic/conflicts';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import { formatDate, formatDateRange, toISODate, toISODateTime } from '@/lib/format';
 import type { Appointment, AppointmentKind, AppointmentMode } from '@/types';
-
-const MODE_DEFAULT_LOCATION: Record<AppointmentMode, string> = {
-  office: 'บริษัท ซีโก้ ทราเวล จำกัด ห้องการเงิน ชั้น 1',
-  online: 'ลิงก์ประชุมจำลอง: meet.demo-tour.local/',
-  document: 'ส่งเอกสารทางไปรษณีย์ลงทะเบียน (จำลอง)',
-};
 
 interface FormState {
   date: string;
@@ -91,8 +85,9 @@ function AppointmentForm({
           jobId: appointment.jobId,
           kind: appointment.kind ?? 'other',
           staffName: appointment.staffName,
-          mode: appointment.mode,
-          location: appointment.location,
+          mode: 'office',
+          // นัดเก่าที่เป็นออนไลน์/ส่งเอกสาร — แก้แล้วเป็นเข้าสำนักงาน ใช้สถานที่ตั้งต้นแทน
+          location: appointment.mode === 'office' ? appointment.location : APPOINTMENT_OFFICE_LOCATION,
           note: appointment.note,
         }
       : {
@@ -105,7 +100,7 @@ function AppointmentForm({
           kind: 'clear',
           staffName: currentUser.name,
           mode: 'office',
-          location: MODE_DEFAULT_LOCATION.office,
+          location: APPOINTMENT_OFFICE_LOCATION,
           note: '',
         },
   );
@@ -114,7 +109,6 @@ function AppointmentForm({
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => {
       const next = { ...prev, [key]: value };
-      if (key === 'mode') next.location = MODE_DEFAULT_LOCATION[value as AppointmentMode];
       return next;
     });
     setErrors((prev) => ({ ...prev, [key]: undefined }));
@@ -147,7 +141,7 @@ function AppointmentForm({
     else if (!form.leaderId) next.jobId = 'กรุ๊ปนี้ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม — นัดหมายไม่ได้';
     // นัดเคลียร์เงินต้องผูกกรุ๊ป · ประเภทอื่นไม่ผูกก็ได้
     if (!form.staffName.trim()) next.staffName = 'กรุณาระบุเจ้าหน้าที่ผู้รับผิดชอบ';
-    if (!form.location.trim()) next.location = 'กรุณาระบุสถานที่หรือลิงก์ประชุม';
+    if (!form.location.trim()) next.location = 'กรุณาระบุสถานที่';
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -349,27 +343,17 @@ function AppointmentForm({
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextInput
-            label="เจ้าหน้าที่ผู้รับผิดชอบ"
-            required
-            value={form.staffName}
-            error={errors.staffName}
-            onChange={(e) => set('staffName', e.target.value)}
-          />
-          <SelectInput
-            label="รูปแบบการนัดหมาย"
-            value={form.mode}
-            onChange={(e) => set('mode', e.target.value as AppointmentMode)}
-            options={(['office', 'online', 'document'] as AppointmentMode[]).map((m) => ({
-              value: m,
-              label: APPOINTMENT_MODE[m].label,
-            }))}
-          />
-        </div>
-
         <TextInput
-          label="สถานที่ / ลิงก์ประชุม"
+          label="เจ้าหน้าที่ผู้รับผิดชอบ"
+          required
+          value={form.staffName}
+          error={errors.staffName}
+          onChange={(e) => set('staffName', e.target.value)}
+        />
+
+        {/* รูปแบบนัดมีแบบเดียว = เข้าสำนักงาน — ไม่มีตัวเลือก */}
+        <TextInput
+          label={`สถานที่ · ${APPOINTMENT_MODE.office.label}`}
           required
           value={form.location}
           error={errors.location}

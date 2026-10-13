@@ -6,7 +6,7 @@
  * นัดทุกประเภทที่เจ้าหน้าที่นัดหัวหน้าทัวร์คนนี้ (ชุดนัดหมายกลาง — เดียวกับปฏิทินเมนูนัดหมายฝั่งผู้จัด)
  *   เคลียร์เงินกรุ๊ป: การเงินนัดหลังตรวจใบเสร็จ/ใบเบิกครบ — บอกเงินที่ต้องนำมาคืน (แยกสกุล)
  *   ส่งเอกสาร / ประชุม / อื่น ๆ
- * หัวหน้าทัวร์: ยืนยันนัด · ขอเลื่อนนัด (บอกวันเวลาที่สะดวก) → เจ้าหน้าที่นัดใหม่ (กลับมารอยืนยัน)
+ * หัวหน้าทัวร์: สร้างนัดเคลียร์เงิน (เลือกกรุ๊ป — NewAppointmentModal) · ยืนยันนัด · เลื่อนนัด (เลือกจากช่องที่บัญชีว่าง) → รอการเงินยืนยันเวลาใหม่
  * ด้านบนเป็นปฏิทินรายเดือน (AppointmentCalendar) — วันที่มีนัดมีจุดสี · แตะวัน = ดูเฉพาะนัดวันนั้น
  */
 
@@ -22,15 +22,19 @@ import { summarizeGroupClear } from '@/lib/logic/groupClear';
 import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { Modal } from '@/components/ui/Modal';
 import { TextArea } from '@/components/ui/FormField';
+import { FreeSlotPicker, isFreeChoice, useBookableDays } from '@/components/appointments/FreeSlotPicker';
 import type { Appointment } from '@/types';
 import { AppointmentCalendar } from './AppointmentCalendar';
+import { NewAppointmentModal } from './NewAppointmentModal';
 
 export default function GuideSettlementAppointmentsPage() {
-  const { currentUser, envelopes, expenses, appointments, saveAppointment, changeAppointmentStatus, saving } = useDemo();
+  const { currentUser, envelopes, expenses, appointments, changeAppointmentStatus, saving } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
   const today = toISODate(new Date());
+  /** นัดที่กำลังเลื่อน */
   const [asking, setAsking] = useState<Appointment | null>(null);
-  const [askNote, setAskNote] = useState('');
+  /** สร้างนัดหมายใหม่ (เลือกกรุ๊ป → นัดเคลียร์เงิน) */
+  const [creating, setCreating] = useState(false);
 
   // นัดของฉัน — นัดที่ยังมีผลก่อน (เรียงตามวันเวลา) แล้วตามด้วยที่เข้าพบแล้ว/ยกเลิก
   const mine = useMemo(() => appointments
@@ -50,20 +54,14 @@ export default function GuideSettlementAppointmentsPage() {
   // นัดถัดไปที่ยังมีผล (นอกเดือนที่ดูอยู่) — ไว้พาไปดูเมื่อเดือนนี้ไม่มีนัด
   const nextApt = mine.find((a) => a.date >= today && a.status !== 'cancelled' && a.status !== 'attended');
 
-  const requestReschedule = async (a: Appointment, note: string) => {
-    await saveAppointment({
-      ...a,
-      status: 'rescheduled',
-      leaderNote: note,
-      history: [...a.history, makeStatusEvent(a.status, 'rescheduled', currentUser.name, toISODateTime(new Date()), `หัวหน้าทัวร์ขอเลื่อน: ${note}`)],
-    });
-  };
-
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold zego-text">นัดหมาย</h1>
-        <p className="text-sm zego-text-secondary">นัดจากเจ้าหน้าที่ เช่น เคลียร์เงินกรุ๊ป — ยืนยันนัด หรือขอเลื่อนได้ที่นี่</p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold zego-text">นัดหมาย</h1>
+          <p className="text-sm zego-text-secondary">นัดเคลียร์เงินกับบัญชี — สร้างนัด ยืนยันนัด หรือเลื่อนนัด (เลือกเวลาที่บัญชีว่าง) ได้ที่นี่</p>
+        </div>
+        <Button variant="primary" size="sm" icon="plus" className="shrink-0" onClick={() => setCreating(true)}>สร้างนัดหมาย</Button>
       </div>
 
       <AppointmentCalendar month={month} onMonth={setMonth} selected={day} onSelect={setDay} appointments={mine} today={today} />
@@ -77,7 +75,7 @@ export default function GuideSettlementAppointmentsPage() {
           <EmptyState
             icon="calendar"
             title={mine.length === 0 ? 'ยังไม่มีนัดหมาย' : day ? 'ไม่มีนัดในวันนี้' : 'ไม่มีนัดในเดือนนี้'}
-            description={mine.length === 0 ? 'กรุ๊ปที่ทำครบแล้ว กดทำนัดหมายเคลียร์เงินได้ที่หน้าตรวจสอบ · นัดจากการเงินจะขึ้นที่นี่ด้วย' : undefined}
+            description={mine.length === 0 ? 'กด "สร้างนัดหมาย" เพื่อนัดเคลียร์เงินกรุ๊ปที่จบทริปแล้ว · นัดจากการเงินจะขึ้นที่นี่ด้วย' : undefined}
           />
           <div className="mt-2 space-y-1 text-center">
             {nextApt && !nextApt.date.startsWith(month) && (
@@ -136,7 +134,7 @@ export default function GuideSettlementAppointmentsPage() {
 
             {open && !waitingFinance && (
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="secondary" size="sm" className="justify-center" onClick={() => { setAsking(a); setAskNote(''); }}>ขอเลื่อนนัด</Button>
+                <Button variant="secondary" size="sm" className="justify-center" onClick={() => setAsking(a)}>เลื่อนนัด</Button>
                 <Button
                   variant="primary"
                   size="sm"
@@ -154,30 +152,59 @@ export default function GuideSettlementAppointmentsPage() {
         );
       })}
 
-      {asking && (
-        <Modal
-          open
-          onClose={() => setAsking(null)}
-          size="sm"
-          title="ขอเลื่อนนัด"
-          description={`${asking.id} · นัดเดิม ${formatDate(asking.date)} ${asking.time} น.`}
-          footer={
-            <div className="grid w-full grid-cols-2 gap-2">
-              <Button variant="secondary" onClick={() => setAsking(null)}>ยกเลิก</Button>
-              <Button variant="primary" loading={saving} disabled={!askNote.trim()} onClick={async () => { await requestReschedule(asking, askNote.trim()); setAsking(null); }}>ส่งคำขอ</Button>
-            </div>
-          }
-        >
-          <TextArea
-            label="วันเวลาที่สะดวก / เหตุผล"
-            required
-            rows={3}
-            value={askNote}
-            onChange={(e) => setAskNote(e.target.value)}
-            placeholder="เช่น สะดวกวันพฤหัสที่ 12 ช่วงบ่าย"
-          />
-        </Modal>
-      )}
+      {asking && <RescheduleModal appointment={asking} onClose={() => setAsking(null)} />}
+      {creating && <NewAppointmentModal onClose={() => setCreating(false)} />}
     </div>
+  );
+}
+
+/**
+ * หัวหน้าทัวร์เลื่อนนัด — เลือกวันเวลาใหม่จากช่องที่ฝ่ายบัญชีว่างเท่านั้น (ช่องเดิมของนัดนี้นับว่าว่าง)
+ * บันทึกแล้วนัดย้ายไปเวลาใหม่ทันที สถานะกลับเป็นรอยืนยัน + requestedByLeader → ฝั่งการเงินกด "ยืนยันนัด" (หรือเลื่อนอีกครั้ง)
+ */
+function RescheduleModal({ appointment: a, onClose }: { appointment: Appointment; onClose: () => void }) {
+  const { appointments, saveAppointment, currentUser, saving } = useDemo();
+  const days = useBookableDays(appointments, a.durationMinutes, a.id);
+  const first = days.find((d) => d.date !== a.date || d.free.some((t) => t !== a.time)) ?? days[0];
+  const [date, setDate] = useState(() => first?.date ?? '');
+  const [time, setTime] = useState(() => first?.free.find((t) => first.date !== a.date || t !== a.time) ?? '');
+  const [reason, setReason] = useState('');
+  // ต้องว่างจริง และไม่ใช่วันเวลาเดิม
+  const valid = isFreeChoice(days, date, time) && !(date === a.date && time === a.time);
+
+  const submit = async () => {
+    const what = `หัวหน้าทัวร์เลื่อนนัดจาก ${formatDate(a.date)} ${a.time} เป็น ${formatDate(date)} ${time}${reason.trim() ? ` · ${reason.trim()}` : ''}`;
+    await saveAppointment({
+      ...a,
+      date,
+      time,
+      status: 'pending',
+      requestedByLeader: true,
+      leaderNote: reason.trim() || undefined,
+      history: [...a.history, makeStatusEvent(a.status, 'pending', currentUser.name, toISODateTime(new Date()), what)],
+    });
+    onClose();
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title="เลื่อนนัด"
+      description={`${a.id} · นัดเดิม ${formatDate(a.date)} ${a.time} น.`}
+      footer={
+        <div className="grid w-full grid-cols-2 gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={saving}>ยกเลิก</Button>
+          <Button variant="primary" icon="calendar" loading={saving} disabled={!valid} onClick={() => void submit()}>เลื่อนนัด</Button>
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        <FreeSlotPicker days={days} date={date} time={time} duration={a.durationMinutes} onChange={(d, t) => { setDate(d); setTime(t); }} />
+        <TextArea label="เหตุผล" optional rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
+        <p className="text-xs zego-text-tertiary">เลื่อนแล้วการเงินจะยืนยันเวลาใหม่ หรือเลื่อนอีกครั้งถ้าไม่สะดวก</p>
+      </div>
+    </Modal>
   );
 }

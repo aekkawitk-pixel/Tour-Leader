@@ -12,7 +12,7 @@ const run = (p: Partial<Parameters<typeof afterTripProgress>[0]>) => afterTripPr
 test('หลังเดินทาง — ยังไม่ทำอะไร: ขั้นต่อไปคือเบิกเบี้ยเลี้ยง (ใบเสร็จไม่บังคับ)', () => {
   const r = run({});
   assert.equal(r.next.label, 'เบิกเบี้ยเลี้ยง');
-  assert.equal(r.next.href, '/guide/settlement/allowance');
+  assert.equal(r.next.href, '/guide/settlement/allowance?period=P1');
   assert.equal(r.steps[0].value, 'ยังไม่มี');
   assert.equal(r.recordHref, '/guide/expenses/record?filter=after&period=P1');
 });
@@ -20,13 +20,13 @@ test('หลังเดินทาง — ยังไม่ทำอะไร
 test('หลังเดินทาง — ใบเสร็จต้องแก้มาก่อนทุกอย่าง', () => {
   const r = run({ receipts: [doc('approved'), doc('revise')], perDiem: null });
   assert.equal(r.next.label, 'แก้ไขใบเสร็จ');
-  assert.equal(r.next.href, '/guide/settlement/claim?period=P1', 'ต้องพาไปเปิดกรุ๊ปนั้นโดยตรง');
+  assert.equal(r.next.href, '/guide/jobs/P1#finance', 'ต้องพาไปเปิดกรุ๊ปนั้นโดยตรง');
   assert.equal(r.steps[0].state, 'action');
 });
 
 test('หลังเดินทาง — เบี้ยเลี้ยงร่าง/ต้องแก้ ต้องไปส่ง', () => {
   assert.equal(run({ perDiem: doc('draft') }).next.label, 'ส่งใบเบิกเบี้ยเลี้ยง');
-  assert.equal(run({ perDiem: doc('revise') }).next.href, '/guide/settlement/allowance');
+  assert.equal(run({ perDiem: doc('revise') }).next.href, '/guide/settlement/allowance?period=P1');
 });
 
 test('หลังเดินทาง — นัดรอยืนยันมาก่อนเบี้ยเลี้ยง (มีวันเวลากำกับ)', () => {
@@ -37,11 +37,11 @@ test('หลังเดินทาง — นัดรอยืนยันม
   }
 });
 
-test('หลังเดินทาง — ส่งเบี้ยเลี้ยงแล้ว ยังไม่มีนัด → ไปนัดเคลียร์เงินที่หน้าตรวจสอบ', () => {
+test('หลังเดินทาง — ส่งเบี้ยเลี้ยงแล้ว ยังไม่มีนัด → ไปนัดเคลียร์เงินที่หน้ากรุ๊ป', () => {
   for (const s of ['submitted', 'approved'] as const) {
     const r = run({ perDiem: doc(s) });
     assert.equal(r.next.label, 'นัดเคลียร์เงิน');
-    assert.equal(r.next.href, '/guide/settlement/claim?period=P1');
+    assert.equal(r.next.href, '/guide/jobs/P1#finance');
   }
 });
 
