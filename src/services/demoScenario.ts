@@ -14,6 +14,7 @@ import { addDays, toISODate } from '@/lib/format';
 import { buildTourPeriodMaster } from '@/data/schedule/master';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import { lineKey, type CashEnvelope } from '@/lib/logic/cashEnvelope';
+import { LANE_DURATION, laneOfCountry } from '@/lib/logic/appointmentSlots';
 import { sendOffStaffName } from '@/lib/logic/sendOffStaff';
 import { readJson, writeJson } from './browserStorage';
 import { loadSendOffStaff } from './sendOffStaffStore';
@@ -334,7 +335,7 @@ export function loadDemoScenario(leaders: TourLeader[]): { groups: number } {
         history.push(makeStatusEvent('confirmed', 'attended', FINANCE, at(addDays(today, sc.apt.day), sc.apt.time), 'เข้าพบและปิดเคลียร์เงิน'));
       }
       appointments.push({
-        id: `APT-DEMO-${sc.key}`, date: addDays(today, sc.apt.day), time: sc.apt.time, durationMinutes: 30, leaderId: leader.id, jobId: pid,
+        id: `APT-DEMO-${sc.key}`, date: addDays(today, sc.apt.day), time: sc.apt.time, durationMinutes: LANE_DURATION[laneOfCountry(p.countryName)], lane: laneOfCountry(p.countryName), leaderId: leader.id, jobId: pid,
         kind: 'clear', staffName: sc.apt.byLeader ? 'ฝ่ายบัญชี' : FINANCE, mode: 'office', location: LOCATION,
         note: sc.apt.byLeader ? 'สะดวกช่วงบ่าย' : 'นำเงินคืนและใบเสร็จตัวจริงมาด้วย', status: sc.apt.status,
         ...(sc.apt.byLeader ? { requestedByLeader: true } : {}), blocksAssignment: false, history,

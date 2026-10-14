@@ -11,7 +11,10 @@ import { Modal } from '@/components/ui/Modal';
 import { Button, Callout, cx } from '@/components/ui/Primitives';
 import { SelectInput, TextArea, TextInput } from '@/components/ui/FormField';
 import { DateField } from '@/components/ui/DateInput';
-import { firstFreeSlot, SLOT_DURATIONS, slotOptions } from '@/lib/logic/appointmentSlots';
+import { firstFreeSlot, LANE_DURATION, LANE_LABEL, SLOT_DURATIONS, slotOptions } from '@/lib/logic/appointmentSlots';
+import { laneOfAppointment, laneOfPeriod, sameLane } from '@/lib/logic/appointmentLane';
+import { capacityOf, loadClearCapacity } from '@/services/clearCapacityStore';
+import { useClearCapacity } from './useClearCapacity';
 import { useDemo } from '@/store/DemoStore';
 import { APPOINTMENT_KIND, APPOINTMENT_KIND_OPTIONS, APPOINTMENT_MODE, APPOINTMENT_OFFICE_LOCATION } from '@/lib/labels';
 import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
@@ -101,9 +104,9 @@ function AppointmentForm({
         }
       : {
           date: presetDate ?? today,
-          // นัดห่างกันช่วงละ 30 นาที — ตั้งต้นที่ช่องว่างช่องแรกของวัน
-          time: firstFreeSlot(appointments, presetDate ?? today, 30),
-          durationMinutes: '30',
+          // คิวตามประเทศของกรุ๊ป: ญี่ปุ่น 30 นาที · ประเทศอื่น 10 นาที — ตั้งต้นที่ช่องว่างช่องแรกของคิวนั้น
+          time: firstFreeSlot(sameLane(appointments, laneOfPeriod(presetJobId)), presetDate ?? today, LANE_DURATION[laneOfPeriod(presetJobId)], undefined, capacityOf(loadClearCapacity(), presetDate ?? today, laneOfPeriod(presetJobId))),
+          durationMinutes: String(LANE_DURATION[laneOfPeriod(presetJobId)]),
           leaderId: presetLeaderId ?? '',
           jobId: presetJobId ?? '',
           kind: 'clear',
@@ -114,6 +117,11 @@ function AppointmentForm({
         },
   );
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
+  /** คิวเคลียร์เงินของนัดนี้ — ตามประเทศของกรุ๊ปที่เลือก (ญี่ปุ่น / ประเทศอื่น เจ้าหน้าที่คนละคน ซ้อนเวลากันได้) */
+  const lane = form.jobId ? laneOfPeriod(form.jobId) : appointment ? laneOfAppointment(appointment) : 'other';
+  const laneAppointments = useMemo(() => sameLane(appointments, lane), [appointments, lane]);
+  // จำนวนเจ้าหน้าที่ของคิวในวันนั้น — ช่องเต็มเมื่อนัดครบจำนวนคน
+  const { capacity } = useClearCapacity();
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => {
@@ -129,7 +137,8 @@ function AppointmentForm({
     return appointments.filter((a) => {
       if (appointment && a.id === appointment.id) return false;
       if (a.status === 'cancelled') return false;
-      const samePerson = a.leaderId === form.leaderId || a.staffName === form.staffName;
+      // เจ้าหน้าที่คนเดียวกันชนเฉพาะในคิวเดียวกัน — คิวญี่ปุ่นกับประเทศอื่นซ้อนเวลากันได้
+      const samePerson = a.leaderId === form.leaderId || (a.staffName === form.staffName && laneOfAppointment(a) === lane);
       if (!samePerson) return false;
       return hasTimeOverlap(
         form.date,
@@ -140,7 +149,7 @@ function AppointmentForm({
         a.durationMinutes,
       );
     });
-  }, [appointments, appointment, form]);
+  }, [appointments, appointment, form, lane]);
 
   const validate = (): boolean => {
     const next: Partial<Record<keyof FormState, string>> = {};
@@ -173,6 +182,7 @@ function AppointmentForm({
       durationMinutes: Number(form.durationMinutes || 30),
       leaderId: form.leaderId,
       jobId: form.jobId,
+      lane,
       staffName: form.staffName.trim(),
       mode: form.mode,
       location: form.location.trim(),
@@ -232,7 +242,13 @@ function AppointmentForm({
     .filter((g) => !gq || [g.code, g.p?.displayName ?? '', g.leaderName].join(' ').toLowerCase().includes(gq))
     .slice(0, 8);
   const pickGroup = (g: (typeof groupOptions)[number]) => {
-    setForm((f) => ({ ...f, jobId: g.id, leaderId: g.leaderId }));
+    // นัดใหม่ประเภทเคลียร์เงิน: ความยาว + ช่องว่างแรก ตามคิวของกรุ๊ป (ญี่ปุ่น 30 นาที · ประเทศอื่น 10 นาที)
+    setForm((f) => {
+      if (appointment || f.kind !== 'clear') return { ...f, jobId: g.id, leaderId: g.leaderId };
+      const l = laneOfPeriod(g.id);
+      const dur = LANE_DURATION[l];
+      return { ...f, jobId: g.id, leaderId: g.leaderId, durationMinutes: String(dur), time: firstFreeSlot(sameLane(appointments, l), f.date, dur, undefined, capacity(f.date, l)) };
+    });
     setErrors((e) => ({ ...e, jobId: undefined, leaderId: undefined }));
     setGroupQuery('');
     setPickerOpen(false);
@@ -272,14 +288,14 @@ function AppointmentForm({
             error={errors.date}
             onChange={(v) => set('date', v)}
           />
-          {/* ช่องเวลาห่างกัน 30 นาที — บอกช่องที่มีนัดแล้วในตัวเลือก */}
+          {/* ช่องเวลาตามคิว (ญี่ปุ่น 30 นาที · ประเทศอื่น 10 นาที) — บอกช่องที่มีนัดแล้วในคิวเดียวกัน */}
           <SelectInput
             label="เวลา"
             required
             value={form.time}
             error={errors.time}
             onChange={(e) => set('time', e.target.value)}
-            options={slotOptions(appointments, form.date, Number(form.durationMinutes) || 30, appointment?.id, form.time)
+            options={slotOptions(laneAppointments, form.date, Number(form.durationMinutes) || 30, appointment?.id, form.time, capacity(form.date, lane))
               .map((o) => ({ value: o.value, label: o.label }))}
           />
           <SelectInput
@@ -290,6 +306,10 @@ function AppointmentForm({
               .map((m) => ({ value: String(m), label: m < 60 ? `${m} นาที` : `${Math.floor(m / 60)} ชั่วโมง${m % 60 ? ` ${m % 60} นาที` : ''}` }))}
           />
         </div>
+
+        {form.kind === 'clear' && (
+          <p className="-mt-2 text-xs zego-text-tertiary">คิวเคลียร์เงิน{LANE_LABEL[lane]} · ปกติ {LANE_DURATION[lane]} นาที · นับชนเฉพาะนัดในคิวเดียวกัน</p>
+        )}
 
         {overlaps.length > 0 && (
           <Callout tone="amber" title="พบเวลานัดหมายซ้อน">

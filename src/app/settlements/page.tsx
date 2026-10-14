@@ -22,6 +22,7 @@ import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { loadGroupClears, type GroupClearRecord } from '@/services/groupClearStore';
 import { clearAppointmentOf } from '@/services/appointmentStore';
+import { isInProgress } from '@/components/appointments/clearProgress';
 import {
   CLEAR_DUE_DAYS, clearChecklist, clearNotEnded, effectiveClearValues, followUpOpen, followUpRemaining, GROUP_CLEAR_STAGE, summarizeGroupClear,
   type GroupClearStage, type GroupClearSummary,
@@ -67,6 +68,12 @@ export default function GroupClearPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  // ?open=<periodId> — มาจากปุ่ม "ไปเคลียร์เงิน" ในเมนูนัดหมาย → เปิดหน้าต่างเคลียร์ของกรุ๊ปนั้นเลย
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('open');
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จาก URL ครั้งเดียวตอน mount
+    if (id) setOpenId(id);
+  }, []);
   /** จอเล็ก: ประเทศ / รายการทัวร์ / หัวหน้าทัวร์ / ช่วงวันที่ พับไว้ — เหลือรหัสกรุ๊ป */
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -259,9 +266,18 @@ export default function GroupClearPage() {
           const ap = clearAppointmentOf(appointments, p.internalId);
           if (!ap || isClosed) return null;
           return (
-            <p className={cx('mt-0.5 max-w-[13rem] text-[11px] leading-snug', ap.status === 'rescheduled' ? 'font-semibold text-violet-700' : 'zego-text-secondary')}>
-              นัด {formatDate(ap.date)} {ap.time} · {appointmentStatusMeta(ap).label}
-            </p>
+            <>
+              <p className={cx('mt-0.5 max-w-[13rem] text-[11px] leading-snug', ap.status === 'rescheduled' ? 'font-semibold text-violet-700' : 'zego-text-secondary')}>
+                นัด {formatDate(ap.date)} {ap.time} · {appointmentStatusMeta(ap).label}
+              </p>
+              {/* มีเจ้าหน้าที่เปิดเคลียร์กรุ๊ปนี้อยู่ — กันเปิดทำซ้ำ */}
+              {isInProgress(ap) && (
+                <p className="mt-0.5 inline-flex max-w-[13rem] items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-800">
+                  <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-sky-600" />
+                  <span className="truncate">กำลังดำเนินการ · {ap.inProgress.by}</span>
+                </p>
+              )}
+            </>
           );
         })()}
         {/* ยอดค้างติดตาม — ใครค้างใคร เท่าไร */}

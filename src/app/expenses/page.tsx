@@ -84,6 +84,8 @@ export default function ExpensesPage() {
   /** ตรวจทั้งกรุ๊ป (รายงานการใช้เงิน) — เปิดตรวจรายใบจากแผงนี้ ปิดแล้วกลับมาที่กรุ๊ปเดิม */
   const [reviewGroup, setReviewGroup] = useState<string | null>(null);
   const [fromGroup, setFromGroup] = useState<string | null>(null);
+  /** เปิดใบจากหน้าตรวจทั้งกรุ๊ปพร้อมคำสั่ง ส่งกลับแก้ไข / ปฏิเสธ */
+  const [startAction, setStartAction] = useState<'revise' | 'rejected' | null>(null);
 
   /** อ้างอิงด้วย id เพื่อให้ Drawer/ฟอร์มเห็นข้อมูลล่าสุดเสมอหลังเปลี่ยนสถานะ */
   const selected = expenses.find((e) => e.id === selectedId) ?? null;
@@ -569,7 +571,7 @@ export default function ExpensesPage() {
         groupId={reviewGroup}
         focusReportId={focusReport}
         onClose={() => { setReviewGroup(null); setFocusReport(null); }}
-        onOpenReport={(id) => { setFromGroup(reviewGroup); setReviewGroup(null); setSelectedId(id); }}
+        onOpenReport={(id, action) => { setFromGroup(reviewGroup); setReviewGroup(null); setStartAction(action ?? null); setSelectedId(id); }}
         onNext={nextGroup ? () => { setFocusReport(null); setReviewGroup(nextGroup.jobId); } : undefined}
         nextLabel={nextGroup ? refOf(nextGroup.reports[0]).title : undefined}
       />
@@ -577,13 +579,16 @@ export default function ExpensesPage() {
       <ExpenseDrawer
         expense={selected}
         hidePayment
+        startAction={startAction}
         onClose={() => {
           setSelectedId(null);
+          setStartAction(null);
           // เปิดมาจากตรวจทั้งกรุ๊ป — ปิดแล้วกลับไปที่กรุ๊ปเดิม
           if (fromGroup) { setReviewGroup(fromGroup); setFromGroup(null); }
         }}
         onEdit={(expense) => {
           setSelectedId(null);
+          setStartAction(null);
           setEditingId(expense.id);
           setFormOpen(true);
         }}

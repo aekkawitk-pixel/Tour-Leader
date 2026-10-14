@@ -15,6 +15,7 @@
 
 import { SEND_OFF_ASSIGN_STATUS_DEFAULT, type SendOffAssignStatus } from '@/lib/logic/sendOffStaff';
 import { readJson, writeJson } from './browserStorage';
+import type { FinanceSwap } from './guideAssignmentStore';
 
 export interface SendOffAssignment {
   assignmentId: string;
@@ -39,6 +40,8 @@ export interface SendOffAssignment {
   confirmedAt: string | null;
   confirmedBy?: string;
   note?: string;
+  /** ฝั่งบัญชีเปลี่ยนตัวหน้างาน (ตอนส่งมอบซองเงิน) — แสดงป้ายบนตารางจัดงาน */
+  financeSwap?: FinanceSwap;
 }
 
 const KEY = 'sendOffAssignments';
@@ -128,6 +131,32 @@ export function unconfirmSendOff(assignmentId: string): SendOffAssignment[] {
  */
 export function unassignSendOff(assignmentId: string): SendOffAssignment[] {
   return save(loadSendOffAssignments().filter((r) => r.assignmentId !== assignmentId));
+}
+
+/**
+ * ฝั่งบัญชีเปลี่ยนเจ้าหน้าที่ส่งกรุ๊ปหน้างาน (ตอนส่งมอบซองเงิน) — อัปเดตตารางจัดงานทันที
+ * แทนที่คนเดิม (fromId) ด้วยคนใหม่ เวลาไปถึงสนามบินใช้ของเดิม · ถือว่าคอนเฟิร์มแล้ว (คนนั้นมารับซองจริง)
+ * fromId = null (ยังไม่ได้จัด / มีหลายคนแต่ไม่รู้ว่าแทนใคร) → เพิ่มคนใหม่ ไม่ถอดใคร
+ */
+export function swapSendOffFromFinance(periodId: string, fromId: string | null, newStaffId: string, swap: FinanceSwap): SendOffAssignment[] {
+  const rows = loadSendOffAssignments();
+  const old = fromId ? rows.find((r) => r.periodId === periodId && r.staffId === fromId) : undefined;
+  const rest = rows.filter((r) => !(r.periodId === periodId && (r.staffId === newStaffId || (!!fromId && r.staffId === fromId))));
+  rest.push({
+    assignmentId: nextId(rows),
+    periodId,
+    staffId: newStaffId,
+    arrivalTime: old?.arrivalTime ?? null,
+    dayOffset: old?.dayOffset ?? 0,
+    status: 'CONFIRMED',
+    assignedBy: swap.by,
+    assignedAt: swap.at,
+    confirmedAt: swap.at,
+    confirmedBy: swap.by,
+    note: swap.reason,
+    financeSwap: swap,
+  });
+  return save(rest);
 }
 
 /** ลบรายการที่อ้างพีเรียดซึ่งไม่มีอยู่แล้ว — ใช้หลังข้อมูลต้นทางเปลี่ยน */

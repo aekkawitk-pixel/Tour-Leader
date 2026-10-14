@@ -124,7 +124,7 @@ export default function GuideJobsPage() {
                           className="flex items-center gap-3 px-4 py-3 zego-hover-surface"
                         >
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium zego-text">{period.groupCode} · {period.displayName}</p>
+                            <p className="truncate text-sm font-medium zego-text">{period.groupCode}{assignment.financeSwap && <span className="ml-1 rounded border border-amber-400 bg-amber-100 px-1 text-[10px] font-semibold text-amber-900" title="ฝั่งบัญชีเปลี่ยนตัวหัวหน้าทัวร์ของกรุ๊ปนี้">เปลี่ยน</span>} · {period.displayName}</p>
                             <p className="text-xs zego-text-tertiary">{period.countryName} · {formatDateRange(period.startDate, period.endDate)}</p>
                             {/* ขั้นต่อไป — บอกว่ากรุ๊ปนี้ต้องทำอะไรต่อ */}
                             <div className="mt-1"><NextStepChip period={period} /></div>
@@ -333,7 +333,7 @@ function JobsCalendar({ jobs, startMonth }: { jobs: Job[]; startMonth?: string |
                   <span className={cx('w-1.5 shrink-0 rounded-full', colorOf.get(assignment.assignmentId)!.bar)} />
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-semibold zego-text">{period.groupCode}</p>
+                      <p className="text-sm font-semibold zego-text">{period.groupCode}{assignment.financeSwap && <span className="ml-1 rounded border border-amber-400 bg-amber-100 px-1 text-[10px] font-semibold text-amber-900" title="ฝั่งบัญชีเปลี่ยนตัวหัวหน้าทัวร์ของกรุ๊ปนี้">เปลี่ยน</span>}</p>
                       <StatusBadge meta={boardStatusMeta(assignment.assignmentStatus)} size="sm" />
                     </div>
                     <p className="line-clamp-2 text-xs zego-text-secondary" title={period.displayName}>{period.displayName}</p>

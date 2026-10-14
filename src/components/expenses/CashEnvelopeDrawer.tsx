@@ -24,15 +24,18 @@ import { Icon } from '@/components/ui/Icon';
 import { formatCurrency, formatDate, formatDateRange, formatDateTime, formatTime, toISODate, toISODateTime } from '@/lib/format';
 import {
   allocationOf, canEditHandover, depositedViaGroup, canSeal, pendingDepositLabel, type PendingDeposit, carrierOf, carrierTitle, ENVELOPE_KIND, ENVELOPE_KIND_ORDER, envelopeKindReady, type EnvelopeKind, docChangedSinceSeal, envelopeTimeline, handoverReceiverText, envelopeName, envelopeShortLabel, envelopeStage, envelopeStatusLabel,
-  envelopeTotals, groupEnvelopeStatus, groupLines, lineKey, newEnvelope, NO_ENVELOPE_REASONS, packingFromAllocation, sumAmounts, unassignedLines,
+  envelopeTotals, groupEnvelopeStatus, groupLines, lineKey, newEnvelope, NO_ENVELOPE_REASONS, packingFromAllocation, splitLineAmount, sumAmounts, unassignedLines,
   type Allocation, type CashEnvelope, type EnvelopeAmount, type EnvelopeTone,
 } from '@/lib/logic/cashEnvelope';
 import { getAssignablePeriods, getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { isOutsideReceipt } from '@/lib/logic/groupBudget';
-import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
-import { loadSendOffAssignments } from '@/services/sendOffAssignmentStore';
+import { loadActiveGuideAssignments, swapLeaderFromFinance } from '@/services/guideAssignmentStore';
+import { loadSendOffAssignments, swapSendOffFromFinance } from '@/services/sendOffAssignmentStore';
 import { loadSendOffStaff } from '@/services/sendOffStaffStore';
 import { sendOffStaffName } from '@/lib/logic/sendOffStaff';
+import { checkPeriodConflict, periodRangeRef } from '@/lib/logic/guideBoard';
+import { leaderUnavailability } from '@/lib/logic/leaderAvailability';
+import { UNAVAILABLE_LEADER_STATUSES } from '@/lib/logic/leaderJobs';
 import type { ExpenseRequest } from '@/types';
 
 const TONE: Record<EnvelopeTone, { bg: string; fg: string }> = {
@@ -279,11 +282,14 @@ export function GroupEnvelopeDrawer({ periodId, docs, onClose }: { periodId: str
     return m;
   }, [docs]);
 
+  /** บัญชีเปลี่ยนตัวหน้างานแล้ว (ตารางจัดงานเปลี่ยน) — อ่านคนที่จัดไว้ใหม่ */
+  const [assignTick, setAssignTick] = useState(0);
   const leader = useMemo(() => {
+    void assignTick;
     const a = loadActiveGuideAssignments().find((x) => x.periodId === periodId && x.assignmentStatus === 'CONFIRMED');
     const l = a ? leaders.find((x) => x.id === a.tourLeaderId) : undefined;
     return l ? { id: l.id, name: `${l.firstName} ${l.lastName}`.trim() } : null;
-  }, [periodId, leaders]);
+  }, [periodId, leaders, assignTick]);
 
   // การจัดที่ยังไม่บันทึกของแต่ละซอง (สลับแท็บแล้วไม่หาย) — ใช้ร่วมกันเพื่อกันจัดรายการเดียวเกินยอดเมื่อแบ่งหลายซอง
   const [drafts, setDrafts] = useState<Record<string, Allocation>>({});
@@ -480,6 +486,7 @@ export function GroupEnvelopeDrawer({ periodId, docs, onClose }: { periodId: str
             })}
             onDeleted={() => setActiveId(null)}
             onSealed={setJustSealed}
+            onAssignmentsChanged={() => setAssignTick((t) => t + 1)}
             leader={leader}
             periodId={periodId}
           />
@@ -494,25 +501,31 @@ export function GroupEnvelopeDrawer({ periodId, docs, onClose }: { periodId: str
         <Modal
           open
           onClose={() => setJustSealed(null)}
-          title={`ปิด${envelopeName(justSealed)}แล้ว`}
-          description={free.length > 0
-            ? `ยังมีรายการที่ไม่ได้ใส่ซอง ${free.length} รายการ · ${fmtTotals(sumAmounts(free))} — ต้องการทำอะไรต่อ?`
-            : 'จัดใส่ซองครบทุกรายการแล้ว — ต้องการส่งมอบซองนี้เลยไหม?'}
+          title={`ปิด${envelopeName(justSealed)}แล้ว — ส่งมอบซองต่อเลยไหม?`}
+          description="ไปขั้น “2. ส่งมอบซอง” ต่อได้ทันที เลือกเจ้าหน้าที่ส่งกรุ๊ป / หัวหน้าทัวร์ที่รับซองนี้"
           footer={(
             <div className="flex w-full flex-wrap justify-end gap-2">
               <Button variant="ghost" onClick={() => setJustSealed(null)}>ไว้ทีหลัง</Button>
-              <Button variant={free.length > 0 ? 'secondary' : 'primary'} onClick={() => goHandover(justSealed)}>ส่งมอบซองนี้</Button>
               {free.length > 0 && (
-                <Button variant="primary" icon="plus" onClick={() => { setJustSealed(null); void addEnvelope(); }}>จัดซองถัดไป</Button>
+                <Button variant="secondary" icon="plus" onClick={() => { setJustSealed(null); void addEnvelope(); }}>จัดซองถัดไปก่อน</Button>
               )}
+              <Button variant="primary" onClick={() => goHandover(justSealed)}>ไปขั้น 2. ส่งมอบซอง</Button>
             </div>
           )}
         >
-          <ul className="space-y-1.5 text-sm zego-text-secondary">
-            {free.length > 0 && <li>• <b className="zego-text">จัดซองถัดไป</b> — สร้างซองใหม่แล้วเลือกรายการที่เหลือใส่ต่อได้เลย</li>}
-            <li>• <b className="zego-text">ส่งมอบซองนี้</b> — ไปที่ขั้น “2. ส่งมอบซอง” เลือกเจ้าหน้าที่ส่งกรุ๊ป / หัวหน้าทัวร์ที่รับ</li>
-            <li>• <b className="zego-text">ไว้ทีหลัง</b> — ปิดหน้าต่างนี้ กลับมาทำต่อเมื่อไรก็ได้</li>
-          </ul>
+          <div className="space-y-2 text-sm zego-text-secondary">
+            <p className="rounded-lg zego-surface-soft-bg px-3 py-2">
+              ยอดหน้าซอง <b className="tabular-nums zego-text">{fmtTotals(envelopeTotals(lines, allocs.get(justSealed.id) ?? {}).packed)}</b>
+            </p>
+            {free.length > 0 ? (
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs zego-text-warning">
+                ยังมีรายการที่ไม่ได้ใส่ซอง {free.length} รายการ · {fmtTotals(sumAmounts(free))} — จะจัดซองถัดไปก่อนแล้วค่อยส่งมอบพร้อมกันก็ได้
+              </p>
+            ) : (
+              <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs zego-text-success">จัดใส่ซองครบทุกรายการแล้ว</p>
+            )}
+            <p className="text-xs zego-text-tertiary">ไว้ทีหลัง = ปิดหน้าต่างนี้ กลับมาส่งมอบได้ที่ขั้น 2 ของซองนี้</p>
+          </div>
         </Modal>
       )}
     </Drawer>
@@ -686,9 +699,15 @@ function IncomingDeposits({ periodId, leader }: { periodId: string; leader: { id
   );
 }
 
+/** กรุ๊ปที่ชน — ใช้บอกเหตุผลว่าไม่ว่าง */
+function groupText(pid?: string): string {
+  const p = pid ? getTourPeriodById(pid) : undefined;
+  return p ? `กรุ๊ป ${p.groupCode} (${formatDateRange(p.startDate, p.endDate)})` : 'งานอื่น';
+}
+
 /** ซองใบเดียว: จัดรายการ → ปิดซอง → ส่งมอบ → หัวหน้าทัวร์รับ · ประวัติ */
 function EnvelopePanel({
-  env, docs, info, lines, allocs, envs, alloc, setAlloc, clearDraft, onDeleted, onSealed, leader, periodId,
+  env, docs, info, lines, allocs, envs, alloc, setAlloc, clearDraft, onDeleted, onSealed, onAssignmentsChanged, leader: assignedLeader, periodId,
 }: {
   env: CashEnvelope;
   docs: ExpenseRequest[];
@@ -703,20 +722,67 @@ function EnvelopePanel({
   onDeleted: () => void;
   /** ปิดซองสำเร็จ — ให้แผงหลักถามต่อ (จัดซองถัดไป / ส่งมอบ) */
   onSealed?: (env: CashEnvelope) => void;
+  /** อัปเดตตารางจัดงานแล้ว (เปลี่ยนตัวหน้างาน) */
+  onAssignmentsChanged?: () => void;
   leader: { id: string; name: string } | null;
   periodId: string;
 }) {
-  const { saveEnvelope, deleteEnvelope, leaders: allLeaders, envelopes: allEnvelopes } = useDemo();
+  const { saveEnvelope, deleteEnvelope, leaders: allLeaders, envelopes: allEnvelopes, appointments, availabilityRecords, currentUser } = useDemo();
   const stage = envelopeStage(env);
   const period = getTourPeriodById(periodId);
   const name = envelopeName(env);
+  /*
+    หน้างานจริง การเงินเปลี่ยนคนที่ไปกรุ๊ปนี้ได้ (ต่างจากที่จัดไว้) — บันทึกส่งมอบแล้วอัปเดตตารางจัดงานเป็นคนใหม่ด้วย (applyFinanceSwaps)
+    ค่าเริ่มต้น: ถ้าซองอื่นของกรุ๊ปเดียวกันส่งมอบให้คนที่เปลี่ยนแล้ว ใช้คนนั้นต่อ (ไม่ต้องเลือกซ้ำทุกซอง)
+  */
+  const siblingHandovers = allEnvelopes.filter((e) => e.periodId === periodId && e.id !== env.id && e.handover).map((e) => e.handover!);
+  const [leaderOverride, setLeaderOverride] = useState<{ id: string; name: string } | null>(() => {
+    const h = siblingHandovers.find((x) => x.receiverId && x.receiverId !== assignedLeader?.id);
+    return h ? { id: h.receiverId!, name: h.receiverName } : null;
+  });
+  const leader = leaderOverride ?? assignedLeader;
+  const [assignTick, setAssignTick] = useState(0);
   const staffOptions = useMemo(() => {
+    void assignTick;
     const all = loadSendOffStaff().filter((s) => s.status !== 'disabled');
     const assigned = new Set(loadSendOffAssignments().filter((a) => a.periodId === periodId).map((a) => a.staffId));
     return all
       .map((s) => ({ id: s.id, name: sendOffStaffName(s), assigned: assigned.has(s.id) }))
       .sort((a, b) => Number(b.assigned) - Number(a.assigned) || a.name.localeCompare(b.name, 'th'));
-  }, [periodId]);
+  }, [periodId, assignTick]);
+
+  /*
+    ว่างไหม ในช่วงของกรุ๊ปนี้ — ใช้ตอน "เปลี่ยนตัว" คนประจำกรุ๊ป
+    หัวหน้าทัวร์: ติดกรุ๊ปอื่นทับช่วงเดินทาง / ลา / ไม่ว่าง / สถานะไม่พร้อมรับงาน (เกณฑ์เดียวกับหน้าจัดหัวหน้าทัวร์)
+    เจ้าหน้าที่ส่งกรุ๊ป: มีงานส่งกรุ๊ปอื่นวันเดียวกับที่กรุ๊ปนี้ออกเดินทาง (ส่งได้ถ้าสนามบิน/เวลาไม่ชน จึงแค่เตือน)
+  */
+  type Avail = { tone: 'ok' | 'warn' | 'busy'; text: string };
+  const leaderAvail = useMemo(() => {
+    const map = new Map<string, Avail>();
+    if (!period) return map;
+    const cand = periodRangeRef(period);
+    const assigns = loadActiveGuideAssignments().filter((a) => a.periodId !== periodId);
+    for (const l of allLeaders) {
+      if (UNAVAILABLE_LEADER_STATUSES.has(l.status)) { map.set(l.id, { tone: 'busy', text: 'สถานะไม่พร้อมรับงาน' }); continue; }
+      const ranges = assigns.filter((a) => a.tourLeaderId === l.id)
+        .map((a) => getTourPeriodById(a.periodId)).filter((p): p is NonNullable<typeof p> => !!p).map(periodRangeRef);
+      const r = checkPeriodConflict(cand, ranges, leaderUnavailability(l.id, [], appointments, availabilityRecords));
+      const isGroup = !!r.conflictId && ranges.some((x) => x.periodId === r.conflictId);
+      map.set(l.id, r.verdict === 'ok' ? { tone: 'ok', text: 'ว่าง' }
+        : r.verdict === 'blocked' ? { tone: 'busy', text: isGroup ? `ติด${groupText(r.conflictId)}` : (r.reason ?? 'ไม่ว่าง') }
+          : { tone: 'warn', text: isGroup ? `เดินทางวันเดียวกับ${groupText(r.conflictId)}` : (r.reason ?? 'ตรวจสอบก่อน') });
+    }
+    return map;
+  }, [period, periodId, allLeaders, appointments, availabilityRecords]);
+  const staffAvail = useMemo(() => {
+    const map = new Map<string, Avail>();
+    if (!period) return map;
+    for (const s of staffOptions) {
+      const other = loadSendOffAssignments().find((a) => a.staffId === s.id && a.periodId !== periodId && getTourPeriodById(a.periodId)?.startDate === period.startDate);
+      map.set(s.id, other ? { tone: 'warn', text: `มีงานส่ง${groupText(other.periodId)} วันเดียวกัน` } : { tone: 'ok', text: 'ว่าง' });
+    }
+    return map;
+  }, [period, periodId, staffOptions]);
 
   /* ---------------- 1) จัดซอง ---------------- */
   const [label, setLabel] = useState(env.label ?? '');
@@ -786,6 +852,43 @@ function EnvelopePanel({
   const savePacking = async () => {
     await saveEnvelope(withLabel(withPacking(env)), 'บันทึกการจัดซอง', `${name} · ${packed.length} รายการ`);
     clearDraft();
+  };
+
+  /*
+    แบ่ง 1 รายการลงหลายซอง (ยอดที่ยังไม่ได้จัดให้ซองอื่น) — ส่วนแรกอยู่ซองนี้ ส่วนที่เหลือสร้างซองใหม่ให้ทีละซอง
+    เศษ: current = ไว้ซองนี้ (ส่วนเต็มไปซองใหม่ทั้งหมด) · new = ซองใหม่อีกซอง · leave = ยังไม่จัด
+    ซองใหม่ประเภทเดียวกับซองนี้ ชื่อ "<รายการ> x/n" · ยังไม่ปิดซอง (การเงินตรวจแล้วปิดเอง)
+  */
+  const [splitKey, setSplitKey] = useState<string | null>(null);
+  const doSplit = async (k: string, parts: number[], remainder: number, place: 'current' | 'new' | 'leave') => {
+    const title = info.get(k)?.line.purpose ?? 'รายการ';
+    const curAlloc: Allocation = { ...alloc };
+    let toNew: number[];
+    if (place === 'current' && remainder > 0) { curAlloc[k] = remainder; toNew = parts; }
+    else { curAlloc[k] = parts[0]; toNew = parts.slice(1); }
+    if (place === 'new' && remainder > 0) toNew = [...toNew, remainder];
+    const n = parts.length + (remainder > 0 && place !== 'leave' ? 1 : 0);
+    const base: CashEnvelope = { ...env };
+    delete base.splits;
+    const cur = withLabel({ ...base, ...packingFromAllocation(curAlloc, lines) });
+    // ซองนี้มีแค่รายการที่แบ่ง และยังไม่ได้ตั้งชื่อ — ใส่ลำดับให้เหมือนซองอื่นในชุด (ส่วนแรก = 1/n · เศษที่รวมไว้ซองนี้ = n/n)
+    if (!cur.label && Object.keys(curAlloc).length === 1) cur.label = `${title} ${place === 'current' && remainder > 0 ? n : 1}/${n}`;
+    await saveEnvelope(cur, 'แบ่งรายการหลายซอง', `${name} · ${title} แบ่ง ${n} ซอง`);
+    const created: CashEnvelope[] = [];
+    const startAt = place === 'current' && remainder > 0 ? 1 : 2;
+    for (const [i, amount] of toNew.entries()) {
+      const e: CashEnvelope = {
+        ...newEnvelope(periodId, [...allEnvelopes, ...created]),
+        ...(kind ? { kind } : {}),
+        ...(kind === 'land_tip' && forGroup.trim() ? { forGroup: forGroup.trim() } : {}),
+        label: `${title} ${i + startAt}/${n}`,
+        ...packingFromAllocation({ [k]: amount }, lines),
+      };
+      created.push(e);
+      await saveEnvelope(e, 'สร้างซอง (แบ่งรายการ)', `${title} ${i + startAt}/${n}`);
+    }
+    clearDraft();
+    setSplitKey(null);
   };
   const seal = async () => {
     const snap = lines.filter((l) => mine.has(l.id));
@@ -929,7 +1032,18 @@ function EnvelopePanel({
   const leaderCarrierList = carrierOptions.filter((c) => c.kind === 'leader' && c.groups.length > 0);
   /** หัวหน้าทัวร์ประจำกรุ๊ปอื่นที่รับต่อ — รับจากหัวหน้าทัวร์ (รับแทน) ไม่เกี่ยวกับการมารับที่สำนักงาน */
   const secondLeaderList = carrierOptions.flatMap((c) => (c.kind === 'leader' && c.handoffGroups && c.handoffGroups.length > 0 ? [{ ...c, groups: c.handoffGroups }] : []));
-  const [staffId, setStaffId] = useState(() => (pdStaffIsOwn ? pdStaff!.id : assignedStaff[0]?.id ?? ''));
+  const [staffId, setStaffId] = useState(() => {
+    if (pdStaffIsOwn) return pdStaff!.id;
+    // ซองอื่นของกรุ๊ปนี้ให้เจ้าหน้าที่ที่เปลี่ยนตัวแล้ว (ไม่ใช่ฝากกรุ๊ปอื่น = ไม่มี viaGroup) → ใช้คนนั้นต่อ
+    const h = siblingHandovers.find((x) => x.proxyStaffId && !x.viaGroup && !assignedStaff.some((s0) => s0.id === x.proxyStaffId));
+    return h?.proxyStaffId ?? assignedStaff[0]?.id ?? '';
+  });
+  /** เปลี่ยนเจ้าหน้าที่ / หัวหน้าทัวร์ต่างจากที่จัดไว้ — แสดงเตือน + บันทึกในประวัติ */
+  const staffSwapped = route === 'own' && !!staffId && !assignedStaff.some((s0) => s0.id === staffId);
+  const swapNote = [
+    staffSwapped && `เปลี่ยนเจ้าหน้าที่จากที่จัดไว้ (${assignedStaff.map((s0) => s0.name).join(', ') || 'ยังไม่ได้จัด'})`,
+    leaderOverride && `เปลี่ยนหัวหน้าทัวร์จากที่จัดไว้ (${assignedLeader?.name ?? 'ยังไม่มีที่คอนเฟิร์ม'})`,
+  ].filter(Boolean).join(' · ');
 
   /** ผู้รับจากการเงิน (ช่วงเจ้าหน้าที่) — ไม่ผ่านเจ้าหน้าที่ = undefined */
   const staffPerson = route === 'own'
@@ -983,6 +1097,8 @@ function EnvelopePanel({
   const [targetQuery, setTargetQuery] = useState('');
   /** คำค้นชื่อในช่องเลือกคนรับแทน / คนรับต่อ (แยกตามช่อง) */
   const [pickQuery, setPickQuery] = useState<Record<string, string>>({});
+  /** ช่องเปลี่ยนคนประจำกรุ๊ป ที่กด "เปลี่ยน" เปิดไว้ */
+  const [swapOpen, setSwapOpen] = useState<Record<string, boolean>>({});
   const targetQ = targetQuery.trim().toUpperCase();
   const targetShown = targetQ
     ? targetOptions.filter((p) => p.internalId === target?.internalId || p.groupCode.toUpperCase().includes(targetQ))
@@ -1214,7 +1330,33 @@ function EnvelopePanel({
   };
   const pickedCount = attachable.filter((x) => attachIds.has(x.id)).length;
 
-  const handOverMain = () => {
+  /*
+    เปลี่ยนตัวหน้างาน → อัปเดตตารางจัดงานด้วย (หลังบันทึกส่งมอบสำเร็จ)
+    ผู้จัดหัวหน้าทัวร์ / เจ้าหน้าที่ส่งกรุ๊ป เห็นคนใหม่ในตาราง พร้อมป้ายว่าบัญชีเป็นคนเปลี่ยน
+  */
+  const applyFinanceSwaps = () => {
+    const at = toISODateTime(new Date());
+    const envNote = `เปลี่ยนตัวหน้างานจากฝั่งบัญชี ตอนส่งมอบ${name}`;
+    if (leaderOverride) {
+      swapLeaderFromFinance(periodId, leaderOverride.id, {
+        at, by: currentUser.name, fromId: assignedLeader?.id ?? null, fromName: assignedLeader?.name ?? 'ยังไม่ได้จัด', reason: envNote,
+      });
+    }
+    if (staffSwapped && staffPerson) {
+      // จัดไว้คนเดียว = แทนคนนั้น · หลายคน/ยังไม่จัด = เพิ่มคน (ไม่รู้ว่าแทนใคร)
+      const from = assignedStaff.length === 1 ? assignedStaff[0] : null;
+      swapSendOffFromFinance(periodId, from?.id ?? null, staffPerson.id, {
+        at, by: currentUser.name, fromId: from?.id ?? null, fromName: from?.name ?? (assignedStaff.length ? assignedStaff.map((s0) => s0.name).join(', ') : 'ยังไม่ได้จัด'), reason: envNote,
+      });
+    }
+    if (leaderOverride || staffSwapped) { setAssignTick((t) => t + 1); setLeaderOverride(null); onAssignmentsChanged?.(); }
+  };
+  const handOverMain = async () => {
+    const saved = await saveHandoverMain();
+    applyFinanceSwaps();
+    return saved;
+  };
+  const saveHandoverMain = () => {
     // ส่งมอบจริงแล้ว — ล้างสถานะรอฝาก (ถ้ามี)
     const { pendingDeposit: _pd, ...envNoPending } = env;
     void _pd;
@@ -1236,7 +1378,7 @@ function EnvelopePanel({
           },
         },
         staffChoice === 'carrierStaff' ? 'ส่งมอบซอง ฝากเจ้าหน้าที่ประจำกรุ๊ปอื่น (รับแทน)' : 'ส่งมอบซองให้เจ้าหน้าที่ส่งกรุ๊ป',
-        `${name} · ${plannedPath.slice(1).join(' → ')} · รอ ${staffPerson.name} ยืนยันรับในพอร์ทัลของตัวเอง`,
+        `${name} · ${plannedPath.slice(1).join(' → ')} · รอ ${staffPerson.name} ยืนยันรับในพอร์ทัลของตัวเอง${swapNote ? ` · ${swapNote}` : ''}`,
       );
     }
     if (leaderCarrier) {
@@ -1246,13 +1388,13 @@ function EnvelopePanel({
           handover: { ...base, receiverKind: 'leader', proxyName: leaderCarrier.name, proxyLeaderId: leaderCarrier.id, ...(via ? { viaGroup: via } : {}), ...(secondLeader ? { finalLeaderCarrier: { id: secondLeader.id, name: secondLeader.name, ...(secondVia ? { viaGroup: secondVia } : {}) } } : {}), ...(isToLand ? { carrierToLand: true } : {}) },
         },
         isToLand ? 'ส่งมอบซอง ฝากหัวหน้าทัวร์ (รับแทน) นำส่งแลนด์' : 'ส่งมอบซอง ฝากหัวหน้าทัวร์ประจำกรุ๊ปอื่น (รับแทน)',
-        `${name} · ${plannedPath.slice(1).join(' → ')} · รอ ${leaderCarrier.name} ยืนยันรับในแอปของตัวเอง`,
+        `${name} · ${plannedPath.slice(1).join(' → ')} · รอ ${leaderCarrier.name} ยืนยันรับในแอปของตัวเอง${swapNote ? ` · ${swapNote}` : ''}`,
       );
     }
     return saveEnvelope(
       { ...envNoPending, handover: { ...base, receiverKind: 'leader', receiverId: leader!.id, receiverName: leader!.name } },
       'ส่งมอบซองให้หัวหน้าทัวร์',
-      `${name} · ${leader!.name} · รอหัวหน้าทัวร์ยืนยันรับในเครื่องตัวเอง`,
+      `${name} · ${leader!.name} · รอหัวหน้าทัวร์ยืนยันรับในเครื่องตัวเอง${swapNote ? ` · ${swapNote}` : ''}`,
     );
   };
 
@@ -1546,12 +1688,39 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
           </div>
         )}
         <div className="overflow-hidden rounded-lg border zego-border-color">
+          {/* เลือกทั้งหมด — ทุกรายการที่ยังมียอดให้จัด (ยอดเต็มที่เหลือ) · ติ๊กอีกครั้ง = เอาออกทั้งหมด */}
+          {stage === 'packing' && available.length > 0 && (
+            <label className="flex cursor-pointer items-center gap-3 zego-divider-bottom bg-emerald-50/50 px-3 py-2 text-sm">
+              <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={allIn} onChange={fillAll} />
+              <span className="font-semibold zego-text">เลือกทั้งหมด</span>
+              <span className="text-xs zego-text-tertiary">{allIn ? `ใส่เต็มจำนวนทั้ง ${available.length} รายการ · ยอดล็อกไว้ ถ้าจะแก้ยอดหรือแบ่งหลายซองให้ติ๊กออกแล้วเลือกทีละรายการ` : `${available.length} รายการที่ยังมียอดให้จัด`}</span>
+            </label>
+          )}
           {sections.map(({ doc, cats }) => (
             <div key={doc.id}>
               {docs.length > 1 && <p className="bg-slate-100 px-3 py-1.5 text-xs font-semibold zego-text">เอกสารเบิก {doc.id}</p>}
-              {cats.map((sec) => (
+              {cats.map((sec) => {
+                // เลือกทั้งหมวด — รายการในหมวดที่ยังมียอดให้จัด
+                const catKeys = sec.rows.map((r) => r.key).filter((k) => room(k) > 0);
+                const catAllIn = catKeys.length > 0 && catKeys.every((k) => alloc[k] === room(k));
+                const toggleCat = () => {
+                  const next = { ...alloc };
+                  for (const k of catKeys) {
+                    if (catAllIn) delete next[k];
+                    else next[k] = room(k);
+                  }
+                  setAlloc(next);
+                };
+                return (
                 <div key={`${doc.id}-${sec.category}-${sec.rows[0].no}`}>
-                  <p className="zego-surface-soft-bg px-3 py-1 text-[11px] font-semibold zego-text-secondary">{sec.category}</p>
+                  {stage === 'packing' && catKeys.length > 0 ? (
+                    <label className="flex cursor-pointer items-center gap-3 zego-surface-soft-bg px-3 py-1">
+                      <input type="checkbox" className="h-3.5 w-3.5 accent-emerald-600" checked={catAllIn} onChange={toggleCat} aria-label={`เลือกทั้งหมวด ${sec.category}`} />
+                      <span className="text-[11px] font-semibold zego-text-secondary">{sec.category}</span>
+                    </label>
+                  ) : (
+                    <p className="zego-surface-soft-bg px-3 py-1 text-[11px] font-semibold zego-text-secondary">{sec.category}</p>
+                  )}
                   <ul className="divide-y divide-[var(--zego-border-soft)]">
                     {sec.rows.map(({ key, no, line }) => {
                       const packing = stage === 'packing';
@@ -1591,7 +1760,15 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                               )}
                             </span>
                           </label>
-                          {packing && on ? (
+                          {packing && on && allIn ? (
+                            // เลือกทั้งหมด = ใส่ยอดที่เหลือเต็มจำนวนทุกรายการ — ล็อกยอดไว้ ไม่ให้แก้ทีละช่อง
+                            <span className="shrink-0 text-right max-sm:ml-auto">
+                              <span className="block font-semibold tabular-nums zego-text">{formatCurrency(alloc[key], line.currency)}</span>
+                              <span className="block text-[11px] tabular-nums zego-text-tertiary">
+                                {alloc[key] !== line.amount ? `ส่วนที่เหลือจาก ${formatCurrency(line.amount, line.currency)}` : 'เต็มจำนวน'}
+                              </span>
+                            </span>
+                          ) : packing && on ? (
                             // แบ่งรายการ: แก้ยอดที่ใส่ซองนี้ได้ (ค่าเริ่มต้น = ยอดที่ยังเหลือทั้งหมด) ส่วนที่เหลือไปใส่ซองอื่น
                             <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 max-sm:ml-auto">
                               <input
@@ -1620,15 +1797,33 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                               {packing && !full && parts.length > 0 && <span className="block text-[11px] tabular-nums zego-text-warning">เหลือ {formatCurrency(max, line.currency)}</span>}
                             </span>
                           )}
+                          {/* แบ่งยอดที่ยังเหลือลงหลายซองในครั้งเดียว (ยอดต่อซอง / จำนวนซอง) */}
+                          {/* เลือกทั้งหมดแล้ว = ล็อกยอด — ซ่อนปุ่มแบ่งด้วย */}
+                          {packing && max > 0 && !allIn && (
+                            <button type="button" onClick={() => setSplitKey(key)} className="ml-auto shrink-0 text-[11px] font-medium zego-text-info hover:underline max-sm:basis-full max-sm:text-right">
+                              แบ่งหลายซอง
+                            </button>
+                          )}
                         </li>
                       );
                     })}
                   </ul>
                 </div>
-              ))}
+                );
+              })}
             </div>
           ))}
         </div>
+        {splitKey && info.get(splitKey) && (
+          <SplitLineModal
+            title={info.get(splitKey)!.line.purpose}
+            currency={info.get(splitKey)!.line.currency}
+            total={room(splitKey)}
+            hasOthers={packed.some((k) => k !== splitKey)}
+            onClose={() => setSplitKey(null)}
+            onConfirm={(parts, remainder, place) => doSplit(splitKey, parts, remainder, place)}
+          />
+        )}
         <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg zego-surface-soft-bg px-3 py-2 text-sm">
           <div>
             <p className="text-xs zego-text-tertiary">ยอดเบิกทั้งกรุ๊ป</p>
@@ -1815,9 +2010,95 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                     </div>
                   );
                 };
-                const ownStaffPicker = (label: string) => (assignedStaff.length > 1
-                  ? select(label, staffId, setStaffId, assignedStaff.map((x) => ({ value: x.id, label: x.name })), '— เลือก —')
-                  : <p className="text-xs zego-text-secondary">{label}: <span className="font-medium zego-text">{assignedStaff[0]?.name ?? '—'}</span></p>);
+                /*
+                  คนประจำกรุ๊ป — ค่าเริ่มต้น = ที่จัดไว้ · หน้างานเปลี่ยนตัวได้ (เลือกใครก็ได้) แสดงเตือนว่าไม่ตรงกับที่จัดไว้
+                  บันทึกส่งมอบแล้ว ตารางจัดงานของกรุ๊ปเปลี่ยนเป็นคนใหม่ด้วย
+                */
+                const swapPicker = (p: {
+                  k: 'ownStaff' | 'ownLeader'; label: string; current: { id: string; name: string } | null | undefined;
+                  items: { id: string; name: string; assigned: boolean }[]; avail: Map<string, Avail>; onPick: (x: { id: string; name: string } | null) => void;
+                  swapped: boolean; assignedText: string; onReset: () => void;
+                }) => {
+                  const q = (pickQuery[p.k] ?? '').trim().toLowerCase();
+                  // เรียง: คนที่จัดไว้ → ว่าง → ต้องตรวจ → ไม่ว่าง (ไม่ว่างยังเลือกได้ — หน้างานอาจรู้ข้อมูลที่ระบบไม่รู้ แต่เตือนชัด ๆ)
+                  const rank = (id: string) => ({ ok: 0, warn: 1, busy: 2 }[p.avail.get(id)?.tone ?? 'ok']);
+                  const sorted = [...p.items].sort((a, b) => Number(b.assigned) - Number(a.assigned) || rank(a.id) - rank(b.id) || a.name.localeCompare(b.name, 'th'));
+                  const shown = q ? sorted.filter((x) => x.name.toLowerCase().includes(q)) : sorted;
+                  const curAvail = p.current ? p.avail.get(p.current.id) : undefined;
+                  const open = !!swapOpen[p.k];
+                  const setOpen = (v: boolean) => {
+                    setSwapOpen((m) => ({ ...m, [p.k]: v }));
+                    setPickQuery((m) => ({ ...m, [p.k]: '' }));
+                    // เปิดแล้วพิมพ์ค้นหาได้ทันที
+                    if (v) window.setTimeout(() => document.querySelector<HTMLInputElement>(`[data-swap="${p.k}-${env.id}"] input`)?.focus(), 30);
+                  };
+                  return (
+                    <div className="space-y-1.5">
+                      {open ? (
+                        <div data-swap={`${p.k}-${env.id}`} className="space-y-1">
+                          <Combobox
+                            label={p.label}
+                            required
+                            value=""
+                            items={shown}
+                            getKey={(x) => x.id}
+                            getLabel={(x) => x.name}
+                            getSubLabel={(x) => {
+                              const a = p.avail.get(x.id);
+                              return [a && `${a.tone === 'ok' ? '✓' : a.tone === 'warn' ? '⚠' : '✕'} ${a.text}`, x.assigned && 'จัดไว้กับกรุ๊ปนี้', x.id === p.current?.id && 'คนปัจจุบัน'].filter(Boolean).join(' · ') || undefined;
+                            }}
+                            onSearch={(v) => setPickQuery((m) => ({ ...m, [p.k]: v }))}
+                            onSelect={(x) => { if (x) { p.onPick({ id: x.id, name: x.name }); setOpen(false); } }}
+                            placeholder="พิมพ์ค้นหาชื่อคนที่ไปจริง"
+                            emptyMessage="ไม่พบชื่อที่ค้นหา"
+                          />
+                          <button type="button" onClick={() => setOpen(false)} className="text-xs font-medium zego-text-secondary hover:underline">ยกเลิก</button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2 rounded-lg zego-surface-soft-bg px-3 py-2">
+                          <span className={cx('min-w-0 truncate text-sm', p.current ? 'font-semibold zego-text' : 'zego-text-warning')}>
+                            {p.current?.name ?? 'ยังไม่ได้ระบุ'}
+                          </span>
+                          <Button variant="secondary" size="sm" icon="edit" onClick={() => setOpen(true)}>{p.current ? 'เปลี่ยน' : 'เลือกคน'}</Button>
+                        </div>
+                      )}
+                      {curAvail && curAvail.tone !== 'ok' && (
+                        <p className={cx('rounded-md px-2 py-1 text-[11px] font-medium', curAvail.tone === 'busy' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 zego-text-warning')}>
+                          {curAvail.tone === 'busy' ? 'ไม่ว่างช่วงกรุ๊ปนี้' : 'ตรวจสอบก่อน'} — {curAvail.text}
+                        </p>
+                      )}
+                      {p.swapped && (
+                        <p className="flex flex-wrap items-center gap-x-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] zego-text-warning">
+                          <span>เปลี่ยนตัวจากที่จัดไว้ ({p.assignedText}) — กดบันทึกส่งมอบแล้ว ตารางจัดงานของกรุ๊ปจะเปลี่ยนเป็นคนนี้ด้วย</span>
+                          <button type="button" onClick={p.onReset} className="font-medium underline">กลับเป็นคนที่จัดไว้</button>
+                        </p>
+                      )}
+                    </div>
+                  );
+                };
+                const ownStaffPicker = swapPicker({
+                  k: 'ownStaff',
+                  label: 'เจ้าหน้าที่ที่รับ (หน้างานเปลี่ยนตัวได้)',
+                  current: staffOptions.find((x) => x.id === staffId),
+                  items: staffOptions,
+                  avail: staffAvail,
+                  onPick: (x) => setStaffId(x?.id ?? ''),
+                  swapped: staffSwapped,
+                  assignedText: assignedStaff.map((x) => x.name).join(', ') || 'ยังไม่ได้จัด',
+                  onReset: () => setStaffId(assignedStaff[0]?.id ?? ''),
+                });
+                const ownLeaderPicker = swapPicker({
+                  k: 'ownLeader',
+                  label: 'หัวหน้าทัวร์ที่รับ (หน้างานเปลี่ยนตัวได้)',
+                  current: leader,
+                  items: allLeaders
+                    .map((l) => ({ id: l.id, name: `${l.firstName} ${l.lastName}`.trim(), assigned: l.id === assignedLeader?.id })),
+                  avail: leaderAvail,
+                  onPick: (x) => setLeaderOverride(x && x.id !== assignedLeader?.id ? x : null),
+                  swapped: !!leaderOverride,
+                  assignedText: assignedLeader?.name ?? 'ยังไม่มีที่คอนเฟิร์ม',
+                  onReset: () => setLeaderOverride(null),
+                });
                 const targetPicker = (
                   <div className="space-y-1">
                     {/* พิมพ์ค้นหาในช่องเลือกได้เลย */}
@@ -1860,9 +2141,9 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                       ขั้นที่ 1 · เจ้าหน้าที่ส่งกรุ๊ป — ใครรับซองจากการเงิน
                     </p>
                     {radio('top:own', top === 'own', 'เจ้าหน้าที่ประจำกรุ๊ป',
-                      assignedStaff.length > 0 ? assignedStaff.map((x) => x.name).join(', ') : 'ยังไม่ได้จัดเจ้าหน้าที่ให้กรุ๊ปนี้',
+                      top === 'own' ? undefined : assignedStaff.length > 0 ? assignedStaff.map((x) => x.name).join(', ') : 'ยังไม่ได้จัด — เลือกคนที่ไปจริงได้',
                       () => setRoute('own'),
-                      { disabled: assignedStaff.length === 0, children: assignedStaff.length > 1 ? ownStaffPicker('เจ้าหน้าที่ที่รับ') : undefined })}
+                      { disabled: staffOptions.length === 0, children: ownStaffPicker })}
                     {radio('top:deposit', top === 'deposit', 'เจ้าหน้าที่ประจำกรุ๊ปอื่น', 'รับแทน — เจ้าหน้าที่ประจำกรุ๊ปมารับเองไม่ได้',
                       () => setRoute('carrierToLeader'),
                       {
@@ -1890,7 +2171,9 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
                     ) : (
                       <div className="space-y-1.5" role="radiogroup" aria-label="หัวหน้าทัวร์">
                         {radio('lead:main', leaderRoute === 'main', 'หัวหน้าทัวร์ประจำกรุ๊ป',
-                          `${leader?.name ?? 'ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม'}${route === 'none' ? ' — มารับซองเอง' : ''}`, () => setLeaderRoute('main'))}
+                          leaderRoute === 'main' ? (route === 'none' ? 'มารับซองจากการเงินเอง' : undefined)
+                            : `${leader?.name ?? 'ยังไม่มีหัวหน้าทัวร์ที่คอนเฟิร์ม'}${route === 'none' ? ' — มารับซองเอง' : ''}`,
+                          () => setLeaderRoute('main'), { children: ownLeaderPicker })}
                         {radio('lead:carrier', leaderRoute === 'carrier', 'หัวหน้าทัวร์ประจำกรุ๊ปอื่น',
                           route === 'none' ? 'รับแทน — มารับซองจากการเงิน' : 'รับแทน — รับต่อจากเจ้าหน้าที่ส่งกรุ๊ป', () => setLeaderRoute('carrier'),
                           {
@@ -2051,5 +2334,123 @@ body{font-family:'Sarabun',system-ui,sans-serif;color:#0f172a;background:#e2e8f0
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * แบ่ง 1 รายการลงหลายซอง — เลือกวิธี (ยอดต่อซอง / จำนวนซองเท่า ๆ กัน) ดูตัวอย่างก่อนยืนยัน
+ * เศษ (เฉพาะยอดต่อซองที่แบ่งไม่ลงตัว): รวมกับซองนี้ · แยกซองใหม่ · ยังไม่จัด
+ */
+function SplitLineModal({ title, currency, total, hasOthers, onClose, onConfirm }: {
+  title: string;
+  currency: string;
+  /** ยอดที่ยังไม่ได้จัดให้ซองอื่น (รวมส่วนที่อยู่ในซองนี้แล้ว) */
+  total: number;
+  /** ซองนี้มีรายการอื่นอยู่แล้ว — ใช้บอกว่ารวมเศษกับรายการอื่นได้ */
+  hasOthers: boolean;
+  onClose: () => void;
+  onConfirm: (parts: number[], remainder: number, place: 'current' | 'new' | 'leave') => Promise<void>;
+}) {
+  const [mode, setMode] = useState<'per' | 'count'>('per');
+  const [value, setValue] = useState('');
+  const [place, setPlace] = useState<'current' | 'new' | 'leave'>('current');
+  const [busy, setBusy] = useState(false);
+  const { parts, remainder } = splitLineAmount(total, mode, Number(value), currency);
+  const fmt = (n: number) => formatCurrency(n, currency);
+  const envCount = parts.length + (remainder > 0 && place !== 'leave' ? 1 : 0);
+  const error = value === '' ? null
+    : parts.length === 0 ? (mode === 'per' ? `ยอดต่อซองต้องมากกว่า 0 และไม่เกิน ${fmt(total)}` : 'จำนวนซองต้องตั้งแต่ 2 ซองขึ้นไป')
+      : parts.length > 50 ? 'แบ่งได้ไม่เกิน 50 ซองต่อครั้ง' : null;
+  const ok = parts.length > 0 && parts.length <= 50 && envCount >= 2;
+  // สรุปตัวอย่าง: ยอดเท่ากันรวมเป็นกลุ่ม เช่น "5 ซอง × 20,000"
+  const groups: { amount: number; n: number }[] = [];
+  for (const p of parts) {
+    const last = groups.at(-1);
+    if (last && last.amount === p) last.n += 1;
+    else groups.push({ amount: p, n: 1 });
+  }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title="แบ่งรายการลงหลายซอง"
+      description={`${title} · ยอดที่ยังไม่ได้แบ่ง ${fmt(total)}`}
+      footer={
+        <div className="grid w-full grid-cols-2 gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={busy}>ยกเลิก</Button>
+          <Button
+            variant="primary"
+            loading={busy}
+            disabled={!ok}
+            onClick={async () => { setBusy(true); try { await onConfirm(parts, remainder, place); } finally { setBusy(false); } }}
+          >
+            {ok ? `แบ่ง ${envCount} ซอง` : 'แบ่งซอง'}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="วิธีแบ่ง">
+          {([['per', 'ยอดต่อซอง', 'เช่น ซองละ 20,000'], ['count', 'จำนวนซอง', 'แบ่งเท่า ๆ กัน']] as const).map(([m, label, hint]) => (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={mode === m}
+              onClick={() => { setMode(m); setValue(''); }}
+              className={cx('rounded-lg border px-3 py-2 text-left transition', mode === m ? 'border-emerald-600 bg-emerald-50' : 'zego-border-color zego-hover-surface')}
+            >
+              <span className="block font-semibold zego-text">{label}</span>
+              <span className="block text-[11px] zego-text-tertiary">{hint}</span>
+            </button>
+          ))}
+        </div>
+        <TextInput
+          label={mode === 'per' ? `ยอดต่อซอง (${currency})` : 'จำนวนซอง'}
+          type="number"
+          inputMode="decimal"
+          min={mode === 'per' ? 0 : 2}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          error={error ?? undefined}
+          autoFocus
+        />
+        {parts.length > 0 && !error && (
+          <div className="space-y-1 rounded-lg zego-surface-soft-bg px-3 py-2">
+            <p className="text-xs font-semibold zego-text-secondary">ตัวอย่างการแบ่ง</p>
+            {groups.map((g, i) => (
+              <p key={i} className="flex justify-between tabular-nums zego-text">
+                <span>{g.n} ซอง ×</span><span className="font-semibold">{fmt(g.amount)}</span>
+              </p>
+            ))}
+            {remainder > 0 && (
+              <p className="flex justify-between tabular-nums text-amber-800">
+                <span>เศษ</span><span className="font-semibold">{fmt(remainder)}</span>
+              </p>
+            )}
+          </div>
+        )}
+        {remainder > 0 && !error && (
+          <div className="space-y-1.5" role="radiogroup" aria-label="เศษ">
+            <p className="text-xs font-semibold zego-text-secondary">เศษ {fmt(remainder)} ใส่ที่ไหน</p>
+            {([
+              ['current', 'รวมกับซองนี้', hasOthers ? 'อยู่ร่วมกับรายการอื่นในซองนี้' : 'ติ๊กรายการอื่นใส่ซองนี้เพิ่มได้'],
+              ['new', 'แยกเป็นซองใหม่', 'เพิ่มรายการอื่นในซองนั้นทีหลังได้'],
+              ['leave', 'ยังไม่จัด', 'ค้างไว้ในรายการ จัดเองทีหลัง'],
+            ] as const).map(([p, label, hint]) => (
+              <label key={p} className={cx('flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2', place === p ? 'border-emerald-600 bg-emerald-50' : 'zego-border-color')}>
+                <input type="radio" name="split-remainder" className="mt-0.5 accent-emerald-600" checked={place === p} onChange={() => setPlace(p)} />
+                <span>
+                  <span className="block font-medium zego-text">{label}</span>
+                  <span className="block text-[11px] zego-text-tertiary">{hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+        <p className="text-[11px] zego-text-tertiary">ส่วนแรกอยู่ในซองนี้ ส่วนที่เหลือสร้างซองใหม่ให้ (ประเภทเดียวกัน) · ยังไม่ปิดซอง ตรวจแล้วปิดเองทีละซอง</p>
+      </div>
+    </Modal>
   );
 }

@@ -45,6 +45,8 @@ export interface GuidePeriodAssignment {
    * เปลี่ยนหัวหน้าทัวร์ = ล้างค่า (คนใหม่ยังไม่เคยเห็น)
    */
   leaderSeenAt?: string;
+  /** ฝั่งบัญชีเปลี่ยนตัวหน้างาน (ตอนส่งมอบซองเงิน) — แสดงป้ายบนตารางจัดงาน · ผู้จัดเปลี่ยนคนเองภายหลัง = ล้างค่า */
+  financeSwap?: FinanceSwap;
 
   /* ---- การถอดหัวหน้าทัวร์ (§5/§6) — ถอดแล้วยัง "เก็บ Record ไว้" ไม่ลบทิ้ง ---- */
   /** เวลาที่ถูกถอด — มีค่า = ถอดแล้ว (ไม่นับเป็นงานที่ครองเวลาของหัวหน้าทัวร์อีกต่อไป) */
@@ -55,6 +57,16 @@ export interface GuidePeriodAssignment {
   statusBeforeRemove?: AssignmentBoardStatus;
   /** สถานะขายของพีเรียด ณ เวลาที่ถอด — ใช้แยกว่าถอดเพราะ NO SELL หรือเหตุอื่น */
   saleStatusAtRemove?: string;
+}
+
+/** ร่องรอยการเปลี่ยนตัวจากฝั่งบัญชี — ใช้ทั้งการจัดหัวหน้าทัวร์และเจ้าหน้าที่ส่งกรุ๊ป */
+export interface FinanceSwap {
+  at: string;
+  by: string;
+  /** คนที่จัดไว้เดิม (ไม่มี = ยังไม่ได้จัดใคร) */
+  fromId: string | null;
+  fromName: string;
+  reason: string;
 }
 
 /** ข้อความเดียวที่ใช้ทั้งระบบเมื่อปฏิเสธการจัดงานให้พีเรียด NO SELL */
@@ -179,9 +191,26 @@ export function reassignPeriod(assignmentId: string, newLeaderId: string, by: st
   if (rejected) return { ok: false, error: rejected, rows: activeRows(all) };
 
   // เปลี่ยนหัวหน้าทัวร์แล้วถือว่าคอนเฟิร์มทันทีเช่นกัน — สอดคล้องกับ assignPeriod
-  const next = all.map((a) => (a.assignmentId === assignmentId ? { ...a, tourLeaderId: newLeaderId, assignmentStatus: 'CONFIRMED' as const, confirmedAt: at, assignedBy: by, assignedAt: at, reassignReason: undefined, leaderSeenAt: undefined } : a));
+  const next = all.map((a) => (a.assignmentId === assignmentId ? { ...a, tourLeaderId: newLeaderId, assignmentStatus: 'CONFIRMED' as const, confirmedAt: at, assignedBy: by, assignedAt: at, reassignReason: undefined, leaderSeenAt: undefined, financeSwap: undefined } : a));
   writeJSON(ASSIGN_KEY, next);
   appendAudit({ assignmentId, periodId: cur.periodId, action: 'reassign', tourLeaderId: newLeaderId, from: cur.tourLeaderId, to: newLeaderId, by, at, reason });
+  return { ok: true, rows: activeRows(next) };
+}
+
+/**
+ * ฝั่งบัญชีเปลี่ยนหัวหน้าทัวร์หน้างาน (ตอนส่งมอบซองเงิน) — อัปเดตตารางจัดงานเป็นคนใหม่ทันที
+ * มีการจัดเดิม = เปลี่ยนคน · ยังไม่มี = จัดให้ใหม่ · บันทึก Audit + ติดป้าย financeSwap ไว้ให้ผู้จัดเห็นว่าใครเปลี่ยน
+ */
+export function swapLeaderFromFinance(periodId: string, newLeaderId: string, swap: FinanceSwap, snapshot?: PeriodSnapshot): AssignResult {
+  const cur = loadActiveGuideAssignments().find((a) => a.periodId === periodId && a.role === 'lead');
+  if (cur?.tourLeaderId === newLeaderId) return { ok: true, rows: loadActiveGuideAssignments() };
+  const res = cur
+    ? reassignPeriod(cur.assignmentId, newLeaderId, swap.by, swap.at, swap.reason)
+    : assignPeriod(periodId, newLeaderId, swap.by, swap.at, swap.reason, snapshot);
+  if (!res.ok) return res;
+  const id = cur?.assignmentId ?? `GA-lead-${periodId}`;
+  const next = loadGuideAssignments().map((a) => (a.assignmentId === id ? { ...a, financeSwap: swap } : a));
+  writeJSON(ASSIGN_KEY, next);
   return { ok: true, rows: activeRows(next) };
 }
 

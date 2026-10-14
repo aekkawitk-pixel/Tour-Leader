@@ -7,6 +7,7 @@ import { Header } from './Header';
 import { GuideShell } from './GuideShell';
 import { StaffShell } from './StaffShell';
 import { ToastContainer } from '@/components/ui/Toast';
+import { CallNextHost } from '@/components/appointments/CallNextHost';
 import { useDemo } from '@/store/DemoStore';
 import { Button, cx, EmptyState, PageLoading } from '@/components/ui/Primitives';
 import { canViewPath, landingPathForRole, ROLE_SCOPE } from '@/lib/permissions';
@@ -124,6 +125,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </div>
 
+      {/* เคลียร์เสร็จก่อนเวลา → ถามเรียกคิวถัดไป (เรียกได้จากทุกหน้าที่ปิดนัด) */}
+      <CallNextHost />
       <ToastContainer />
     </ContentWidthContext.Provider>
   );

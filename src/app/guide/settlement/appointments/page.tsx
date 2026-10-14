@@ -14,7 +14,8 @@ import { useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { APPOINTMENT_KIND, APPOINTMENT_MODE, appointmentStatusMeta } from '@/lib/labels';
-import { formatCurrency, formatDate, formatDateRange, toISODate, toISODateTime } from '@/lib/format';
+import { formatCurrency, formatDate, formatDateRange, formatDateTime, formatTime, toISODate, toISODateTime } from '@/lib/format';
+import { Icon } from '@/components/ui/Icon';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { loadGroupClears } from '@/services/groupClearStore';
@@ -22,6 +23,8 @@ import { summarizeGroupClear } from '@/lib/logic/groupClear';
 import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { Modal } from '@/components/ui/Modal';
 import { TextArea } from '@/components/ui/FormField';
+import { LANE_LABEL } from '@/lib/logic/appointmentSlots';
+import { laneOfAppointment } from '@/lib/logic/appointmentLane';
 import { FreeSlotPicker, isFreeChoice, useBookableDays } from '@/components/appointments/FreeSlotPicker';
 import type { Appointment } from '@/types';
 import { AppointmentCalendar } from './AppointmentCalendar';
@@ -35,6 +38,8 @@ export default function GuideSettlementAppointmentsPage() {
   const [asking, setAsking] = useState<Appointment | null>(null);
   /** สร้างนัดหมายใหม่ (เลือกกรุ๊ป → นัดเคลียร์เงิน) */
   const [creating, setCreating] = useState(false);
+  /** ทำนัดใหม่ให้กรุ๊ปที่นัดถูกยกเลิก (periodId) */
+  const [rebookId, setRebookId] = useState<string | null>(null);
 
   // นัดของฉัน — นัดที่ยังมีผลก่อน (เรียงตามวันเวลา) แล้วตามด้วยที่เข้าพบแล้ว/ยกเลิก
   const mine = useMemo(() => appointments
@@ -64,7 +69,8 @@ export default function GuideSettlementAppointmentsPage() {
         <Button variant="primary" size="sm" icon="plus" className="shrink-0" onClick={() => setCreating(true)}>สร้างนัดหมาย</Button>
       </div>
 
-      <AppointmentCalendar month={month} onMonth={setMonth} selected={day} onSelect={setDay} appointments={mine} today={today} />
+      {/* ปฏิทินไม่แสดงนัดที่ยกเลิกแล้ว (การ์ดในรายการยังบอกว่ายกเลิก ไว้ท้ายสุด) */}
+      <AppointmentCalendar month={month} onMonth={setMonth} selected={day} onSelect={setDay} appointments={mine.filter((a) => a.status !== 'cancelled')} today={today} />
 
       <p className="px-1 text-xs font-semibold zego-text-secondary">
         {day ? `นัดวันที่ ${formatDate(day)}` : 'นัดในเดือนนี้'} <span className="font-normal zego-text-tertiary">({shown.length})</span>
@@ -109,8 +115,19 @@ export default function GuideSettlementAppointmentsPage() {
               <StatusBadge meta={appointmentStatusMeta(a)} size="sm" />
             </div>
 
+            {/* บัญชีเคลียร์คิวก่อนหน้าเสร็จเร็ว — เรียกให้เข้าพบได้เลยโดยไม่ต้องรอเวลานัด */}
+            {a.calledEarly && a.status !== 'attended' && a.status !== 'cancelled' && (
+              <div className="flex items-start gap-2 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2.5 text-emerald-900">
+                <Icon name="bell" className="mt-0.5 h-4 w-4 shrink-0 animate-pulse" />
+                <span className="text-sm">
+                  <span className="block font-bold">บัญชีพร้อมแล้ว — เข้าพบได้เลย ไม่ต้องรอเวลานัด</span>
+                  <span className="block text-xs">เรียกเมื่อ {formatTime(a.calledEarly.at)} น. โดย {a.calledEarly.by} · ถ้ายังมาไม่ได้ ใช้เวลานัดเดิม {a.time} น.</span>
+                </span>
+              </div>
+            )}
+
             <div className="rounded-lg zego-surface-soft-bg px-3 py-2.5 text-sm">
-              <p className="font-semibold zego-text">{formatDate(a.date)} · {a.time} น. <span className="font-normal zego-text-tertiary">({a.durationMinutes} นาที)</span></p>
+              <p className="font-semibold zego-text">{formatDate(a.date)} · {a.time} น. <span className="font-normal zego-text-tertiary">({a.durationMinutes} นาที{a.kind === 'clear' ? ` · คิว${LANE_LABEL[laneOfAppointment(a)]}` : ''})</span></p>
               <p className="zego-text-secondary">{APPOINTMENT_MODE[a.mode].label} · {a.location}</p>
               <p className="text-xs zego-text-tertiary">{a.requestedByLeader ? 'คุณขอนัดกับ' : 'ผู้นัด'} {a.staffName}{a.note ? ` · ${a.note}` : ''}</p>
             </div>
@@ -148,12 +165,36 @@ export default function GuideSettlementAppointmentsPage() {
                 </Button>
               </div>
             )}
+
+            {/* ถูกยกเลิก — บอกใคร/เมื่อไร แล้วทำนัดใหม่ของกรุ๊ปนี้ได้เลย (ถ้ายังไม่ปิดเคลียร์ และยังไม่มีนัดใหม่) */}
+            {a.status === 'cancelled' && (() => {
+              const cancel = [...a.history].reverse().find((h) => h.to === 'cancelled');
+              const rebooked = a.kind === 'clear' && !!a.jobId && mine.some((x) => x.id !== a.id && x.kind === 'clear' && x.jobId === a.jobId && x.status !== 'cancelled');
+              const canRebook = a.kind === 'clear' && !!a.jobId && !rebooked && !loadGroupClears()[a.jobId]?.closedAt;
+              return (
+                <div className="space-y-2">
+                  {cancel && (
+                    <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                      ยกเลิกโดย {cancel.by} · {formatDateTime(cancel.at)}{cancel.note && cancel.note !== 'ยกเลิกนัดหมาย' ? ` · ${cancel.note}` : ''}
+                    </p>
+                  )}
+                  {rebooked && <p className="text-xs zego-text-tertiary">ทำนัดใหม่ของกรุ๊ปนี้แล้ว — ดูนัดใหม่ด้านบน</p>}
+                  {canRebook && (
+                    <Button variant="primary" size="sm" icon="calendar" className="w-full justify-center" onClick={() => setRebookId(a.jobId)}>
+                      ทำนัดใหม่
+                    </Button>
+                  )}
+                </div>
+              );
+            })()}
           </Card>
         );
       })}
 
       {asking && <RescheduleModal appointment={asking} onClose={() => setAsking(null)} />}
       {creating && <NewAppointmentModal onClose={() => setCreating(false)} />}
+      {/* ทำนัดใหม่จากนัดที่ถูกยกเลิก — เปิดหน้าต่างนัดของกรุ๊ปนั้นเลย */}
+      {rebookId && <NewAppointmentModal presetPeriodId={rebookId} onClose={() => setRebookId(null)} />}
     </div>
   );
 }
@@ -164,7 +205,8 @@ export default function GuideSettlementAppointmentsPage() {
  */
 function RescheduleModal({ appointment: a, onClose }: { appointment: Appointment; onClose: () => void }) {
   const { appointments, saveAppointment, currentUser, saving } = useDemo();
-  const days = useBookableDays(appointments, a.durationMinutes, a.id);
+  // เลื่อนภายในคิวเดิม (ญี่ปุ่น / ประเทศอื่น) — นับชนเฉพาะนัดคิวเดียวกัน
+  const days = useBookableDays(appointments, a.durationMinutes, a.id, laneOfAppointment(a));
   const first = days.find((d) => d.date !== a.date || d.free.some((t) => t !== a.time)) ?? days[0];
   const [date, setDate] = useState(() => first?.date ?? '');
   const [time, setTime] = useState(() => first?.free.find((t) => first.date !== a.date || t !== a.time) ?? '');
@@ -190,7 +232,7 @@ function RescheduleModal({ appointment: a, onClose }: { appointment: Appointment
     <Modal
       open
       onClose={onClose}
-      size="sm"
+      size="lg"
       title="เลื่อนนัด"
       description={`${a.id} · นัดเดิม ${formatDate(a.date)} ${a.time} น.`}
       footer={

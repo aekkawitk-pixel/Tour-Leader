@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
-import { addDays, daysBetween, endOfMonth, formatDate, parseDate, startOfMonth, TH_WEEKDAYS_SHORT } from '@/lib/format';
+import { addDays, daysBetween, endOfMonth, formatDate, formatDateTime, parseDate, startOfMonth, TH_WEEKDAYS_SHORT } from '@/lib/format';
 import { Button, Card, cx, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { SearchBox, TextInput } from '@/components/ui/FormField';
@@ -36,7 +36,7 @@ import {
   SEND_OFF_STAFF_STATUS, SEND_OFF_STAFF_TYPE, SEND_OFF_STAFF_TYPE_ORDER,
   type SendOffStaff, type SendOffStaffType,
 } from '@/lib/logic/sendOffStaff';
-import { buildSendOffJobs, chipTime, jobArrival, jobIssue, jobOverlapWarning, jobStatus, rulesSummary, sendOffPeriodPool, type SendOffJob } from '@/lib/logic/sendOffJobs';
+import { buildSendOffJobs, chipTime, jobArrival, jobDisplayDate, jobIssue, jobOverlapWarning, jobStatus, rulesSummary, sendOffPeriodPool, type SendOffJob } from '@/lib/logic/sendOffJobs';
 import { DEFAULT_SEND_OFF_RULES, type SendOffRules } from '@/lib/logic/sendOffRules';
 import { planAutoAssignSendOff, summarizeAutoAssign, type AutoAssignJobInput, type AutoAssignResult, type AutoAssignStaffInput } from '@/lib/logic/sendOffAutoAssign';
 import { loadSendOffRules } from '@/services/sendOffRulesStore';
@@ -234,7 +234,7 @@ export function SendOffScheduleTimeline() {
       assignments,
     });
     return buildSendOffJobs({ periods, assignments, staffById, manualTimes, manualAirports, rules, dayOffOf })
-      .filter((j) => j.dutyDate >= monthStart && j.dutyDate <= monthEnd);
+      .filter((j) => jobDisplayDate(j) >= monthStart && jobDisplayDate(j) <= monthEnd);
   }, [assignments, monthStart, monthEnd, staffById, manualTimes, manualAirports, rules, dayOffOf]);
 
   /** กรุ๊ปที่ยังไม่มีคนไปส่ง — แถวแรกของตาราง เพราะคือสิ่งที่ต้องเห็นก่อนอย่างอื่น */
@@ -336,7 +336,7 @@ export function SendOffScheduleTimeline() {
     for (const s of shownStaff) {
       const counts = new Map<string, number>();
       for (const j of jobsByStaff.get(s.id) ?? []) {
-        counts.set(j.dutyDate, (counts.get(j.dutyDate) ?? 0) + 1);
+        counts.set(jobDisplayDate(j), (counts.get(jobDisplayDate(j)) ?? 0) + 1);
       }
       for (const c of counts.values()) if (c > max) max = c;
     }
@@ -729,7 +729,7 @@ export function SendOffScheduleTimeline() {
     const d = parseDate(iso);
     const weekend = d.getDay() === 0 || d.getDay() === 6;
     const holiday = holidays.get(iso);
-    const inDay = list.filter((j) => j.dutyDate === iso);
+    const inDay = list.filter((j) => jobDisplayDate(j) === iso);
     const onLeave = (approvedLeaveByStaff.get(staffId) ?? []).some((r) => leaveCoversDate(r, iso));
     const leaveConflict = onLeave && inDay.length > 0;
     /* ลาอยู่และยังไม่มีงาน → ปิดการคลิกจัดกรุ๊ปใหม่ (ยังกดดูรายละเอียดวันที่มีงานอยู่แล้วได้ตามปกติ เผื่อต้องเปลี่ยนคน) */
@@ -788,7 +788,7 @@ export function SendOffScheduleTimeline() {
           return (
           <div
             key={j.period.internalId}
-            title={issue ?? overlap ?? undefined}
+            title={[issue ?? overlap, j.assignment?.financeSwap && `บัญชีเปลี่ยนตัวหน้างาน — แทน ${j.assignment.financeSwap.fromName} · ${j.assignment.financeSwap.by} ${formatDateTime(j.assignment.financeSwap.at)}`].filter(Boolean).join('\n') || undefined}
             className={cx(
               'relative block w-full overflow-hidden rounded-md px-1 py-px text-left leading-tight ring-1',
               statusBar(jobStatus(j)),
@@ -801,11 +801,15 @@ export function SendOffScheduleTimeline() {
             ) : overlap && (
               <span aria-label="เวลานัดทับซ้อน" className="absolute -right-0.5 -top-1 text-[10px] leading-none zego-text-orange">⚠</span>
             )}
-            <span className="block truncate text-[9px] font-normal">
-              {j.period.groupCode}{j.period.bus && j.period.bus !== '-' ? ` (${j.period.bus})` : ''}
+            {/* รหัสกรุ๊ปตัดคำได้ แต่ป้าย "เปลี่ยน" ต้องเห็นเต็มเสมอ — แยกเป็น shrink-0 ตัวใหญ่กว่า สีเข้มบนพื้นอ่อน อ่านออกในช่องแคบ */}
+            <span className="flex min-w-0 items-center gap-1 text-[9px] font-normal">
+              <span className="min-w-0 truncate">{j.period.groupCode}{j.period.bus && j.period.bus !== '-' ? ` (${j.period.bus})` : ''}</span>
+              {j.assignment?.financeSwap && (
+                <span className="shrink-0 rounded border border-amber-400 bg-amber-100 px-0.5 text-[10px] font-semibold leading-[13px] text-amber-900">เปลี่ยน</span>
+              )}
             </span>
             {/* นัด = เวลาที่ต้องถึงสนามบิน (เลขหลักที่ต้องดู) ไม่ใช่เวลาเครื่องออก — เดิมเผลอโชว์เวลาเครื่องออกตรง ๆ ทำให้เข้าใจผิดว่าต้องไปถึงตอนนั้น จึงใส่ "บิน" กำกับไว้ข้าง ๆ ให้เทียบกันได้ในบรรทัดเดียว */}
-            <span className="block truncate text-[9px] opacity-70" title="นัด = เวลาที่ต้องถึงสนามบิน (เครื่องออกลบเวลานำหน้าที่ตั้งไว้) · บิน = เวลาเครื่องออกจริง">
+            <span className="block truncate text-[9px] opacity-70" title={`นัด = เวลาที่ต้องถึงสนามบิน (เครื่องออกลบเวลานำหน้าที่ตั้งไว้) · บิน = เวลาเครื่องออกจริง${j.dutyDate !== jobDisplayDate(j) ? ` · ✳ ข้ามคืน: ต้องไปถึงตั้งแต่ ${formatDate(j.dutyDate)}` : ''}`}>
               {j.airport || '-'} · นัด {chipTime(j)}{j.flightTime ? ` · บิน ${j.flightTime}` : ''}
             </span>
           </div>
@@ -1221,7 +1225,7 @@ export function SendOffScheduleTimeline() {
       {/* ---------------- กรุ๊ปทั้งหมดของวันนั้น — ยืนยัน/ถอดคนได้ทันทีจากรายการ ไม่ต้องเปิดรายละเอียดทีละกรุ๊ป ---------------- */}
       {dayList && (() => {
         /* ดึงจาก jobsByStaff สดทุกครั้ง (ไม่ใช่ snapshot ตอนเปิด) เพื่อให้กดถอดคนแล้วรายการอัปเดตทันที */
-        const dayJobs = (jobsByStaff.get(dayList.staffId) ?? []).filter((j) => j.dutyDate === dayList.date);
+        const dayJobs = (jobsByStaff.get(dayList.staffId) ?? []).filter((j) => jobDisplayDate(j) === dayList.date);
         const staffObj = staffById.get(dayList.staffId);
         /* ลาอยู่วันนี้ห้ามจัดเพิ่ม — เงื่อนไขเดียวกับที่บล็อกคลิกช่องวันว่างตอนลาอยู่ */
         const onLeaveThisDay = (approvedLeaveByStaff.get(dayList.staffId) ?? []).some((r) => leaveCoversDate(r, dayList.date));
@@ -1264,7 +1268,10 @@ export function SendOffScheduleTimeline() {
                       className="zego-border-color flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
                     >
                       <div className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold zego-text">{j.period.groupCode}</span>
+                        <span className="flex items-center gap-1.5 truncate text-sm font-semibold zego-text">
+                          {j.period.groupCode}
+                          {j.assignment?.financeSwap && <span className="rounded border border-amber-400 bg-amber-100 px-1 text-[11px] font-semibold text-amber-900">เปลี่ยน</span>}
+                        </span>
                         <span className="flex flex-wrap items-center gap-1 truncate text-xs zego-text-tertiary">
                           {j.period.countryName} · {j.staff ? sendOffStaffName(j.staff) : 'ยังไม่มีคนไปส่ง'}
                           {j.assignment && <StatusBadge meta={BOARD_STATUS[jobStatus(j)]} size="sm" />}
@@ -1272,6 +1279,11 @@ export function SendOffScheduleTimeline() {
                             <span className="zego-badge--indigo rounded border px-1 py-0.5 text-[10px] font-medium">อัตโนมัติ</span>
                           )}
                         </span>
+                        {j.assignment?.financeSwap && (
+                          <span className="mt-1 block rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-900">
+                            เปลี่ยนตัวโดยฝั่งบัญชี — แทน {j.assignment.financeSwap.fromName} · โดย {j.assignment.financeSwap.by} · {formatDateTime(j.assignment.financeSwap.at)}
+                          </span>
+                        )}
                         {/* คำเตือน/เรื่องต้องตรวจ — ย้ายมาจาก Modal รายละเอียดเดิม จะได้ไม่ต้องเปิดซ้ำอีกชั้น */}
                         {issue ? (
                           <span className="block text-[11px] font-medium zego-text-danger">! {issue}</span>
@@ -1331,8 +1343,8 @@ export function SendOffScheduleTimeline() {
             <div className="space-y-3">
               {(() => {
                 const byDate = new Map<string, SendOffJob[]>();
-                for (const j of [...unassigned].sort((x, y) => x.dutyDate.localeCompare(y.dutyDate) || chipTime(x).localeCompare(chipTime(y)))) {
-                  byDate.set(j.dutyDate, [...(byDate.get(j.dutyDate) ?? []), j]);
+                for (const j of [...unassigned].sort((x, y) => jobDisplayDate(x).localeCompare(jobDisplayDate(y)) || chipTime(x).localeCompare(chipTime(y)))) {
+                  byDate.set(jobDisplayDate(j), [...(byDate.get(jobDisplayDate(j)) ?? []), j]);
                 }
                 return [...byDate.entries()].map(([date, list]) => (
                   <section key={date}>
@@ -1373,7 +1385,7 @@ export function SendOffScheduleTimeline() {
                   >
                     <span className="flex w-full items-center justify-between gap-2">
                       <span className="font-mono text-sm font-bold zego-text">{j.period.groupCode}</span>
-                      <span className="text-xs zego-text-tertiary">{formatDate(j.dutyDate)}</span>
+                      <span className="text-xs zego-text-tertiary">{formatDate(jobDisplayDate(j))}</span>
                     </span>
                     <span className="text-xs zego-text-secondary">{j.staff ? sendOffStaffName(j.staff) : 'ยังไม่มีคนไปส่ง'}</span>
                     <span className={cx('text-[11px] font-medium', issueListKind === 'issue' ? 'zego-text-danger' : 'zego-text-orange')}>
@@ -1462,6 +1474,15 @@ export function SendOffScheduleTimeline() {
         >
           <div className="space-y-3 text-sm">
             <StatusBadge meta={BOARD_STATUS[jobStatus(detail)]} />
+            {/* ฝั่งบัญชีเปลี่ยนตัวหน้างาน (ตอนส่งมอบซองเงิน) — บอกใคร/เมื่อไร/แทนใคร */}
+            {detail.assignment?.financeSwap && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <p className="font-semibold">เปลี่ยนตัวโดยฝั่งบัญชี</p>
+                <p>แทน {detail.assignment.financeSwap.fromName}</p>
+                <p>โดย {detail.assignment.financeSwap.by} · {formatDateTime(detail.assignment.financeSwap.at)}</p>
+                <p className="opacity-80">{detail.assignment.financeSwap.reason}</p>
+              </div>
+            )}
             {detail.assignment?.note === AUTO_ASSIGN_NOTE && (
               <div className="zego-badge--indigo rounded-lg border px-3 py-2 text-xs">
                 จัดโดย Auto Assignment — ยังเป็นแค่ร่างเบื้องต้น ตรวจสอบและปรับเปลี่ยนคนได้ตามปกติ

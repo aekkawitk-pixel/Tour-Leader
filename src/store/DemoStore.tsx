@@ -1585,7 +1585,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         date: newDate ?? target.date,
         time: newTime ?? target.time,
         // เจ้าหน้าที่เลื่อนเวลาเอง = เวลาใหม่มาจากฝั่งบัญชี → หัวหน้าทัวร์ต้องเป็นคนยืนยัน (ไม่ใช่คำขอของหัวหน้าทัวร์แล้ว)
-        ...(newDate || newTime ? { requestedByLeader: false } : {}),
+        ...(newDate || newTime ? { requestedByLeader: false, inProgress: undefined } : {}),
         history: [
           ...target.history,
           makeStatusEvent(target.status, status, currentUser.name, stamp(), note),

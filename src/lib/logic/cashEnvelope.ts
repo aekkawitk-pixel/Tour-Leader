@@ -451,6 +451,32 @@ export function allocationOf(env: Packing, lines: GroupLine[]): Allocation {
   return out;
 }
 
+/** สกุลที่ไม่ใช้ทศนิยม — แบ่งซองแล้วปัดเป็นจำนวนเต็ม */
+const NO_DECIMAL = new Set(['JPY', 'KRW', 'VND', 'IDR', 'TWD']);
+
+/**
+ * แบ่ง 1 รายการลงหลายซอง
+ *   per   = ยอดต่อซอง → ได้ floor(ยอด ÷ ต่อซอง) ซองเต็ม + เศษ (remainder > 0 เมื่อแบ่งไม่ลงตัว)
+ *   count = จำนวนซอง (เท่า ๆ กัน) → ยอดต่อซองปัดลง ส่วนที่ปัดทิ้งไปรวมซองสุดท้าย (ไม่มีเศษแยก)
+ * ยอดรวมของ parts + remainder = ยอดที่แบ่งเสมอ · ค่าไม่ถูกต้อง = parts ว่าง
+ */
+export function splitLineAmount(total: number, mode: 'per' | 'count', value: number, currency: string): { parts: number[]; remainder: number } {
+  const scale = NO_DECIMAL.has(currency) ? 1 : 100;
+  const t = Math.round(total * scale);
+  const empty = { parts: [] as number[], remainder: 0 };
+  if (!(t > 0) || !(value > 0)) return empty;
+  if (mode === 'per') {
+    const per = Math.round(value * scale);
+    if (per <= 0 || per > t) return empty;
+    const n = Math.floor(t / per);
+    return { parts: Array.from({ length: n }, () => per / scale), remainder: (t - n * per) / scale };
+  }
+  const n = Math.floor(value);
+  if (n < 2 || n > t) return empty;
+  const base = Math.floor(t / n);
+  return { parts: [...Array.from({ length: n - 1 }, () => base / scale), (t - base * (n - 1)) / scale], remainder: 0 };
+}
+
 /** การจัด → ฟิลด์ที่เก็บในซอง (เต็มจำนวน = ไม่ต้องเก็บใน splits) */
 export function packingFromAllocation(alloc: Allocation, lines: GroupLine[]): { packedLineIds: string[]; splits?: Record<string, number> } {
   const byId = new Map(lines.map((l) => [l.id, l]));

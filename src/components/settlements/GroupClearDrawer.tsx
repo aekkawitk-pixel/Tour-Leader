@@ -13,13 +13,13 @@
  */
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
 import { Drawer } from '@/components/ui/Modal';
 import { Button, cx, StatusBadge } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import { EXPENSE_STATUS } from '@/lib/labels';
-import { formatCurrency, formatDate, formatDateRange, formatDateTime, toISODateTime } from '@/lib/format';
+import { formatCurrency, formatDate, formatDateRange, formatDateTime, formatTime, toISODateTime } from '@/lib/format';
 import { envelopeName } from '@/lib/logic/cashEnvelope';
 import { clearChecklist, clearNotEnded, effectiveClearValues, followUpsFromClose, fxBase, fxCovered, GROUP_CLEAR_STAGE, settlementBreakdown, type GroupClearSummary } from '@/lib/logic/groupClear';
 import { CLEAR_EVENT_LABEL, saveGroupClear, type ClearSettlement, type GroupClearRecord } from '@/services/groupClearStore';
@@ -33,6 +33,9 @@ import { expenseStatusMeta } from '@/lib/logic/usageReport';
 import { budgetUseOf } from '@/lib/logic/groupBudget';
 import { printGroupClear } from '@/lib/printGroupClear';
 import type { ExpenseRequest } from '@/types';
+import { askCallNext } from '@/components/appointments/CallNextHost';
+import { claimedBy, isInProgress, useClearProgress } from '@/components/appointments/clearProgress';
+import { myCurrentJob } from '@/lib/logic/appointmentSlots';
 
 const money = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtTotals = (list: { amount: number; currency: string }[]) => list.map((t) => formatCurrency(t.amount, t.currency)).join(' · ') || '—';
@@ -278,6 +281,36 @@ export function GroupClearDrawer({
   const p = getTourPeriodById(summary.periodId);
   const closed = summary.stage === 'closed' || summary.stage === 'closed_partial';
   /*
+    กำลังดำเนินการ — เปิดหน้านี้ในวันนัด = ติดสถานะ "กำลังดำเนินการ" ให้นัดของกรุ๊ปนี้เอง (ถ้ายังไม่มีใครทำอยู่)
+    คนอื่นที่เปิดกรุ๊ปเดียวกันเห็นว่ามีคนทำอยู่ · ปิดเคลียร์แล้ว/เลื่อน/ยกเลิกนัด = หมดผลเอง
+  */
+  const clearAppt = clearAppointmentOf(appointments, summary.periodId);
+  const progress = useClearProgress();
+  const todayIso = toISODateTime(new Date()).slice(0, 10);
+  /** คนอื่นจองกรุ๊ปนี้อยู่ (เรียกไว้ / กำลังทำ) — เปิดดูได้ แต่ไม่ติดสถานะให้ ต้องกดรับช่วงต่อเอง */
+  const owner = claimedBy(clearAppt);
+  const takenByOther = !!owner && owner !== progress.me;
+  /** ฉันถือกรุ๊ปอื่นอยู่ — ทีละกรุ๊ปต่อคน (ปิด / คืนคิวกรุ๊ปนั้นก่อน หรือกดสลับ) */
+  const myOther = (() => {
+    const j = myCurrentJob(appointments, todayIso, progress.me);
+    return j && j.id !== clearAppt?.id ? j : null;
+  })();
+  const isToday = !!clearAppt && clearAppt.date === todayIso && clearAppt.status !== 'attended' && clearAppt.status !== 'cancelled';
+  useEffect(() => {
+    if (closed || !clearAppt || !isToday || clearAppt.inProgress || takenByOther || myOther) return;
+    void progress.start(clearAppt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ติดสถานะครั้งเดียวตอนเปิดหน้าต่าง
+  }, []);
+  const takeOver = () => {
+    if (!clearAppt || !window.confirm(`รับช่วงเคลียร์กรุ๊ปนี้ต่อจาก ${owner}? ระบบจะบันทึกในประวัติว่าคุณรับช่วงต่อ`)) return;
+    void progress.takeOver(clearAppt);
+  };
+  const switchHere = async () => {
+    if (!clearAppt || !myOther) return;
+    await progress.releaseAll(myOther);
+    await progress.start(clearAppt);
+  };
+  /*
     เงินคืนจริง / บริษัทจ่ายเพิ่ม — ต่อสกุลของยอด กรอกได้หลายรายการ และจ่ายเป็นสกุลอื่นได้ (กรอกอัตรา)
     ค่าที่บันทึกไว้ก่อน ไม่มีจึงตั้งต้นว่าง (กรอกตามที่รับ/จ่ายจริง)
   */
@@ -362,7 +395,11 @@ export function GroupClearDrawer({
       saveGroupClear(rec);
       // เคลียร์ตามนัด — นัดเคลียร์เงินที่ยังไม่ยกเลิกเปลี่ยนเป็น "เข้าพบแล้ว"
       const appt = clearAppointmentOf(appointments, summary.periodId);
-      if (appt && appt.status !== 'attended') void changeAppointmentStatus(appt.id, 'attended', 'เคลียร์เงินกรุ๊ปเรียบร้อย');
+      if (appt && appt.status !== 'attended') {
+        void changeAppointmentStatus(appt.id, 'attended', 'เคลียร์เงินกรุ๊ปเรียบร้อย');
+        // เสร็จก่อนเวลานัดจบ → ถามว่าจะเรียกคิวถัดไป (คิวเดียวกัน วันเดียวกัน) เลยไหม
+        askCallNext(appt, appointments, at);
+      }
       pushToast(kind === 'complete' ? 'success' : 'info', kind === 'complete' ? 'เคลียร์ครบ — ปิดการเคลียร์แล้ว' : 'ปิดแบบมีค้างแล้ว', p?.groupCode ?? periodCodeOf(summary.periodId));
       onSaved();
     } catch (e) {
@@ -430,6 +467,39 @@ export function GroupClearDrawer({
       )}
     >
       <div className="space-y-5">
+        {/* ใครกำลังทำกรุ๊ปนี้อยู่ — คนอื่นเปิดซ้ำจะเห็นเตือน กันบันทึกทับกัน */}
+        {!closed && isInProgress(clearAppt) && (clearAppt.inProgress.by === progress.me ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            <span className="flex items-center gap-2">
+              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
+              <span><b>กำลังดำเนินการกรุ๊ปนี้</b> · คุณเริ่มเมื่อ {formatTime(clearAppt.inProgress.at)} น. — คนอื่นที่เปิดกรุ๊ปนี้จะเห็นว่าคุณทำอยู่</span>
+            </span>
+            <button type="button" onClick={() => void progress.release(clearAppt)} className="text-xs font-medium underline">ยังไม่ทำต่อ · ปลดสถานะ</button>
+          </div>
+        ) : null)}
+        {/* คนอื่นจองไว้ (เรียกแล้ว / กำลังทำ) — ดูได้อย่างเดียว ทำแทนต้องกดรับช่วงต่อ */}
+        {!closed && takenByOther && clearAppt && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <span className="flex items-center gap-2">
+              <Icon name="warning" className="h-4 w-4 shrink-0" />
+              <span>
+                <b>{owner} {isInProgress(clearAppt) ? 'กำลังดำเนินการกรุ๊ปนี้อยู่' : 'เรียกกรุ๊ปนี้ไว้แล้ว'}</b>
+                {' '}· ตั้งแต่ {formatTime(clearAppt.inProgress?.at ?? clearAppt.calledEarly?.at)} น. — ตรวจกับผู้ทำก่อน กันบันทึกซ้ำ
+              </span>
+            </span>
+            <button type="button" onClick={takeOver} className="text-xs font-medium underline">รับช่วงต่อ (ทำแทน)</button>
+          </div>
+        )}
+        {/* ฉันถือกรุ๊ปอื่นอยู่ — ทีละกรุ๊ปต่อคน */}
+        {!closed && !takenByOther && myOther && isToday && !isInProgress(clearAppt) && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <span className="flex items-center gap-2">
+              <Icon name="warning" className="h-4 w-4 shrink-0" />
+              <span><b>คุณถือกรุ๊ป {getTourPeriodById(myOther.jobId)?.groupCode ?? periodCodeOf(myOther.jobId)} อยู่</b> — ทีละกรุ๊ปต่อคน · ปิดเคลียร์หรือคืนคิวกรุ๊ปนั้นก่อน</span>
+            </span>
+            <button type="button" onClick={() => void switchHere()} className="text-xs font-medium underline">คืนคิวกรุ๊ปนั้น · มาทำกรุ๊ปนี้</button>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <StatusPill label={s.label} tone={s.tone} />
           {summary.dueDate && <span className="zego-text-secondary">กำหนดเคลียร์ {formatDate(summary.dueDate)}</span>}

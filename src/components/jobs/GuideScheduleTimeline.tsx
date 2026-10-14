@@ -43,7 +43,7 @@ import { GUIDE_PREFS_CHANGED_EVENT, readAllFavoriteGuideIds } from '@/services/f
 import { remindersInWindow, compensationProgress, cancelledSpansForLeader, cancellationsForLeader } from '@/lib/logic/guideCancellations';
 import { getPassportExpiry } from '@/services/tourLeaderMaster';
 import { getTourPeriods, getAssignablePeriods, getTourPeriodById, getSaleStatusChange, periodCodeOf } from '@/services/tourPeriodMaster';
-import { loadActiveGuideAssignments, assignPeriod, reassignPeriod, unassignPeriod, acknowledgeChange, setAssignmentStatus, type GuidePeriodAssignment } from '@/services/guideAssignmentStore';
+import { loadActiveGuideAssignments, assignPeriod, reassignPeriod, unassignPeriod, acknowledgeChange, setAssignmentStatus, type GuidePeriodAssignment, type FinanceSwap } from '@/services/guideAssignmentStore';
 import { effectiveBoard } from '@/lib/logic/reassignNeed';
 import { passportStatus, passportRemainingText, passportBlocksScheduling, PASSPORT_STATUS_META, PASSPORT_TONE_CLASS } from '@/lib/logic/tourLeaderMaster';
 import { getLeaderExpertise, leaderDisplayName } from '@/lib/logic/leaderExpertise';
@@ -138,6 +138,8 @@ interface RowEvent {
   responsibleUser?: string;
   /** kind: 'job' เท่านั้น — รหัสกรุ๊ปเดิมที่กรุ๊ปนี้ถูกระบุว่าใช้ชดเชยให้ (ผู้จัดหัวหน้าทัวร์เป็นคนระบุตอนมอบหมาย) */
   compensatesFor?: string;
+  /** kind: 'job' — ฝั่งบัญชีเปลี่ยนตัวหน้างาน (ตอนส่งมอบซองเงิน) */
+  financeSwap?: FinanceSwap;
 }
 
 /* ===================== §4 การกรองงานในหน้าต่างจัดงาน ===================== */
@@ -221,6 +223,7 @@ function eventTooltip(e: RowEvent, leaderName?: string): string {
       // §3 งาน NO SELL — บอกให้ชัดว่าต้องลงมือทำอะไร พร้อมที่มาของการเปลี่ยนสถานะ
       ...(hasNoSellIssue(e) ? noSellTooltipLines(e.periodId) : []),
       e.compensatesFor ? `กรุ๊ปนี้ใช้ชดเชยให้: ${e.compensatesFor}` : '',
+      e.financeSwap ? `บัญชีเปลี่ยนตัวหน้างาน: แทน ${e.financeSwap.fromName} · ${e.financeSwap.by} ${formatDateTime(e.financeSwap.at)}` : '',
     ].filter(Boolean).join('\n');
   }
   return [`${e.code} · ${e.label}`, e.scheduleText].filter(Boolean).join('\n');
@@ -440,6 +443,7 @@ export function GuideScheduleTimeline({ header, toolbarStart }: { header?: React
           disp: periodScheduleDisplay(p),
           periodId: a.periodId, assignmentId: a.assignmentId, issues: detectAssignmentIssues(a.snapshot, p, realToday),
           compensatesFor: compensatesForByGroupCode.get(p.groupCode),
+          financeSwap: a.financeSwap,
         }));
       const recEvents: RowEvent[] = availabilityRecords
         .filter((r) => r.leaderId === leader.id && r.approval === 'approved' && r.blocksAssignment !== false && r.startDate <= winEnd && r.endDate >= winStart)
@@ -1866,6 +1870,9 @@ function LeaderRow({ leader, events, days, holidays, winStart, winEnd, monthEnd,
               {noSell && span >= 2 && (
                 <span data-testid="no-sell-tag" className="ml-1 shrink-0 rounded bg-[var(--zego-danger)] px-1 text-[9px] font-bold leading-4 text-white">NO SELL</span>
               )}
+              {e.financeSwap && (
+                <span className="ml-1 shrink-0 rounded border border-amber-400 bg-amber-100 px-0.5 text-[10px] font-semibold leading-[13px] text-amber-900" title={`บัญชีเปลี่ยนตัวหน้างาน — แทน ${e.financeSwap.fromName}`}>เปลี่ยน</span>
+              )}
               {e.compensatesFor && span >= 2 && (
                 <span className="ml-1 shrink-0 rounded bg-[var(--zego-success)] px-1 text-[9px] font-bold leading-4 text-white" title={`ชดเชยให้: ${e.compensatesFor}`}>ชดเชย</span>
               )}
@@ -2776,6 +2783,9 @@ function PeriodDetailPanel({ period, assignment, leaders, records, onClose, onUn
                 <Field label="สถานะการจัด" value={`${BOARD_STATUS[board].label}${eb.reason ? ` — ${eb.reason}` : ''}`} className={eb.reason ? 'col-span-2' : undefined} />
                 <Field label="ผู้มอบหมาย" value={assignment.assignedBy} />
                 <Field label="วันที่มอบหมาย" value={formatDate(assignment.assignedAt)} />
+                {assignment.financeSwap && (
+                  <Field label="เปลี่ยนตัวโดยฝั่งบัญชี" value={`แทน ${assignment.financeSwap.fromName} · โดย ${assignment.financeSwap.by} · ${formatDateTime(assignment.financeSwap.at)}`} className="col-span-2" />
+                )}
                 {assignment.note && <Field label="หมายเหตุ" value={assignment.note} className="col-span-2" />}
               </dl>
             ) : <p className="text-sm zego-text-tertiary">ยังไม่มีหัวหน้าทัวร์</p>}

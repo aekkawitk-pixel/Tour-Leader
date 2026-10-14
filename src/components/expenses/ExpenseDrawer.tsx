@@ -12,7 +12,7 @@
  *   อ้างอิงเลขใบเบิกเงินทดรอง · ไม่มีขั้นตั้งเรื่องรอจ่าย (เงินจ่ายไปแล้วผ่านซอง ส่วนต่างไปจัดการตอนเคลียร์เงินกรุ๊ป)
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ConfirmDialog, Drawer, Modal } from '@/components/ui/Modal';
 import { Button, Callout, cx, StatusBadge } from '@/components/ui/Primitives';
@@ -38,12 +38,15 @@ export function ExpenseDrawer({
   onClose,
   onEdit,
   hidePayment = false,
+  startAction = null,
 }: {
   expense: ExpenseRequest | null;
   onClose: () => void;
   onEdit: (expense: ExpenseRequest) => void;
   /** เปิดจากหน้าตรวจ — แสดงเฉพาะงานตรวจ ไม่มีตั้งเรื่องรอจ่าย / บันทึกจ่าย (อยู่ที่เมนูจ่ายเงิน) · สถานะจ่ายแสดงเป็น "อนุมัติ" */
   hidePayment?: boolean;
+  /** เปิดมาพร้อมหน้าต่างส่งกลับแก้ไข / ปฏิเสธ (กดจากหน้าตรวจทั้งกรุ๊ป) — ใบต้องอยู่ "รอตรวจ" */
+  startAction?: 'revise' | 'rejected' | null;
 }) {
   const { changeExpenseStatus, approveExpenseLines, saving, currentUser, jobs, expenses } = useDemo();
   /** บรรทัดที่บัญชีติ๊กออก (ไม่อนุมัติ) → เหตุผล · ผูกกับเลขใบ กันค้างเมื่อเปิดใบอื่น */
@@ -61,6 +64,20 @@ export function ExpenseDrawer({
 
   const [confirmApprove, setConfirmApprove] = useState(false);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
+
+  // เปิดมาพร้อมคำสั่ง (ส่งกลับแก้ไข / ปฏิเสธ) — เปิดหน้าต่างใส่เหตุผลให้ทันที
+  const expenseId = expense?.id;
+  const canStart = expense?.status === 'submitted';
+  useEffect(() => {
+    if (!expenseId || !startAction || !canStart) return;
+    /* eslint-disable react-hooks/set-state-in-effect -- เปิดหน้าต่างตามคำสั่งที่ส่งมาตอนเปิดใบ */
+    setReviseMode(startAction);
+    setReviseNote('');
+    setReviseError(undefined);
+    setFixKeys([]);
+    setReviseOpen(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [expenseId, startAction, canStart]);
 
   if (!expense) return null;
   // ยอดตามสกุลเงินที่ทำรายการมา (ไม่แปลงเป็นบาท) — ใบเดียวมีหลายสกุลได้ แยกบรรทัดละสกุล

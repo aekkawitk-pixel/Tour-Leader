@@ -21,7 +21,7 @@ import { loadManualFlightTimes } from '@/services/sendOffFlightTimeStore';
 import { loadSendOffRules } from '@/services/sendOffRulesStore';
 import { boardStatusMeta, periodTurnaround, splitFlightLegs } from '@/lib/logic/guideBoard';
 import { airportByIata } from '@/data/airports';
-import { addDays, formatDate, formatDateRange, toISODateTime } from '@/lib/format';
+import { addDays, formatDate, formatDateRange, formatDateTime, toISODateTime } from '@/lib/format';
 import { Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import type { TourSector } from '@/data/schedule/masterTypes';
@@ -125,6 +125,14 @@ export default function GuideJobDetailPage() {
           <StatusBadge meta={boardStatusMeta(assignment.assignmentStatus)} size="sm" />
         </div>
       </div>
+
+      {/* ฝั่งบัญชีเปลี่ยนตัวหน้างาน (ตอนส่งมอบซองเงิน) — บอกหัวหน้าทัวร์ว่าได้งานนี้มาอย่างไร ใคร/เมื่อไร */}
+      {assignment.financeSwap && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <p className="font-semibold">ได้รับงานนี้จากการเปลี่ยนตัวโดยฝั่งบัญชี</p>
+          <p>แทน {assignment.financeSwap.fromName} · โดย {assignment.financeSwap.by} · {formatDateTime(assignment.financeSwap.at)}</p>
+        </div>
+      )}
 
       {/* ผู้จัดมอบหมายงาน = คอนเฟิร์มทันที — เปลี่ยนแปลงต้องแจ้งเจ้าหน้าที่จัดสเก็ตเท่านั้น */}
       {assignment.assignmentStatus === 'CONFIRMED' && (

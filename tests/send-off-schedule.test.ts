@@ -588,14 +588,15 @@ describe('การกรองวันที่และกองข้อม�
     assert.ok(issueFn.includes("job.period.saleStatus === 'NO_SELL'"), 'ต้องขึ้นเตือนว่าพีเรียดปิดขายแล้ว');
   });
 
-  test('ตารางคัดด้วยวันที่ต้องไปส่ง ไม่ใช่วันออกเดินทาง', () => {
-    // เที่ยวบินดึกทำให้ต้องไปตั้งแต่คืนก่อน วันไปส่งจึงคร่อมเดือนได้
-    // ถ้าคัดด้วยวันออกเดินทาง งานที่วันไปส่งตกเดือนก่อนจะไม่มีช่องให้วาด แล้วหายไปจากตาราง
+  test('ตารางวางป้ายตามวันเดินทาง ไม่ใช่วันที่ต้องไปถึงสนามบิน', () => {
+    // ผู้จัดหากรุ๊ปจากวันเดินทาง — เที่ยวบินหลังเที่ยงคืนเดิมไปอยู่ช่องคืนก่อน (หาไม่เจอ)
+    // จึงวางตามวันเดินทาง แล้วบอก "ข้ามคืน" ที่เวลานัดแทน
     assert.ok(BOARD.includes('const from = addDays(monthStart, -1);'), 'ต้องดึงพีเรียดเผื่อหัวท้ายข้างละวัน');
     assert.ok(
-      BOARD.includes('.filter((j) => j.dutyDate >= monthStart && j.dutyDate <= monthEnd)'),
-      'แล้วคัดด้วยวันที่ต้องไปส่งอีกชั้น',
+      BOARD.includes('.filter((j) => jobDisplayDate(j) >= monthStart && jobDisplayDate(j) <= monthEnd)'),
+      'คัดด้วยวันเดินทาง (jobDisplayDate)',
     );
+    assert.ok(BOARD.includes('list.filter((j) => jobDisplayDate(j) === iso)'), 'ช่องวันวางป้ายตามวันเดินทาง');
     assert.ok(BOARD.includes('งานไปส่งเดือนนี้'), 'ป้ายต้องบอกให้ตรงว่านับอะไร');
   });
 
@@ -638,7 +639,7 @@ describe('อ่านงานที่จัดไปแล้วได้ช�
 
   test('รายการแสดงเฉพาะงานที่จัดแล้ว จัดกลุ่มตามวัน เรียงตามเวลาไปถึง', () => {
     assert.ok(AGENDA.includes('if (!j.assignment) continue;'), 'กรุ๊ปที่ยังไม่มีคนไม่ใช่คำถามของมุมมองนี้');
-    assert.ok(AGENDA.includes('m.set(j.dutyDate,'), 'ต้องจัดกลุ่มตามวันที่ต้องไปส่ง');
+    assert.ok(AGENDA.includes('m.set(jobDisplayDate(j),'), 'ต้องจัดกลุ่มตามวันเดินทาง เหมือนตาราง');
     assert.ok(
       AGENDA.includes('(x.slot?.checkInMin ?? 0) - (y.slot?.checkInMin ?? 0)'),
       'ในวันเดียวกันต้องเรียงตามเวลาที่ต้องไปถึง — ลำดับที่คนไปส่งใช้จริง',
@@ -649,7 +650,7 @@ describe('อ่านงานที่จัดไปแล้วได้ช�
     for (const [needle, why] of [
       ["{arrival.arrivalTime ?? '—'}", 'เวลาที่ต้องไปถึง'],
       ['ถึงสนามบิน', 'ป้ายบอกว่าเวลานั้นคือเวลาไปถึงสนามบิน'],
-      ['formatDate(j.period.startDate)', 'วันที่เครื่องออกเมื่อข้ามคืน'],
+      ['formatDate(j.dutyDate)', 'ข้ามคืน: บอกวันที่ต้องไปถึงสนามบิน (หัวกลุ่มเป็นวันเดินทาง)'],
       ['{j.period.groupCode}', 'รหัสกรุ๊ป'],
       ['BOARD_STATUS[status', 'สถานะการจัด'],
       ['airportLabel(j.airport)', 'สนามบิน'],

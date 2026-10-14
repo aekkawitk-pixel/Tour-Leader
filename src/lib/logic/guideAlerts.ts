@@ -4,6 +4,7 @@
  *
  *   ได้รับงานใหม่      — งานที่จัดให้ภายใน NEW_JOB_DAYS วัน ยังไม่จบทริป และยังไม่เคยเปิดดูรายละเอียด (leaderSeenAt ว่าง)
  *   มีซองรอรับ         — ซองที่ส่งถึงคุณแล้ว (หรือกำลังนำมาส่ง) ยังไม่กดยืนยันรับ · รวมเป็นรายการเดียวต่อกรุ๊ป
+ *   บัญชีเรียกเข้าพบ   — คิวก่อนหน้าเคลียร์เสร็จเร็ว บัญชีเรียกให้เข้าพบได้เลย (วันนี้ · ยังไม่เข้าพบ) — ขึ้นบนสุด
  *   นัดหมายรอยืนยัน    — นัดที่เจ้าหน้าที่นัดคุณไว้ สถานะรอยืนยัน และยังไม่เลยวันนัด (นัดที่คุณขอเอง = รอการเงิน ไม่นับ)
  */
 
@@ -67,6 +68,19 @@ export function listGuideAlerts(input: {
       title: `มีซองรอรับ ${n} ซอง`,
       detail: p ? `${p.groupCode} · ${formatDateRange(p.startDate, p.endDate)}` : periodId,
       href: '/guide/finance/envelopes',
+    });
+  }
+
+  // บัญชีเรียกเข้าพบก่อนเวลา (คิวก่อนหน้าเสร็จเร็ว) — ขึ้นก่อนเรื่องอื่น เพราะต้องไปตอนนี้เลย
+  for (const ap of input.appointments) {
+    if (ap.leaderId !== leaderId || !ap.calledEarly || ap.date !== today || ap.status === 'attended' || ap.status === 'cancelled') continue;
+    const p = ap.jobId ? periodById(ap.jobId) : null;
+    out.unshift({
+      id: `apt-call-${ap.id}`,
+      kind: 'appointment',
+      title: 'บัญชีพร้อมแล้ว — เข้าพบได้เลย',
+      detail: `${p ? `${p.groupCode} · ` : ''}นัดเดิม ${ap.time} น. · เรียกก่อนเวลา`,
+      href: '/guide/settlement/appointments',
     });
   }
 

@@ -15,7 +15,9 @@ import { APPOINTMENT_MODE, APPOINTMENT_OFFICE_LOCATION, appointmentStatusMeta } 
 import { formatDate, toISODate, toISODateTime } from '@/lib/format';
 import { makeStatusEvent } from '@/lib/logic/workflow';
 import { clearAppointmentOf } from '@/services/appointmentStore';
-import { firstFreeSlot, SLOT_DURATIONS, slotOptions } from '@/lib/logic/appointmentSlots';
+import { firstFreeSlot, LANE_DURATION, LANE_LABEL, SLOT_DURATIONS, slotOptions } from '@/lib/logic/appointmentSlots';
+import { laneOfPeriod, sameLane } from '@/lib/logic/appointmentLane';
+import { useClearCapacity } from '@/components/appointments/useClearCapacity';
 import type { Appointment, AppointmentMode } from '@/types';
 
 const DEFAULT_LOCATION = APPOINTMENT_OFFICE_LOCATION;
@@ -36,13 +38,17 @@ export function ClearAppointmentSection({
 }) {
   const { currentUser, appointments, saveAppointment, createAppointmentId, changeAppointmentStatus, saving } = useDemo();
   const appt = clearAppointmentOf(appointments, periodId);
+  // คิวตามประเทศของกรุ๊ป: ญี่ปุ่น 30 นาที · ประเทศอื่น 10 นาที (เจ้าหน้าที่คนละคน — นับชนเฉพาะคิวเดียวกัน)
+  const lane = appt?.lane ?? laneOfPeriod(periodId);
+  const laneAppts = sameLane(appointments, lane);
+  const { capacity } = useClearCapacity();
   const [editing, setEditing] = useState(false);
   const today = toISODate(new Date());
   const [form, setForm] = useState(() => ({
     date: appt?.date ?? today,
-    // นัดห่างกันช่วงละ 30 นาที — นัดใหม่ตั้งต้นที่ช่องว่างช่องแรกของวัน
-    time: appt?.time ?? firstFreeSlot(appointments, today, 30),
-    durationMinutes: String(appt?.durationMinutes ?? 30),
+    // นัดใหม่ตั้งต้นที่ช่องว่างช่องแรกของวันในคิวของกรุ๊ปนี้
+    time: appt?.time ?? firstFreeSlot(laneAppts, today, LANE_DURATION[lane], undefined, capacity(today, lane)),
+    durationMinutes: String(appt?.durationMinutes ?? LANE_DURATION[lane]),
     // นัดเดิมที่เป็นออนไลน์ แก้แล้วกลายเป็นเข้าสำนักงาน — ใช้สถานที่ตั้งต้นแทนลิงก์เดิม
     location: appt && appt.mode === 'office' ? appt.location : DEFAULT_LOCATION,
     note: appt?.note ?? '',
@@ -57,7 +63,7 @@ export function ClearAppointmentSection({
     const fields = {
       date: form.date, time: form.time, durationMinutes: Number(form.durationMinutes) || 30,
       mode: 'office' as AppointmentMode, location: form.location.trim(), note: form.note.trim(),
-      leaderId: leader.id, staffName: currentUser.name,
+      leaderId: leader.id, staffName: currentUser.name, lane,
     };
     // แก้นัด → กลับเป็นรอหัวหน้าทัวร์ยืนยัน · นัดใหม่ = สร้างนัด kind 'clear' ผูกกรุ๊ป
     const next: Appointment = appt
@@ -103,11 +109,11 @@ export function ClearAppointmentSection({
         <div className="space-y-3 rounded-lg border zego-border-color px-3 py-3">
           <p className="text-xs zego-text-secondary">นัด <span className="font-semibold zego-text">{leader.name}</span> เข้ามาเคลียร์เงินกรุ๊ป {groupCode} — นัดขึ้นในปฏิทินเมนูนัดหมาย และหัวหน้าทัวร์เห็นในพอร์ทัล แล้วกดยืนยันหรือขอเลื่อน</p>
           <div className="grid gap-3 sm:grid-cols-3">
-            <label className="block"><span className={label}>วันที่</span><input type="date" min={today} className={input} value={form.date} onChange={(e) => { const d = e.target.value; setForm((f) => ({ ...f, date: d, time: firstFreeSlot(appointments, d, Number(f.durationMinutes) || 30, appt?.id) })); }} /></label>
+            <label className="block"><span className={label}>วันที่</span><input type="date" min={today} className={input} value={form.date} onChange={(e) => { const d = e.target.value; setForm((f) => ({ ...f, date: d, time: firstFreeSlot(laneAppts, d, Number(f.durationMinutes) || LANE_DURATION[lane], appt?.id, capacity(d, lane)) })); }} /></label>
             <label className="block">
-              <span className={label}>เวลา (ช่องละ 30 นาที)</span>
+              <span className={label}>เวลา (คิว{LANE_LABEL[lane]} · ช่องละ {LANE_DURATION[lane]} นาที)</span>
               <select className={input} value={form.time} onChange={(e) => set('time', e.target.value)}>
-                {slotOptions(appointments, form.date, Number(form.durationMinutes) || 30, appt?.id, form.time).map((o) => (
+                {slotOptions(laneAppts, form.date, Number(form.durationMinutes) || LANE_DURATION[lane], appt?.id, form.time, capacity(form.date, lane)).map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>

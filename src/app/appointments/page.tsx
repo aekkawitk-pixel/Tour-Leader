@@ -18,7 +18,7 @@ import { APPOINTMENT_KIND, APPOINTMENT_KIND_OPTIONS, APPOINTMENT_MODE, APPOINTME
 import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { buildMonthGrid, monthTitle, shiftMonth } from '@/lib/logic/calendar';
 import { hasTimeOverlap } from '@/lib/logic/conflicts';
-import { formatDate, parseDate, TH_WEEKDAYS_SHORT, toISODate } from '@/lib/format';
+import { formatDate, formatTime, parseDate, TH_WEEKDAYS_SHORT, toISODate, toISODateTime } from '@/lib/format';
 import {
   Button,
   Card,
@@ -30,18 +30,39 @@ import {
 } from '@/components/ui/Primitives';
 import { StatCard } from '@/components/ui/Charts';
 import { SelectInput, TextArea } from '@/components/ui/FormField';
-import { DAY_PERIODS, periodOf } from '@/lib/logic/appointmentSlots';
+import { DAY_PERIODS, LANE_LABEL, periodOf } from '@/lib/logic/appointmentSlots';
+import { askCallNext, useCallIn } from '@/components/appointments/CallNextHost';
+import { isInProgress } from '@/components/appointments/clearProgress';
+import { useClearCapacity } from '@/components/appointments/useClearCapacity';
+import { MyQueuePanel } from '@/components/appointments/MyQueuePanel';
+import { CapacitySettingsModal } from '@/components/appointments/CapacitySettingsModal';
 import { SegmentedControl } from '@/components/ui/Tabs';
 import { ConfirmDialog, Drawer, Modal } from '@/components/ui/Modal';
 import { Timeline } from '@/components/ui/Timeline';
 import { Icon } from '@/components/ui/Icon';
 import { AppointmentFormModal } from '@/components/appointments/AppointmentFormModal';
+import { laneOfAppointment } from '@/lib/logic/appointmentLane';
 import { FreeSlotPicker, isFreeChoice, useBookableDays } from '@/components/appointments/FreeSlotPicker';
 import type { Appointment, AppointmentKind, AppointmentStatus } from '@/types';
+
+/** เวลาจบนัด (HH:mm) */
+function endTime(t: string, m: number): string {
+  const [h, mm] = t.split(':').map(Number);
+  const total = h * 60 + mm + m;
+  return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
 
 export default function AppointmentsPage() {
   const { appointments, leaders, jobs, currentUser, changeAppointmentStatus, saving } =
     useDemo();
+  /** บันทึกเข้าพบแล้ว · เสร็จก่อนเวลานัดจบ → ถามว่าจะเรียกคิวถัดไปเลยไหม (หน้าต่างถามอยู่ที่ CallNextHost) */
+  const markAttended = async (done: Appointment) => {
+    const now = toISODateTime(new Date());
+    await changeAppointmentStatus(done.id, 'attended', 'เข้าพบเรียบร้อย');
+    askCallNext(done, appointments, now);
+  };
+  /** เรียกเข้าพบก่อนเวลานัด — หัวหน้าทัวร์เห็นแจ้ง "เข้าพบได้เลย" ในพอร์ทัล + กระดิ่ง */
+  const callIn = useCallIn();
   // วันที่จริงของเครื่อง — นัดหมายเป็นข้อมูลจริง (ไม่ใช้วันจำลองของ Demo ที่ตรึงไว้ ก.ค. 2569)
   const today = toISODate(new Date());
 
@@ -68,6 +89,9 @@ export default function AppointmentsPage() {
   const [cancelOpen, setCancelOpen] = useState(false);
 
   const selected = appointments.find((a) => a.id === selectedId) ?? null;
+  /** นัดที่กำลังเลื่อน/ยกเลิก — กดจากรายการนัดของวันได้ตรง ๆ (ไม่เปิดรายละเอียด) · ว่าง = นัดที่เปิดรายละเอียดอยู่ */
+  const [actionId, setActionId] = useState<string | null>(null);
+  const actionTarget = appointments.find((a) => a.id === (actionId ?? selectedId)) ?? null;
   const editing = appointments.find((a) => a.id === editingId) ?? null;
 
   const scoped = useMemo(() => {
@@ -80,7 +104,8 @@ export default function AppointmentsPage() {
     () =>
       scoped
         .filter((a) => {
-          if (status !== 'all' && a.status !== status) return false;
+          // นัดที่ยกเลิกแล้วไม่แสดงในปฏิทิน/รายการ — ดูได้เมื่อเลือกตัวกรองสถานะ "ยกเลิก"
+          if (status === 'all' ? a.status === 'cancelled' : a.status !== status) return false;
           if (leaderFilter !== 'all' && a.leaderId !== leaderFilter) return false;
           if (kindFilter !== 'all' && (a.kind ?? 'other') !== kindFilter) return false;
           return true;
@@ -89,7 +114,9 @@ export default function AppointmentsPage() {
     [scoped, status, leaderFilter, kindFilter],
   );
 
-  /** เวลาซ้อน (ของหัวหน้าทัวร์หรือเจ้าหน้าที่คนเดียวกัน) */
+  /** เวลาซ้อน — หัวหน้าทัวร์คนเดียวกัน · หรือคิวของบัญชีรับเกินจำนวนเจ้าหน้าที่ */
+  const { capacity, settings: capSettings } = useClearCapacity();
+  const [capacityOpen, setCapacityOpen] = useState(false);
   const overlapIds = useMemo(() => {
     const ids = new Set<string>();
     const active = scoped.filter((a) => a.status !== 'cancelled');
@@ -97,16 +124,26 @@ export default function AppointmentsPage() {
       for (let j = i + 1; j < active.length; j += 1) {
         const a = active[i];
         const b = active[j];
-        const samePerson = a.leaderId === b.leaderId || a.staffName === b.staffName;
-        if (!samePerson) continue;
-        if (hasTimeOverlap(a.date, a.time, a.durationMinutes, b.date, b.time, b.durationMinutes)) {
+        // หัวหน้าทัวร์คนเดียวกันนัดซ้อนเวลา = ชน (ไปสองที่พร้อมกันไม่ได้)
+        if (a.leaderId === b.leaderId && hasTimeOverlap(a.date, a.time, a.durationMinutes, b.date, b.time, b.durationMinutes)) {
           ids.add(a.id);
           ids.add(b.id);
         }
       }
     }
+    /*
+      ฝั่งบัญชี — คิวญี่ปุ่น / ประเทศอื่นแยกกัน · แต่ละคิวรับซ้อนเวลาได้เท่าจำนวนเจ้าหน้าที่ของวันนั้น (ตั้งค่าได้)
+      นัดที่ทับกันในคิวเดียวกันเกินจำนวนคน = เกินกำลัง (เช่น ลดคนเพราะมีคนลา แต่นัดไว้แล้ว)
+    */
+    for (const a of active) {
+      const lane = laneOfAppointment(a);
+      const together = active.filter((b) => b.date === a.date && laneOfAppointment(b) === lane
+        && hasTimeOverlap(a.date, a.time, a.durationMinutes, b.date, b.time, b.durationMinutes)).length;
+      if (together > capacity(a.date, lane)) ids.add(a.id);
+    }
     return ids;
-  }, [scoped]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- capacity อ่านจาก capSettings
+  }, [scoped, capSettings]);
 
   const byDate = useMemo(() => {
     const map = new Map<string, Appointment[]>();
@@ -143,8 +180,10 @@ export default function AppointmentsPage() {
 
 
   const submitReschedule = async (newDate: string, newTime: string, note: string) => {
+    const selected = actionTarget;
     if (!selected) return;
     setRescheduleOpen(false);
+    setActionId(null);
     // เจ้าหน้าที่เลื่อนนัด → กลับเป็นรอหัวหน้าทัวร์ยืนยันวันเวลาใหม่
     await changeAppointmentStatus(
       selected.id,
@@ -163,21 +202,33 @@ export default function AppointmentsPage() {
         title="นัดหมาย"
         description="ปฏิทินรวมนัด — เคลียร์เงินกรุ๊ป · ส่งเอกสาร · หัวหน้าทัวร์ยืนยันหรือขอเลื่อนในพอร์ทัลของตัวเอง"
         actions={
-          can(currentUser.role, 'appointment.create') && (
-            <Button
-              variant="primary"
-              icon="plus"
-              onClick={() => {
-                setEditingId(null);
-                setPresetDate(undefined);
-                setFormOpen(true);
-              }}
-            >
-              สร้างนัดหมาย
-            </Button>
-          )
+          <div className="flex flex-wrap gap-2">
+            {/* จำนวนเจ้าหน้าที่ต่อคิว — ช่องเวลาหนึ่งรับนัดได้เท่าจำนวนคน */}
+            {canManage && (
+              <Button variant="secondary" icon="users" onClick={() => setCapacityOpen(true)}>
+                เจ้าหน้าที่ต่อคิว · ญี่ปุ่น {capacity(today, 'japan')} · อื่น {capacity(today, 'other')}
+              </Button>
+            )}
+            {can(currentUser.role, 'appointment.create') && (
+              <Button
+                variant="primary"
+                icon="plus"
+                onClick={() => {
+                  setEditingId(null);
+                  setPresetDate(undefined);
+                  setFormOpen(true);
+                }}
+              >
+                สร้างนัดหมาย
+              </Button>
+            )}
+          </div>
         }
       />
+
+      {/* คิวของฉัน — เรียกคิวแบบธนาคาร ระบบเลือกคนถัดไปให้ ไม่ชนกันระหว่างเจ้าหน้าที่ */}
+      {canManage && <MyQueuePanel />}
+      {capacityOpen && <CapacitySettingsModal onClose={() => setCapacityOpen(false)} />}
 
       {/* จอเล็ก: การ์ดย่อ 3 ต่อแถว (dense) — การ์ดเต็ม 5 ใบกินที่ทั้งจอ */}
       <div className="mb-5 grid grid-cols-3 gap-1.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-5">
@@ -204,7 +255,7 @@ export default function AppointmentsPage() {
           label="เวลาซ้อน"
           value={overlapIds.size}
           tone={overlapIds.size > 0 ? 'red' : 'green'}
-          hint="นัดหมายที่ชนกัน"
+          hint="ชนกัน หรือเกินจำนวนเจ้าหน้าที่ต่อคิว"
         />
         <StatCard dense label="เข้าพบแล้ว" value={attended.length} tone="green" hint="เสร็จสิ้นแล้ว" />
       </div>
@@ -452,11 +503,6 @@ export default function AppointmentsPage() {
       {dayOpen && (() => {
         const list = (byDate.get(dayOpen) ?? []).slice().sort((a, b) => a.time.localeCompare(b.time));
         const groups = new Set(list.filter((a) => a.jobId).map((a) => a.jobId)).size;
-        const endTime = (t: string, m: number) => {
-          const [h, mm] = t.split(':').map(Number);
-          const total = h * 60 + mm + m;
-          return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-        };
         return (
           <Drawer
             open
@@ -492,16 +538,18 @@ export default function AppointmentsPage() {
                         <span className="text-xs zego-text-tertiary">{period.range} น. · {count} นัด</span>
                       </li>
                     ),
-                    <li key={a.id} className={cx('rounded-xl border p-3', overlapIds.has(a.id) ? 'border-amber-300 bg-amber-50/40' : 'zego-border-color')}>
+                    <li key={a.id} className={cx('rounded-xl border p-3', isInProgress(a) ? 'border-sky-400 bg-sky-50/50 ring-1 ring-sky-300' : overlapIds.has(a.id) ? 'border-amber-300 bg-amber-50/40' : 'zego-border-color')}>
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-sm font-bold tabular-nums zego-text">{a.time}–{endTime(a.time, a.durationMinutes)} น.</p>
-                          <p className="text-xs zego-text-tertiary">{a.id} · {a.durationMinutes} นาที</p>
+                          <p className="text-xs zego-text-tertiary">{a.id} · {a.durationMinutes} นาที{a.kind === 'clear' ? ` · คิว${LANE_LABEL[laneOfAppointment(a)]}` : ''}</p>
                         </div>
                         <span className="flex flex-wrap gap-1.5">
                           <StatusBadge meta={APPOINTMENT_KIND[a.kind ?? 'other']} size="sm" dot={false} />
                           <StatusBadge meta={appointmentStatusMeta(a)} size="sm" />
                           {a.requestedByLeader && <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700 ring-1 ring-sky-200">หัวหน้าทัวร์ขอนัด</span>}
+                          {a.calledEarly && a.status !== 'attended' && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-300">เรียกแล้ว {formatTime(a.calledEarly.at)} น.</span>}
+                          {isInProgress(a) && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-800 ring-1 ring-sky-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-600" />กำลังดำเนินการ · {a.inProgress.by} {formatTime(a.inProgress.at)} น.</span>}
                         </span>
                       </div>
                       <dl className="mt-2 space-y-1 text-sm">
@@ -516,9 +564,51 @@ export default function AppointmentsPage() {
                         <p className="mt-2 rounded-lg bg-violet-50 px-2.5 py-1.5 text-xs text-violet-800">หัวหน้าทัวร์ขอเลื่อน: {a.leaderNote || 'ไม่ได้ระบุ'}</p>
                       )}
                       {overlapIds.has(a.id) && <p className="mt-2 text-xs zego-text-warning">เวลาซ้อนกับนัดอื่น</p>}
-                      <div className="mt-2 flex justify-end">
-                        <Button variant="secondary" size="sm" onClick={() => { setDayOpen(null); setSelectedId(a.id); }}>จัดการนัด</Button>
-                      </div>
+                      {/*
+                        ปุ่มทั้งหมดอยู่บนการ์ด (กดง่ายกว่าเมนูพับ) — ปุ่มหลักขวาสุดตามสถานะ
+                          รอยืนยัน → ยืนยันนัด · หัวหน้าทัวร์ขอเลื่อน → เลื่อนนัด
+                          ยืนยันแล้ว (เคลียร์เงินกรุ๊ป) → ไปเคลียร์เงิน — ปิดเคลียร์แล้วนัดเป็น "เข้าพบแล้ว" เอง + ถามเรียกคิวถัดไปถ้าเสร็จก่อนเวลา
+                          ยืนยันแล้ว (นัดอื่น) → บันทึกว่าเข้าพบแล้ว
+                      */}
+                      {(() => {
+                        const active = canManage && a.status !== 'attended' && a.status !== 'cancelled';
+                        const toClear = a.kind === 'clear' && !!a.jobId;
+                        return (
+                          <div className="mt-2 flex flex-wrap items-center justify-end gap-1.5">
+                            {!active && (
+                              <Button variant="ghost" size="sm" onClick={() => { setDayOpen(null); setSelectedId(a.id); }}>รายละเอียด</Button>
+                            )}
+                            {active && (
+                              <>
+                                <Button variant="ghost" size="sm" className="text-rose-700" onClick={() => { setActionId(a.id); setCancelOpen(true); }} disabled={saving}>ยกเลิกนัด</Button>
+                                {a.status !== 'rescheduled' && (
+                                  <Button variant="secondary" size="sm" onClick={() => { setActionId(a.id); setRescheduleOpen(true); }} disabled={saving}>เลื่อนนัด</Button>
+                                )}
+                                {a.date === today && !a.calledEarly && (
+                                  <Button variant="secondary" size="sm" icon="bell" onClick={() => void callIn(a, 'บัญชีเรียกเข้าพบก่อนเวลานัด')} disabled={saving}>เรียกเข้าพบเลย</Button>
+                                )}
+                                {a.status === 'confirmed' && toClear && (
+                                  <Button variant="secondary" size="sm" onClick={() => void markAttended(a)} disabled={saving}>บันทึกว่าเข้าพบแล้ว</Button>
+                                )}
+                              </>
+                            )}
+                            {active && a.status === 'pending' && (
+                              <Button variant="primary" size="sm" onClick={() => void changeAppointmentStatus(a.id, 'confirmed', 'ยืนยันนัดหมาย')} disabled={saving}>ยืนยันนัด</Button>
+                            )}
+                            {active && a.status === 'rescheduled' && (
+                              <Button variant="primary" size="sm" onClick={() => { setActionId(a.id); setRescheduleOpen(true); }} disabled={saving}>เลื่อนนัด</Button>
+                            )}
+                            {active && a.status === 'confirmed' && (toClear ? (
+                              <Link href={`/settlements?open=${encodeURIComponent(a.jobId)}`} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700">
+                                {isInProgress(a) ? 'เคลียร์ต่อ' : 'ไปเคลียร์เงิน'}
+                                <Icon name="chevronRight" className="h-4 w-4" />
+                              </Link>
+                            ) : (
+                              <Button variant="success" size="sm" onClick={() => void markAttended(a)} disabled={saving}>บันทึกว่าเข้าพบแล้ว</Button>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </li>,
                   ];
                 })}
@@ -557,6 +647,17 @@ export default function AppointmentsPage() {
                   >
                     เลื่อนนัด
                   </Button>
+                  {/* นัดวันนี้ ยังไม่ถึงเวลา — คิวก่อนหน้าเสร็จเร็ว เรียกเข้าพบได้เลย */}
+                  {selected.date === today && !selected.calledEarly && (
+                    <Button
+                      variant="secondary"
+                      icon="bell"
+                      onClick={async () => { await callIn(selected, 'บัญชีเรียกเข้าพบก่อนเวลานัด'); }}
+                      disabled={saving}
+                    >
+                      เรียกเข้าพบเลย
+                    </Button>
+                  )}
                   {selected.status === 'pending' && (
                     <Button
                       variant="primary"
@@ -573,8 +674,9 @@ export default function AppointmentsPage() {
                     <Button
                       variant="success"
                       onClick={async () => {
-                        await changeAppointmentStatus(selected.id, 'attended', 'เข้าพบเรียบร้อย');
+                        const done = selected;
                         setSelectedId(null);
+                        await markAttended(done);
                       }}
                       disabled={saving}
                     >
@@ -597,6 +699,12 @@ export default function AppointmentsPage() {
                 <span className="zego-badge--warning inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium">
                   <Icon name="warning" className="h-3.5 w-3.5" />
                   เวลาซ้อนกับนัดอื่น
+                </span>
+              )}
+              {selected.calledEarly && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                  <Icon name="bell" className="h-3.5 w-3.5" />
+                  เรียกเข้าพบแล้ว {formatTime(selected.calledEarly.at)} น.
                 </span>
               )}
             </div>
@@ -639,22 +747,23 @@ export default function AppointmentsPage() {
       </Drawer>
 
       {/* เลื่อนนัด — เลือกได้เฉพาะช่องที่บัญชีว่าง (เหมือนฝั่งหัวหน้าทัวร์) */}
-      {rescheduleOpen && selected && (
+      {rescheduleOpen && actionTarget && (
         <RescheduleModal
-          appointment={selected}
+          appointment={actionTarget}
           saving={saving}
-          onClose={() => setRescheduleOpen(false)}
+          onClose={() => { setRescheduleOpen(false); setActionId(null); }}
           onSubmit={(date, time, note) => void submitReschedule(date, time, note)}
         />
       )}
 
       <ConfirmDialog
         open={cancelOpen}
-        onClose={() => setCancelOpen(false)}
+        onClose={() => { setCancelOpen(false); setActionId(null); }}
         onConfirm={async () => {
-          if (!selected) return;
+          if (!actionTarget) return;
           setCancelOpen(false);
-          await changeAppointmentStatus(selected.id, 'cancelled', 'ยกเลิกนัดหมาย');
+          setActionId(null);
+          await changeAppointmentStatus(actionTarget.id, 'cancelled', 'ยกเลิกนัดหมาย');
           setSelectedId(null);
         }}
         loading={saving}
@@ -662,8 +771,8 @@ export default function AppointmentsPage() {
         title="ยืนยันการยกเลิกนัดหมาย"
         confirmLabel="ยกเลิกนัดหมาย"
         message={
-          selected
-            ? `ต้องการยกเลิกนัดหมาย ${selected.id} วันที่ ${formatDate(selected.date)} ${selected.time} ใช่หรือไม่? ข้อมูลจะยังคงอยู่ในระบบและบันทึกในประวัติ`
+          actionTarget
+            ? `ต้องการยกเลิกนัดหมาย ${actionTarget.id} วันที่ ${formatDate(actionTarget.date)} ${actionTarget.time} ใช่หรือไม่? ข้อมูลจะยังคงอยู่ในระบบและบันทึกในประวัติ`
             : ''
         }
       />
@@ -705,7 +814,8 @@ function RescheduleModal({ appointment: a, saving, onClose, onSubmit }: {
   onSubmit: (date: string, time: string, note: string) => void;
 }) {
   const { appointments } = useDemo();
-  const days = useBookableDays(appointments, a.durationMinutes, a.id);
+  // เลื่อนภายในคิวเดิม (ญี่ปุ่น / ประเทศอื่น) — นับชนเฉพาะนัดคิวเดียวกัน
+  const days = useBookableDays(appointments, a.durationMinutes, a.id, laneOfAppointment(a));
   // หัวหน้าทัวร์เสนอวันเวลามา (คำขอเลื่อนแบบเดิม) ก็ยังต้องเลือกจากช่องว่าง — เริ่มที่ช่องว่างแรกที่ไม่ใช่เวลาเดิม
   const first = days.find((d) => d.date !== a.date || d.free.some((t) => t !== a.time)) ?? days[0];
   const [date, setDate] = useState(() => first?.date ?? '');
@@ -716,7 +826,7 @@ function RescheduleModal({ appointment: a, saving, onClose, onSubmit }: {
     <Modal
       open
       onClose={onClose}
-      size="sm"
+      size="lg"
       title="เลื่อนนัดหมาย"
       description={`${a.id} · นัดเดิม ${formatDate(a.date)} ${a.time} น.`}
       footer={

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bookableDays, freeSlots } from '../src/lib/logic/appointmentSlots';
+import { bookableDays, daySlots, freeSlots } from '../src/lib/logic/appointmentSlots';
 import type { Appointment } from '../src/types';
 
 const apt = (date: string, time: string, durationMinutes = 30, status: Appointment['status'] = 'confirmed') =>
@@ -26,7 +26,7 @@ test('วันที่นัดได้ — เริ่มพรุ่งน
 });
 
 test('วันที่นัดได้ — วันที่เต็มทั้งวันไม่แสดง', () => {
-  const full = Array.from({ length: 16 }, (_, i) => apt('2026-10-19', `${String(9 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`));
+  const full = daySlots().map((t) => apt('2026-10-19', t));
   const days = bookableDays(full, '2026-10-16', 1, 30, weekday);
   assert.equal(days[0].date, '2026-10-20');
 });

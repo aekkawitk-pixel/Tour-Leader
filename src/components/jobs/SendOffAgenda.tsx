@@ -5,7 +5,7 @@
  *
  * ตารางรายเดือนตอบได้แค่ "ใครว่างวันไหน" เพราะช่องวันกว้าง 55px ใส่ได้แค่เวลา
  * พอจัดไปหลายสิบกรุ๊ปแล้วจะไล่ดูว่าจัดอะไรไปบ้างไม่ได้เลย
- * มุมมองนี้จึงกางเป็นรายการ เรียงตามวันที่ต้องไปส่ง เห็นครบทั้งกรุ๊ป เที่ยวบิน คน และสถานะ
+ * มุมมองนี้จึงกางเป็นรายการ เรียงตามวันเดินทาง (เหมือนตาราง) เห็นครบทั้งกรุ๊ป เที่ยวบิน คน และสถานะ
  */
 
 import { useMemo, type ReactNode } from 'react';
@@ -14,7 +14,7 @@ import { Icon } from '@/components/ui/Icon';
 import { formatDate, parseDate, TH_WEEKDAYS_SHORT } from '@/lib/format';
 import { BOARD_STATUS, flightSummary } from '@/lib/logic/guideBoard';
 import { airportLabel } from '@/lib/logic/airportLabel';
-import { jobArrival, jobIssue, jobOverlapWarning, jobStatus, type SendOffJob } from '@/lib/logic/sendOffJobs';
+import { jobArrival, jobDisplayDate, jobIssue, jobOverlapWarning, jobStatus, type SendOffJob } from '@/lib/logic/sendOffJobs';
 import { sendOffStaffName } from '@/lib/logic/sendOffStaff';
 
 export function SendOffAgenda({ jobs, onOpen, singleStaff = false }: {
@@ -33,7 +33,7 @@ export function SendOffAgenda({ jobs, onOpen, singleStaff = false }: {
     const m = new Map<string, SendOffJob[]>();
     for (const j of jobs) {
       if (!j.assignment) continue;
-      m.set(j.dutyDate, [...(m.get(j.dutyDate) ?? []), j]);
+      m.set(jobDisplayDate(j), [...(m.get(jobDisplayDate(j)) ?? []), j]);
     }
     return [...m.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
@@ -58,7 +58,7 @@ export function SendOffAgenda({ jobs, onOpen, singleStaff = false }: {
 
   return (
     <div className="space-y-2">
-      <p className="text-xs zego-text-tertiary">จัดไปแล้ว {total} งาน · เรียงตามวันที่ต้องไปส่ง</p>
+      <p className="text-xs zego-text-tertiary">จัดไปแล้ว {total} งาน · เรียงตามวันเดินทาง</p>
 
       {byDate.map(({ date, list }) => {
         const d = parseDate(date);
@@ -87,7 +87,7 @@ export function SendOffAgenda({ jobs, onOpen, singleStaff = false }: {
                 const overlap = jobOverlapWarning(j);
                 const status = jobStatus(j);
                 const arrival = j.check ?? jobArrival(j.flightTime);
-                /* ข้ามคืน = เครื่องออกหลังเที่ยงคืน ต้องไปถึงสนามบินตั้งแต่คืนก่อน (งานถูกจัดไว้ใต้วันที่ไปถึง) */
+                /* ข้ามคืน = เครื่องออกหลังเที่ยงคืน ต้องไปถึงสนามบินตั้งแต่คืนก่อน (งานอยู่ใต้วันเดินทาง จึงบอกวันที่ต้องไปถึงกำกับ) */
                 const overnight = arrival.dayOffset === -1;
                 return (
                   <li key={j.assignment!.assignmentId}>
@@ -98,8 +98,8 @@ export function SendOffAgenda({ jobs, onOpen, singleStaff = false }: {
                           {arrival.arrivalTime ?? '—'}
                         </span>
                         <span className="block text-[11px] leading-tight zego-text-tertiary">
-                          {/* ไม่ซ้ำวันที่ — หัวกลุ่มด้านบนคือวันที่ไปถึงอยู่แล้ว (ข้ามคืนบอกวันเครื่องออกไว้ฝั่งขวา) */}
-                          ถึงสนามบิน
+                          {/* หัวกลุ่มคือวันเดินทาง — ข้ามคืนต้องบอกว่าถึงสนามบินวันไหน */}
+                          ถึงสนามบิน{overnight ? ` ${formatDate(j.dutyDate)}` : ''}
                         </span>
                         {overnight && (
                           <span className="zego-badge--violet mt-0.5 inline-block rounded border px-1 text-[10px] font-medium">ข้ามคืน</span>
@@ -132,7 +132,7 @@ export function SendOffAgenda({ jobs, onOpen, singleStaff = false }: {
                       <span className="shrink-0 text-right">
                         <span className="block text-sm font-semibold tabular-nums zego-text">
                           {j.flightTime
-                            ? `เครื่องออก ${j.flightTime}${overnight ? ` · ${formatDate(j.period.startDate)}` : ''}`
+                            ? `เครื่องออก ${j.flightTime}`
                             : 'ยังไม่รู้เวลาบิน'}
                         </span>
                         <span className="block text-[11px] zego-text-tertiary">

@@ -34,7 +34,8 @@ export function GroupUsageReviewDrawer({
 }: {
   groupId: string | null;
   onClose: () => void;
-  onOpenReport: (expenseId: string) => void;
+  /** เปิดตรวจรายใบ — action = เปิดมาพร้อมหน้าต่างส่งกลับแก้ไข / ปฏิเสธ */
+  onOpenReport: (expenseId: string, action?: 'revise' | 'rejected') => void;
   /** ไปกรุ๊ปถัดไปที่รอตรวจ (ไม่มี = กรุ๊ปสุดท้าย) */
   onNext?: () => void;
   nextLabel?: string;
@@ -215,6 +216,13 @@ export function GroupUsageReviewDrawer({
                           {r.line.rejected
                             ? <StatusBadge meta={{ label: 'ไม่ผ่าน', tone: 'red' }} size="sm" />
                             : <StatusBadge meta={expenseStatusMeta(r.report)} size="sm" />}
+                          {/* ใบที่รอตรวจ — ส่งกลับแก้ไข / ปฏิเสธ ได้จากตรงนี้เลย (เปิดหน้าตรวจรายใบพร้อมช่องใส่เหตุผล) */}
+                          {r.pending && (
+                            <>
+                              <button type="button" className="text-xs font-medium text-amber-700 hover:underline" onClick={() => onOpenReport(r.report.id, 'revise')}>ส่งกลับแก้ไข</button>
+                              <button type="button" className="text-xs font-medium text-rose-700 hover:underline" onClick={() => onOpenReport(r.report.id, 'rejected')}>ปฏิเสธ</button>
+                            </>
+                          )}
                           <button type="button" className="text-xs font-medium zego-text-info hover:underline" onClick={() => onOpenReport(r.report.id)}>
                             เปิดตรวจ
                           </button>

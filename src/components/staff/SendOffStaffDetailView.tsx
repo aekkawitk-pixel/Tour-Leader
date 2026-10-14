@@ -55,7 +55,7 @@ import { loadManualFlightTimes, type ManualFlightTimes } from '@/services/sendOf
 import { loadManualAirports, type ManualAirports } from '@/services/sendOffManualAirportStore';
 import { loadSendOffRules } from '@/services/sendOffRulesStore';
 import { DEFAULT_SEND_OFF_RULES, type SendOffRules } from '@/lib/logic/sendOffRules';
-import { buildSendOffJobs, jobIssue, jobStatus, sendOffPeriodPool, type SendOffJob } from '@/lib/logic/sendOffJobs';
+import { buildSendOffJobs, jobDisplayDate, jobIssue, jobStatus, sendOffPeriodPool, type SendOffJob } from '@/lib/logic/sendOffJobs';
 import { BOARD_STATUS } from '@/lib/logic/guideBoard';
 import { airportLabel } from '@/lib/logic/airportLabel';
 import type { AnyLeaderDocumentRecord } from '@/data/leaders/documentRecordTypes';
@@ -545,7 +545,7 @@ function ScheduleTab({ staffId }: { staffId: string }) {
       assignments,
     });
     return buildSendOffJobs({ periods, assignments, staffById, manualTimes, manualAirports, rules, dayOffOf })
-      .filter((j) => j.dutyDate >= monthStart && j.dutyDate <= monthEnd && j.assignment?.staffId === staffId);
+      .filter((j) => jobDisplayDate(j) >= monthStart && jobDisplayDate(j) <= monthEnd && j.assignment?.staffId === staffId);
   }, [assignments, monthStart, monthEnd, staffById, manualTimes, manualAirports, rules, dayOffOf, staffId]);
 
   const [detail, setDetail] = useState<SendOffJob | null>(null);
@@ -637,7 +637,7 @@ function SendOffJobsCalendar({ jobs, monthStart, today, dayOffOf, onOpen }: {
   );
   const byDate = useMemo(() => {
     const m = new Map<string, SendOffJob[]>();
-    for (const j of jobs) m.set(j.dutyDate, [...(m.get(j.dutyDate) ?? []), j]);
+    for (const j of jobs) m.set(jobDisplayDate(j), [...(m.get(jobDisplayDate(j)) ?? []), j]);
     return m;
   }, [jobs]);
 
