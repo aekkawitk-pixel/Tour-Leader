@@ -273,7 +273,8 @@ export default function GuideHomePage() {
           <p className="text-sm zego-text-tertiary">{monthWord}ยังไม่มีงาน</p>
         ) : (
           <div
-            className={cx('zego-no-scrollbar -mx-1 flex snap-x gap-1 overflow-x-auto px-1 pb-1', destinations.length < 4 ? 'justify-start gap-3' : destinations.length === 4 && 'justify-between')}
+            // ไม่เกิน 4 ปลายทาง = จัดกึ่งกลาง · เกิน 4 = เลื่อนแนวนอนชิดซ้าย (กึ่งกลางตอนเลื่อนได้จะตัดวงแรกจนเลื่อนกลับไปดูไม่ได้)
+            className={cx('zego-no-scrollbar -mx-1 flex snap-x overflow-x-auto px-1 pb-1', destinations.length <= 4 ? 'justify-center gap-3' : 'gap-1')}
             role="list"
             aria-label={`ปลายทาง${monthWord}`}
           >
