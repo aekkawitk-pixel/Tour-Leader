@@ -21,6 +21,7 @@ export function PhotoPicker({
   accepted = DEFAULT_ACCEPTED,
   maxSizeMB = DEFAULT_MAX_SIZE_MB,
   formatsLabel = 'JPG, PNG, WebP หรือ GIF',
+  hideStorageNote = false,
 }: {
   photoUrl: string | null;
   initials: string;
@@ -31,6 +32,8 @@ export function PhotoPicker({
   maxSizeMB?: number;
   /** ข้อความอธิบายชนิดไฟล์ที่รองรับ */
   formatsLabel?: string;
+  /** ซ่อนหมายเหตุ Demo เรื่องเก็บรูปในเบราว์เซอร์ (พอร์ทัลหัวหน้าทัวร์ — เป็นรายละเอียดเทคนิคที่ผู้ใช้ไม่ต้องรู้) */
+  hideStorageNote?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string>();
@@ -107,13 +110,15 @@ export function PhotoPicker({
           </p>
         )}
 
-        <p
-          className={cx(
-            'mt-2 rounded-lg zego-badge--warning px-2.5 py-1.5 text-[11px] border',
-          )}
-        >
-          ⚠️ รูปถูกบันทึกไว้ในเบราว์เซอร์เครื่องนี้เท่านั้น ไม่อัปโหลดขึ้น Server — เปิดจากเครื่องอื่นจะไม่เห็นรูป
-        </p>
+        {!hideStorageNote && (
+          <p
+            className={cx(
+              'mt-2 rounded-lg zego-badge--warning px-2.5 py-1.5 text-[11px] border',
+            )}
+          >
+            ⚠️ รูปถูกบันทึกไว้ในเบราว์เซอร์เครื่องนี้เท่านั้น ไม่อัปโหลดขึ้น Server — เปิดจากเครื่องอื่นจะไม่เห็นรูป
+          </p>
+        )}
 
         {!photoUrl && (
           <p className="mt-1.5 text-xs zego-text-tertiary">

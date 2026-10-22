@@ -16,7 +16,7 @@ import {
   AVAILABILITY_APPROVAL, AVAILABILITY_TYPE,
   formatRecordSchedule, recordsForLeader,
 } from '@/lib/logic/availabilityStatus';
-import { LEADER_USAGE_STATUS } from '@/lib/labels';
+import { LEADER_STATUS, LEADER_USAGE_STATUS } from '@/lib/labels';
 import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
 import { AvailabilityFormModal } from '@/components/leaders/AvailabilityFormModal';
 import { ProfileBackHeader } from '../ProfileBackHeader';
@@ -41,8 +41,16 @@ export default function GuideLeavePage() {
     <div>
       <ProfileBackHeader title="สถานะ/การลา" />
       <Card padded={false}>
+        {/*
+          สองสถานะคนละเรื่อง ตั้งชื่อให้ต่างกันชัด — เดิมการ์ดโปรไฟล์ขึ้น "พร้อมรับงาน" แต่หน้านี้ขึ้น "สถานะการใช้งาน: ใช้งาน"
+          ความพร้อมรับงาน = รับงานใหม่ได้ไหม (เปลี่ยนตามการลา) · สถานะบัญชีในระบบ = ยังร่วมงาน/ระงับ/สิ้นสุด (ฝ่ายจัดกำหนด)
+        */}
         <div className="flex items-center justify-between gap-2 zego-divider-bottom px-4 py-2.5">
-          <span className="text-sm zego-text-secondary">สถานะการใช้งาน</span>
+          <span className="text-sm zego-text-secondary">ความพร้อมรับงาน</span>
+          <StatusBadge meta={LEADER_STATUS[leader.status]} size="sm" />
+        </div>
+        <div className="flex items-center justify-between gap-2 zego-divider-bottom px-4 py-2.5">
+          <span className="text-sm zego-text-secondary">สถานะบัญชีในระบบ</span>
           <StatusBadge meta={LEADER_USAGE_STATUS[leader.usageStatus]} size="sm" />
         </div>
         {leaveRecords.length === 0 ? (

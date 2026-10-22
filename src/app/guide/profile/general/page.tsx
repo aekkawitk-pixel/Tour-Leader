@@ -70,6 +70,7 @@ export default function GuideGeneralInfoPage() {
         leader={leader}
         onClose={() => setEditOpen(false)}
         onGoStatus={() => { setEditOpen(false); router.push('/guide/profile/leave'); }}
+        selfService
       />
     </div>
   );

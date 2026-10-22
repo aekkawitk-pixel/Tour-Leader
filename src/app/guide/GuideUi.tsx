@@ -53,14 +53,14 @@ export function FlagCircle({ alpha2, fallback, selected = false, label }: {
   );
 }
 
-/** ธงทรงเหลี่ยมมน 40px หน้าแถวรายการงาน */
-export function FlagTile({ alpha2, fallback, label }: { alpha2?: string; fallback: string; label: string }) {
+/** ธงทรงเหลี่ยมมน 40px หน้าแถวรายการงาน · large = 56px (การ์ดงานในหน้างานของฉัน) */
+export function FlagTile({ alpha2, fallback, label, large = false }: { alpha2?: string; fallback: string; label: string; large?: boolean }) {
   return alpha2 ? (
-    <span role="img" aria-label={`ธง${label}`} className="zego-guide-flag-tile">
+    <span role="img" aria-label={`ธง${label}`} className={cx('zego-guide-flag-tile', large && 'zego-guide-flag-tile--lg')}>
       <FlagImage alpha2={alpha2} />
     </span>
   ) : (
-    <span role="img" aria-label={label} className="zego-guide-flag-tile zego-guide-flag-tile--none">{fallback}</span>
+    <span role="img" aria-label={label} className={cx('zego-guide-flag-tile zego-guide-flag-tile--none', large && 'zego-guide-flag-tile--lg')}>{fallback}</span>
   );
 }
 

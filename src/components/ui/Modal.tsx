@@ -2,7 +2,7 @@
 
 /** Modal และ Drawer — ปิดด้วย Escape ได้ กัก focus ไว้ภายใน และล็อกการเลื่อนหน้าจอ */
 
-import { useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Button, cx } from './Primitives';
 import { Icon } from './Icon';
@@ -80,6 +80,63 @@ function toBody(node: ReactNode) {
   return typeof document === 'undefined' ? node : createPortal(node, document.body);
 }
 
+/* ------------------------------ Phone frame ------------------------------ */
+
+/**
+ * อยู่ในกรอบมือถือของพอร์ทัลหัวหน้าทัวร์ (GuideShell ตั้งค่าเป็น true)
+ *
+ * Modal/Drawer วาดที่ document.body (นอกกรอบพอร์ทัล) จึงไม่ได้สไตล์ธีม v3 ของ .zego-guide-phone
+ * และกางกว้างแบบเดสก์ท็อปตามขนาดเบราว์เซอร์ — ในกรอบมือถือให้เป็น "แผ่นเต็มกรอบ" แทน:
+ * กว้างเท่ากรอบ (448px) เลื่อนขึ้นจากด้านล่าง คอลัมน์เดียว ฟอนต์/ปุ่มธีม v3
+ * Context ของ React ไหลผ่าน portal ได้ จึงรู้ว่าเปิดจากในพอร์ทัลโดยไม่ต้องส่ง prop ทีละฟอร์ม · ฝั่งผู้จัดไม่กระทบ
+ */
+const PhoneFrameContext = createContext(false);
+
+export function PhoneFrameProvider({ children }: { children: ReactNode }) {
+  return <PhoneFrameContext.Provider value>{children}</PhoneFrameContext.Provider>;
+}
+
+/** แผ่นเต็มกรอบมือถือ (ใช้ร่วมกันทั้ง Modal และ Drawer เมื่ออยู่ในพอร์ทัล) */
+function PhoneSheet({
+  sheetRef, onClose, title, description, children, footer, closeLabel,
+}: {
+  sheetRef: React.RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+  title: string;
+  description?: string;
+  children: ReactNode;
+  footer?: ReactNode;
+  closeLabel: string;
+}) {
+  return toBody(
+    <div className="fixed inset-0 z-[160] flex items-end justify-center">
+      <div className="zego-backdrop zego-is-open" onClick={onClose} aria-hidden="true" />
+      <div
+        ref={sheetRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        /* z-[151] + isolate + transform-gpu — เหตุผลเดียวกับ Modal ด้านล่าง (กัน backdrop-filter ของพี่น้องเบลอแผง) */
+        className="zego-guide-phone zego-guide-sheet isolate transform-gpu relative z-[151] flex max-h-[94dvh] w-full flex-col"
+        style={{ maxWidth: 448, isolation: 'isolate', transform: 'translateZ(0)' }}
+      >
+        <span className="zego-guide-sheet__grip" aria-hidden="true" />
+        <header className="zego-guide-sheet__head">
+          <div className="min-w-0">
+            <h2 className="zego-guide-sheet__title">{title}</h2>
+            {description && <p className="zego-text-secondary mt-0.5 text-[13px]">{description}</p>}
+          </div>
+          <button type="button" onClick={onClose} aria-label={closeLabel} className="zego-icon-btn zego-hover-surface shrink-0 rounded-full p-1.5">
+            <Icon name="close" className="h-5 w-5" />
+          </button>
+        </header>
+        <div className="flex-1 overflow-y-auto px-4 py-4">{children}</div>
+        {footer && <footer className="zego-guide-sheet__footer">{footer}</footer>}
+      </div>
+    </div>,
+  );
+}
+
 /* --------------------------------- Modal --------------------------------- */
 
 export function Modal({
@@ -100,7 +157,15 @@ export function Modal({
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }) {
   const ref = useDismissable(open, onClose);
+  const inPhoneFrame = useContext(PhoneFrameContext);
   if (!open) return null;
+  if (inPhoneFrame) {
+    return (
+      <PhoneSheet sheetRef={ref} onClose={onClose} title={title} description={description} footer={footer} closeLabel="ปิดหน้าต่าง">
+        {children}
+      </PhoneSheet>
+    );
+  }
 
   const width = {
     sm: 'max-w-md',
@@ -195,7 +260,15 @@ export function Drawer({
   size?: 'md' | 'xl';
 }) {
   const ref = useDismissable(open, onClose);
+  const inPhoneFrame = useContext(PhoneFrameContext);
   if (!open) return null;
+  if (inPhoneFrame) {
+    return (
+      <PhoneSheet sheetRef={ref} onClose={onClose} title={title} description={description} footer={footer} closeLabel="ปิดแผงข้อมูล">
+        {children}
+      </PhoneSheet>
+    );
+  }
 
   return toBody(
     // z-160 = Z_MODAL ใน @/lib/z-index — จัดชั้นเดียวกับ .zego-command ของ zego (ฉากหลังใช้ .zego-backdrop z:150 ของ zego เอง)

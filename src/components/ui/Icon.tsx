@@ -50,7 +50,10 @@ export type IconName =
   | 'bank'
   | 'passport'
   | 'idCard'
-  | 'shield';
+  | 'shield'
+  | 'copy'
+  | 'building'
+  | 'checkCircle';
 
 const PATHS: Record<IconName, string> = {
   dashboard: 'M3 10h7V3H3v7zm11 11h7v-7h-7v7zM3 21h7v-4H3v4zM14 3v7h7V3h-7z',
@@ -113,6 +116,10 @@ const PATHS: Record<IconName, string> = {
   passport: 'M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8 17h8',
   idCard: 'M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM8 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM14 10h4M14 14h4',
   shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 12l2 2 4-4',
+  /* การ์ดงาน (หน้างานของฉัน) */
+  copy: 'M10 8h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2zM5 16H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1',
+  building: 'M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18zM6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2M10 6h4M10 10h4M10 14h4M10 18h4',
+  checkCircle: 'M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3',
 };
 
 /** ไอคอนที่วาดแบบทึบ (fill) แทนแบบเส้น (stroke) */

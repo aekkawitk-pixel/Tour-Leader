@@ -15,6 +15,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useDemo } from '@/store/DemoStore';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { Button, Card, EmptyState, cx } from '@/components/ui/Primitives';
+import { PhoneFrameProvider } from '@/components/ui/Modal';
 import { landingPathForRole, ownLeaderScope } from '@/lib/permissions';
 import { ROLE } from '@/lib/labels';
 import { useLeaderDocumentsView } from '@/lib/useLeaderDocuments';
@@ -232,8 +233,10 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
         </header>
 
 
-        {/* เนื้อหาหลัก — เว้นที่ด้านล่างให้พ้นแถบเมนูคงที่ */}
-        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-4">{children}</main>
+        {/* เนื้อหาหลัก — เว้นที่ด้านล่างให้พ้นแถบเมนูคงที่ · หน้าต่างแก้ไขทุกอันในนี้เป็นแผ่นเต็มกรอบมือถือ (PhoneFrameProvider) */}
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-4">
+          <PhoneFrameProvider>{children}</PhoneFrameProvider>
+        </main>
 
         {/* แถบเมนูล่าง — คงที่ ใช้นิ้วโป้งแตะได้ตลอดโดยไม่ต้องเลื่อนขึ้น */}
         <nav className="zego-guide-bottomnav sticky bottom-0 z-30 grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">

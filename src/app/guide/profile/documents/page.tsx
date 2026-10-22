@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * เอกสารประจำตัว — /guide/profile/documents — หนังสือเดินทาง/วีซ่า
+ * เอกสารประจำตัว — /guide/profile/documents — หนังสือเดินทาง/วีซ่า + เอกสารอื่น ๆ (รวมจากหน้า documents/other เดิม)
  * (บัตรหัวหน้าทัวร์/บัตรประชาชน ย้ายไปเป็นตัวเลือกชื่อเอกสารในแท็บ "เอกสารอื่น ๆ" แล้ว)
  *
  * แก้ไขได้เองแล้ว — ใช้ component เดียวกับฝั่งผู้จัดตรง ๆ (LeaderPassportTab, LeaderDocumentsCard)
@@ -28,6 +28,7 @@ import { LeaderPassportTab } from '@/components/leaders/LeaderPassportTab';
 import {
   IDENTITY_DOC_KINDS,
   LeaderDocumentsCard,
+  OTHER_DOC_KINDS,
 } from '@/components/leaders/documents/LeaderDocumentsCard';
 import { Card, EmptyState, cx } from '@/components/ui/Primitives';
 import { Icon, type IconName } from '@/components/ui/Icon';
@@ -147,6 +148,15 @@ export default function GuideProfileDocumentsPage() {
           kinds={IDENTITY_DOC_KINDS}
           title="วีซ่า"
           description="วีซ่าของประเทศปลายทาง"
+        />
+
+        {/* เอกสารอื่น ๆ (เดิม /guide/profile/documents/other แยกหน้า) — ประวัติอาชญากรรม ใบเซอร์ ฯลฯ */}
+        <LeaderDocumentsCard
+          leader={leader}
+          kinds={OTHER_DOC_KINDS}
+          addKind="other"
+          title="เอกสารอื่น ๆ"
+          description="ประวัติอาชญากรรม ใบเซอร์ และเอกสารอื่น — ทุกฉบับต้องแนบไฟล์ PDF หรือรูปภาพ"
         />
       </div>
     </div>

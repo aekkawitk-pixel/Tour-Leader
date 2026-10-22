@@ -10,10 +10,12 @@
  *
  * ดูได้ 2 แบบ: ปฏิทิน (ค่าเริ่มต้น — ตารางเดือน แถบสีตามช่วงเดินทางของแต่ละงาน) / รายการ (แบ่งรายเดือน)
  * แบบที่เลือกจำไว้ในเครื่อง (localStorage) — เปิดครั้งหน้าได้แบบเดิม
+ * ตัวกรองช่วงทริป (ทั้งหมด / ยังไม่จบทริป / จบทริปแล้ว) ใช้กับทั้งสองแบบ และจำไว้ในเครื่องเช่นกัน
+ * กรองภายในช่วงเวลาที่กำลังดู (เดือนในปฏิทิน / ปี-เดือนที่เลือกในรายการ) — ตัวเลขในปุ่มนับเฉพาะช่วงนั้น
  *
  * หน้าตาตามธีม v3: ชื่อหน้าตัวใหญ่เขียวป่า · ปุ่มสลับมุมมองแบบ segmented หมอกเขียว
  * · แถบปฏิทินสีตามช่วงทริป (รอเดินทาง ทอง · กำลังเดินทาง เขียว · จบแล้ว เทา · การจัดผิดปกติ แดง)
- * · แถวงาน 3 บรรทัด: รหัสกรุ๊ป + ช่วงทริป / วันที่ + ชื่อโปรแกรม / สิ่งที่ต้องทำ (แถบทอง)
+ * · การ์ดงาน: ธง รหัสกรุ๊ป (คัดลอกได้) วันที่ + วัน|คืน ชื่อโปรแกรม ช่วงทริป ผู้เดินทาง / เที่ยวบินทุกช่วงพร้อมเวลา / สิ่งที่ต้องทำ
  */
 
 import Link from 'next/link';
@@ -22,7 +24,7 @@ import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
-import { boardStatusMeta } from '@/lib/logic/guideBoard';
+import { boardStatusMeta, splitFlightLegs } from '@/lib/logic/guideBoard';
 import { daysBetween, formatDate, relativeDayLabel, toISODate } from '@/lib/format';
 import { tripEnded, tripStarted } from '@/lib/logic/tripPhase';
 import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
@@ -31,15 +33,31 @@ import { jobNextStep } from '@/lib/logic/guideJobNextStep';
 import { loadGroupClears } from '@/services/groupClearStore';
 import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import { Card, EmptyState, cx } from '@/components/ui/Primitives';
-import { Icon } from '@/components/ui/Icon';
+import { Icon, type IconName } from '@/components/ui/Icon';
 import { MonthHeader, MonthYearSelect, useMonthGroups } from '@/components/ui/MonthFilter';
 import { resolveDestination } from '@/lib/logic/destinations';
+import { tripAirports } from '@/lib/logic/airlines';
+import { airportByIata } from '@/data/airports';
 import { FlagTile, GuideBand } from '../GuideUi';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import { groupEnvelopeStatus, groupLines, leaderEnvelopeState } from '@/lib/logic/cashEnvelope';
 
 type View = 'list' | 'calendar';
 const VIEW_KEY = 'guideJobsView';
+
+/** ตัวกรองตามช่วงทริป — แยกทริปที่จบแล้วออกจากทริปที่ยังต้องดูแล · จำค่าที่เลือกไว้ในเครื่องเหมือนมุมมอง */
+type TripFilter = 'all' | 'active' | 'ended';
+const TRIP_FILTER_KEY = 'guideJobsTripFilter';
+const TRIP_FILTERS: { key: TripFilter; label: string }[] = [
+  { key: 'all', label: 'ทั้งหมด' },
+  { key: 'active', label: 'ยังไม่จบทริป' },
+  { key: 'ended', label: 'จบทริปแล้ว' },
+];
+const TRIP_FILTER_EMPTY: Record<TripFilter, string> = {
+  all: 'ยังไม่มีงานในระบบ',
+  active: 'ไม่มีทริปที่ยังไม่จบ',
+  ended: 'ยังไม่มีทริปที่จบแล้ว',
+};
 
 export default function GuideJobsPage() {
   const { currentUser } = useDemo();
@@ -52,25 +70,62 @@ export default function GuideJobsPage() {
     .filter((x): x is { assignment: typeof x.assignment; period: NonNullable<typeof x.period> } => Boolean(x.period))
     .sort((a, b) => b.period.startDate.localeCompare(a.period.startDate));
 
-  // แบ่งรายปี/รายเดือนตามวันออกเดินทาง (ใหม่สุดก่อนเหมือนเดิม) — ค่าเริ่มต้นเป็นปีปัจจุบัน ชุดเดียวกับพอร์ทัลเจ้าหน้าที่ส่งกรุ๊ป
-  const monthGroups = useMonthGroups(myJobs, (j) => j.period.startDate, toISODate(new Date()));
-
+  const todayIso = toISODate(new Date());
   const [view, setView] = useState<View>('calendar');
-  /** เปิดจากสรุปงานในหน้าหลัก (?month=YYYY-MM) — เปิดปฏิทินที่เดือนนั้น */
-  const [startMonth, setStartMonth] = useState<string | null>(null);
+
+  // แบ่งรายปี/รายเดือนตามวันออกเดินทาง (ใหม่สุดก่อนเหมือนเดิม) — ค่าเริ่มต้นเป็นปีปัจจุบัน ชุดเดียวกับพอร์ทัลเจ้าหน้าที่ส่งกรุ๊ป
+  // ใช้งานทั้งหมด (ยังไม่กรองช่วงทริป) — เลือกช่วงเวลาก่อน แล้วค่อยกรองช่วงทริปในช่วงนั้น
+  const monthGroups = useMonthGroups(myJobs, (j) => j.period.startDate, todayIso);
+
+  /** เดือนที่ปฏิทินแสดง — อยู่ที่หน้านี้ (ไม่ใช่ในปฏิทิน) เพราะตัวกรองช่วงทริปต้องนับงานของเดือนเดียวกัน */
+  const [calMonth, setCalMonth] = useState(() => initialCalendarMonth(myJobs, todayIso));
+  const moveCalMonth = (delta: number) => setCalMonth(({ y, m }) => {
+    const d = new Date(y, m + delta, 1);
+    return { y: d.getFullYear(), m: d.getMonth() };
+  });
+  const calFirst = iso(calMonth.y, calMonth.m, 1);
+  const calLast = iso(calMonth.y, calMonth.m + 1, 0);
+
+  /*
+    กรองตามช่วงทริป — ภายในช่วงเวลาที่กำลังดูเสมอ
+    ปฏิทิน = งานที่คาบเกี่ยวเดือนที่แสดง · รายการ = ปี/เดือนที่เลือกในช่วงเวลา
+    ตัวเลขในปุ่มจึงตรงกับสิ่งที่เห็นบนจอ ไม่ใช่งานทั้งหมดทุกเดือน
+  */
+  const [tripFilter, setTripFilter] = useState<TripFilter>('all');
+  const passesTripFilter = (j: Job) => tripFilter === 'all' || (tripFilter === 'ended') === tripEnded(j.period, todayIso);
+  const scopeJobs = view === 'calendar'
+    ? myJobs.filter((j) => j.period.startDate <= calLast && j.period.endDate >= calFirst)
+    : monthGroups.shown.flatMap((g) => g.items);
+  const endedCount = scopeJobs.filter((j) => tripEnded(j.period, todayIso)).length;
+  const filterCount: Record<TripFilter, number> = { all: scopeJobs.length, active: scopeJobs.length - endedCount, ended: endedCount };
+  const listGroups = monthGroups.shown
+    .map((g) => ({ ...g, items: g.items.filter(passesTripFilter) }))
+    .filter((g) => g.items.length > 0);
   // อ่านแบบที่จำไว้ / เดือนจาก URL หลัง mount (หน้านี้ถูก prerender) — ค่าเริ่มต้น/อ่านไม่ได้ = ปฏิทิน
   useEffect(() => {
     const month = new URLSearchParams(window.location.search).get('month');
     if (month && /^\d{4}-\d{2}$/.test(month)) {
       // มาจากการกดเดือนที่ต้องการ — แสดงปฏิทินเดือนนั้นเสมอ (ไม่เปลี่ยนแบบที่จำไว้)
       // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จาก URL ครั้งเดียวตอน mount
-      setStartMonth(month);
+      setCalMonth({ y: Number(month.slice(0, 4)), m: Number(month.slice(5, 7)) - 1 });
       return;
     }
     try {
       if (window.localStorage.getItem(VIEW_KEY) === 'list') setView('list');
     } catch { /* ไม่มี storage */ }
   }, []);
+  // ตัวกรองที่จำไว้ — อ่านหลัง mount (หน้านี้ถูก prerender) · ค่าไม่รู้จัก = ทั้งหมด
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(TRIP_FILTER_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- ซิงก์จาก storage ครั้งเดียวตอน mount
+      if (saved === 'active' || saved === 'ended') setTripFilter(saved);
+    } catch { /* ไม่มี storage */ }
+  }, []);
+  const pickTripFilter = (f: TripFilter) => {
+    setTripFilter(f);
+    try { window.localStorage.setItem(TRIP_FILTER_KEY, f); } catch { /* แค่ไม่จำ */ }
+  };
   const pickView = (v: View) => {
     setView(v);
     try { window.localStorage.setItem(VIEW_KEY, v); } catch { /* แค่ไม่จำ */ }
@@ -104,25 +159,45 @@ export default function GuideJobsPage() {
         <p className="zego-guide-band__sub">งานทัวร์ทั้งหมดที่ได้รับมอบหมาย</p>
       </GuideBand>
 
+      {myJobs.length > 0 && (
+        <div className="zego-guide-seg" role="group" aria-label="กรองตามช่วงทริป">
+          {TRIP_FILTERS.map((f) => (
+            <button key={f.key} type="button" aria-pressed={tripFilter === f.key} onClick={() => pickTripFilter(f.key)}>
+              {f.label} ({filterCount[f.key]})
+            </button>
+          ))}
+        </div>
+      )}
+
       {myJobs.length === 0 ? (
         <Card padded={false}>
-          <EmptyState icon="briefcase" title="ยังไม่มีงานในระบบ" />
+          <EmptyState icon="briefcase" title={TRIP_FILTER_EMPTY.all} />
         </Card>
       ) : view === 'calendar' ? (
-        <JobsCalendar key={startMonth ?? 'auto'} jobs={myJobs} startMonth={startMonth} />
+        // ปฏิทินแสดงเสมอ (แม้ตัวกรองไม่เหลืองานในเดือนนี้) — ยังเลื่อนไปเดือนอื่นได้
+        <JobsCalendar
+          jobs={myJobs.filter(passesTripFilter)}
+          month={calMonth}
+          onMove={moveCalMonth}
+          emptyText={tripFilter === 'all' ? 'ไม่มีงานในเดือนนี้' : `${TRIP_FILTER_EMPTY[tripFilter]}ในเดือนนี้`}
+        />
       ) : (
         <>
           <MonthYearSelect groups={monthGroups} />
-          <div className="space-y-5">
-            {monthGroups.shown.map((m) => (
-              <section key={m.key} aria-label={m.label} className="space-y-2">
-                <MonthHeader label={m.label} />
-                <ul className="zego-guide-list">
-                  {m.items.map((job) => <JobRow key={job.assignment.assignmentId} job={job} />)}
-                </ul>
-              </section>
-            ))}
-          </div>
+          {listGroups.length === 0 ? (
+            <p className="zego-guide-list px-4 py-5 text-center text-sm zego-text-tertiary">{TRIP_FILTER_EMPTY[tripFilter]}ในช่วงเวลานี้</p>
+          ) : (
+            <div className="space-y-5">
+              {listGroups.map((m) => (
+                <section key={m.key} aria-label={m.label} className="space-y-2">
+                  <MonthHeader label={m.label} />
+                  <ul className="space-y-3">
+                    {m.items.map((job) => <JobRow key={job.assignment.assignmentId} job={job} />)}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -140,11 +215,14 @@ const phaseOf = (p: TourPeriodMaster, today: string): Phase =>
   tripEnded(p, today) ? 'ended' : tripStarted(p, today) ? 'ongoing' : 'upcoming';
 
 /** ป้าย/สีแถบปฏิทินตามช่วงทริป — รอเดินทาง ทอง · กำลังเดินทาง เขียว · จบทริปแล้ว เทา */
-const PHASE: Record<Phase, { label: string; chip: string; bar: string }> = {
-  upcoming: { label: 'รอเดินทาง', chip: 'zego-chip--gold', bar: 'zego-guide-bar--gold' },
-  ongoing: { label: 'กำลังเดินทาง', chip: 'zego-chip--green', bar: 'zego-guide-bar--green' },
-  ended: { label: 'จบทริปแล้ว', chip: 'zego-chip--neutral', bar: 'zego-guide-bar--neutral' },
+const PHASE: Record<Phase, { label: string; chip: string; bar: string; icon: IconName }> = {
+  upcoming: { label: 'รอเดินทาง', chip: 'zego-chip--gold', bar: 'zego-guide-bar--gold', icon: 'clock' },
+  ongoing: { label: 'กำลังเดินทาง', chip: 'zego-chip--green', bar: 'zego-guide-bar--green', icon: 'plane' },
+  ended: { label: 'จบทริปแล้ว', chip: 'zego-chip--neutral', bar: 'zego-guide-bar--neutral', icon: 'checkCircle' },
 };
+
+/** สนามบินในไทย — ใช้แยกต้นทางของเส้นทางบิน */
+const isThaiAirport = (code: string) => airportByIata(code)?.countryCode === 'TH';
 
 /**
  * การจัดที่ผิดปกติ — มอบหมายงาน = คอนเฟิร์มทันที ป้าย "คอนเฟิร์มแล้ว" จึงขึ้นแทบทุกงานและไม่ให้ข้อมูล
@@ -172,49 +250,173 @@ function thaiShortRange(start: string, end: string): string {
 }
 
 /**
- * แถวงานหนึ่งกรุ๊ป (ใช้ทั้งมุมมองรายการ และรายการใต้ปฏิทิน) — 3 บรรทัด เรียงตามความสำคัญ
- *   1) รหัสกรุ๊ป + ช่วงทริป (+ การจัดผิดปกติ / เปลี่ยนตัว เฉพาะเมื่อมี)
- *   2) ช่วงวันแบบไทย · จำนวนวัน · ชื่อโปรแกรม 1 บรรทัด (ประเทศดูจากธง ไม่พิมพ์ซ้ำ)
- *   3) สิ่งที่ต้องทำเป็นแถบทองเต็มความกว้าง · ไม่มี = สถานะตัวหนังสือเทาบรรทัดเดียว · ซองเงินแสดงเฉพาะเมื่อมีปัญหา
+ * การ์ดงานหนึ่งกรุ๊ป (ใช้ทั้งมุมมองรายการ และรายการใต้ปฏิทิน)
+ *   หัว: ธง · รหัสกรุ๊ป + ปุ่มคัดลอก + ป้ายช่วงทริป · วันเดินทาง + วัน|คืน + จำนวนผู้เดินทาง · ชื่อโปรแกรม 1 บรรทัด
+ *   เที่ยวบิน: ทุกช่วงบิน แยกขาไป/ขากลับ — เลขเที่ยวบิน · ต้นทาง เวลาออก → ปลายทาง เวลาถึง
+ *   แถบสิ่งที่ต้องทำ: ระหว่างเดินทาง ฟ้า · อื่น ๆ ทอง · ซองเงินมีปัญหา แดง · ไม่มี = สถานะบรรทัดเดียว
+ * ทั้งการ์ดกดเข้าไปดูรายละเอียดงานได้ (ลิงก์คลุมการ์ด) — ปุ่มคัดลอกกดแยกได้โดยไม่เปิดหน้า
+ * จอแคบ (375px) ป้ายช่วงทริป/จำนวนผู้เดินทางไม่พอที่ในแถว → ขึ้นบรรทัดใหม่เอง (flex-wrap) รหัสกรุ๊ปไม่ถูกตัด
  */
 function JobRow({ job }: { job: Job }) {
   const { assignment, period } = job;
   const today = toISODate(new Date());
+  const phaseKey = phaseOf(period, today);
   const issue = assignmentIssue(assignment.assignmentStatus);
-  const phase = PHASE[phaseOf(period, today)];
+  const phase = PHASE[phaseKey];
   const dest = resolveDestination(period.countryName, period.groupCode);
+
+  const days = period.durationDays ?? daysBetween(period.startDate, period.endDate);
+  // จำนวนคืนจากชื่อโปรแกรม ("7 วัน 4 คืน") แม่นกว่า durationNights ที่ไฟล์นำเข้าคิดเป็น วัน − 1 (บินกลางคืนไม่นับคืนพัก)
+  const nightsInName = period.displayName.match(/(\d+)\s*วัน\s*(\d+)\s*คืน/);
+  const nights = nightsInName ? Number(nightsInName[2]) : period.durationNights ?? Math.max(days - 1, 0);
+  const booked = period.seatBooked;
+  const href = `/guide/jobs/${period.internalId}`;
+
   return (
-    <li>
-      <Link href={`/guide/jobs/${period.internalId}`} className="zego-guide-row zego-guide-row--tall zego-guide-row--top">
-        <FlagTile alpha2={dest.alpha2} fallback={dest.label.slice(0, 2).toUpperCase()} label={dest.label} />
-        <span className="min-w-0 flex-1 space-y-1.5">
-          {/* รหัสกรุ๊ปไม่ถูกตัด — ป้ายที่ไม่พอที่ขึ้นบรรทัดใหม่แทน */}
-          <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-            {/* ช่วงทริปติดรหัสกรุ๊ปเสมอ (ตำแหน่งเดิมทุกแถว) · ป้ายเสริมต่อท้ายและขึ้นบรรทัดใหม่ได้ */}
-            <span className="flex w-full items-center justify-between gap-2">
-              <span className="zego-guide-code whitespace-nowrap zego-text">{period.groupCode}</span>
-              <span className={cx('zego-chip shrink-0', phase.chip)}>{phase.label}</span>
-            </span>
-            {issue && <span className="zego-chip zego-chip--red shrink-0">{issue.label}</span>}
-            {assignment.financeSwap && (
-              <span className="zego-chip zego-chip--gold shrink-0" title="ฝั่งบัญชีเปลี่ยนตัวหัวหน้าทัวร์ของกรุ๊ปนี้">เปลี่ยนตัว</span>
+    <li className="zego-guide-jobcard">
+      {/* ลิงก์คลุมทั้งการ์ด — เนื้อหาด้านบนไม่รับคลิก (ยกเว้นปุ่ม) คลิกตรงไหนก็เปิดรายละเอียดงาน */}
+      <Link href={href} className="zego-guide-jobcard__link" aria-label={`ดูรายละเอียดงาน ${period.groupCode}`} />
+      <div className="zego-guide-jobcard__body space-y-2.5">
+        <div className="flex items-start gap-3">
+          <FlagTile alpha2={dest.alpha2} fallback={dest.label.slice(0, 2).toUpperCase()} label={dest.label} large />
+          {/*
+            ป้ายช่วงทริปต่อท้ายปุ่มคัดลอก · จำนวนผู้เดินทางชิดขวาแถววันเดินทาง
+            กรอบมือถือบนเดสก์ท็อป (448px) พอดีแถวเดียว · จอแคบ (375px) ไม่พอ → ขึ้นบรรทัดใหม่เอง (flex-wrap) ไม่ตัดรหัสกรุ๊ป
+          */}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+              <span className="zego-guide-code text-[17px] whitespace-nowrap zego-text">{period.groupCode}</span>
+              <CopyCodeButton code={period.groupCode} />
+              <span className={cx('zego-chip shrink-0 gap-1', phase.chip)}>
+                <Icon name={phase.icon} className="h-3.5 w-3.5" />
+                {phase.label}
+              </span>
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+              <p className="flex items-center gap-1.5 text-[13px] font-semibold tabular-nums whitespace-nowrap zego-text">
+                <Icon name="clock" className="h-3.5 w-3.5 shrink-0 zego-text-secondary" />
+                {thaiShortRange(period.startDate, period.endDate)}
+                {/* วัน | คืน — ไฮไลท์พื้นมิ้นต์ ให้เห็นความยาวทริปทันที */}
+                <span className="zego-guide-duration">{days} วัน | {nights} คืน</span>
+              </p>
+              {/* จำนวนผู้เดินทาง — แสดงอย่างเดียว */}
+              {booked != null && (
+                <span className="ml-auto flex shrink-0 items-center gap-1 text-[13px] zego-text-secondary" title="จำนวนผู้เดินทาง">
+                  <Icon name="users" className="h-4 w-4 text-[var(--zego-heading)]" />
+                  <span className="font-semibold tabular-nums zego-text">{booked}</span> ท่าน
+                </span>
+              )}
+            </div>
+            <p className="mt-0.5 truncate text-[13px] zego-text-secondary" title={`${dest.label} · ${period.displayName}`}>{period.displayName}</p>
+            {(issue || assignment.financeSwap) && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {issue && <span className="zego-chip zego-chip--red">{issue.label}</span>}
+                {assignment.financeSwap && (
+                  <span className="zego-chip zego-chip--gold" title="ฝั่งบัญชีเปลี่ยนตัวหัวหน้าทัวร์ของกรุ๊ปนี้">เปลี่ยนตัว</span>
+                )}
+              </div>
             )}
-          </span>
-          <span className="block truncate text-[13px] zego-text-secondary" title={`${dest.label} · ${period.displayName}`}>
-            <span className="font-semibold tabular-nums zego-text">
-              {thaiShortRange(period.startDate, period.endDate)} · {daysBetween(period.startDate, period.endDate)} วัน
-            </span>
-            {' · '}
-            {period.displayName}
-          </span>
-          <JobStatusLine period={period} />
-        </span>
-        <Icon name="chevronRight" className="zego-guide-chev h-4 w-4 self-center" />
-      </Link>
+          </div>
+          <Icon name="chevronRight" className="zego-guide-chev mt-1 h-5 w-5 shrink-0" />
+        </div>
+
+        <FlightBox period={period} />
+
+        <JobStatusLine period={period} ongoing={phaseKey === 'ongoing'} />
+      </div>
     </li>
   );
 }
+
+/** เวลา HH:MM ของช่วงบิน — ใช้เวลาประจำเที่ยวบินก่อน ไม่มีค่อยตัดจากวันที่-เวลาเต็ม (ISO) */
+const sectorTime = (time: string | null | undefined, dateTime: string | null | undefined) =>
+  (time || (dateTime && dateTime.includes('T') ? dateTime.slice(11, 16) : '') || '').trim();
+
+/**
+ * เที่ยวบินทั้งหมดของกรุ๊ป แยกขาไป/ขากลับ (splitFlightLegs — ชุดเดียวกับหน้ารายละเอียดงาน)
+ * ต่อช่วงบิน: เลขเที่ยวบิน · ต้นทาง เวลาออก → ปลายทาง เวลาถึง · เวลาไม่มีข้อมูล = ไม่แสดง (ไม่เดา)
+ * ยังไม่มีข้อมูลเที่ยวบิน = บอกตรง ๆ พร้อมปลายทางจากรหัสกรุ๊ป
+ */
+function FlightBox({ period }: { period: TourPeriodMaster }) {
+  const { outbound, inbound } = splitFlightLegs(period.sectors ?? []);
+  const legs = [
+    ...outbound.map((s, i) => ({ s, label: i === 0 ? 'ขาไป' : '' })),
+    ...inbound.map((s, i) => ({ s, label: i === 0 ? 'ขากลับ' : '' })),
+  ];
+  if (legs.length === 0) {
+    const from = tripAirports(period, isThaiAirport).out;
+    const to = (period.arrivalAirportCode || period.groupCode.split('-')[0] || '').trim().toUpperCase();
+    return (
+      <div className="zego-guide-flights">
+        <p className="flex items-center gap-2 text-[13px]">
+          <Icon name="plane" className="zego-guide-flights__icon h-4 w-4 shrink-0" />
+          <span className="font-semibold zego-text">{from ? `${from} → ${to}` : to || '—'}</span>
+          <span className="zego-text-tertiary">· ยังไม่มีข้อมูลเที่ยวบิน</span>
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="zego-guide-flights">
+      {legs.map(({ s, label }, i) => {
+        const dep = sectorTime(s.departureTime, s.departureDateTime);
+        const arr = sectorTime(s.arrivalTime, s.arrivalDateTime);
+        return (
+          <div key={`${s.sectorSequence}-${i}`} className={cx('zego-guide-flights__row', label && i > 0 && 'zego-guide-flights__row--split')}>
+            <span className="zego-guide-flights__label">
+              {label && <Icon name="plane" className={cx('zego-guide-flights__icon h-3.5 w-3.5', label === 'ขากลับ' && '-scale-x-100')} />}
+              {label}
+            </span>
+            <span className="zego-guide-flights__no">{s.flightNumber || '—'}</span>
+            <span className="min-w-0 flex-1 truncate tabular-nums">
+              <b>{s.fromAirportCode || '—'}</b>{dep && ` ${dep}`}
+              <span className="zego-text-tertiary"> → </span>
+              <b>{s.toAirportCode || '—'}</b>{arr && ` ${arr}`}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** ปุ่มคัดลอกรหัสกรุ๊ป — ไอคอนเปลี่ยนเป็นเครื่องหมายถูกชั่วครู่หลังคัดลอก */
+function CopyCodeButton({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      // เบราว์เซอร์บางตัวไม่อนุญาต clipboard — Demo ไม่ถือเป็นข้อผิดพลาด
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      aria-label={copied ? 'คัดลอกรหัสกรุ๊ปแล้ว' : `คัดลอกรหัสกรุ๊ป ${code}`}
+      title={copied ? 'คัดลอกแล้ว' : 'คัดลอกรหัสกรุ๊ป'}
+      className={cx('zego-guide-copy shrink-0', copied && 'zego-guide-copy--done')}
+    >
+      <Icon name={copied ? 'check' : 'copy'} className="h-4 w-4" />
+    </button>
+  );
+}
 const WEEKDAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+
+/** เดือนเริ่มต้นของปฏิทิน — เดือนปัจจุบัน · ถ้าเดือนนี้ไม่มีงาน กระโดดไปเดือนของงานถัดไป (ไม่มีงานข้างหน้า = เดือนนี้) */
+function initialCalendarMonth(jobs: Job[], today: string): { y: number; m: number } {
+  const ym = today.slice(0, 7);
+  const thisMonth = jobs.some((j) => j.period.startDate.slice(0, 7) <= ym && j.period.endDate.slice(0, 7) >= ym);
+  const next = [...jobs].sort((a, b) => a.period.startDate.localeCompare(b.period.startDate)).find((j) => j.period.startDate >= today);
+  if (!thisMonth && next) {
+    const [y, m] = next.period.startDate.split('-').map(Number);
+    return { y, m: m - 1 };
+  }
+  return { y: Number(today.slice(0, 4)), m: Number(today.slice(5, 7)) - 1 };
+}
 
 const monthLabel = (y: number, m: number) => new Date(y, m, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
 const iso = (y: number, m: number, d: number) => toISODate(new Date(y, m, d));
@@ -223,28 +425,17 @@ const iso = (y: number, m: number, d: number) => toISODate(new Date(y, m, d));
  * ปฏิทินรายเดือน — แต่ละสัปดาห์มีแถบสีของงานตามช่วงเดินทาง · รหัสกรุ๊ปเต็ม 1 บรรทัด วางบนแถบ ยาวได้ตลอดช่วงวันของแถบในสัปดาห์นั้น
  * งานทับกันแยกเลน (แถวสูงขึ้นตามจำนวนเลน) · ใต้ปฏิทินเป็นรายการงานของเดือนนั้น กดเข้าไปดูรายละเอียดได้
  */
-function JobsCalendar({ jobs, startMonth }: { jobs: Job[]; startMonth?: string | null }) {
+function JobsCalendar({ jobs, month, onMove, emptyText }: {
+  jobs: Job[];
+  /** เดือนที่แสดง (m = 0–11) — หน้าเป็นผู้ถือ เพราะตัวกรองช่วงทริปนับงานของเดือนเดียวกัน */
+  month: { y: number; m: number };
+  onMove: (delta: number) => void;
+  /** ข้อความเมื่อเดือนนี้ไม่มีงาน (ตามตัวกรองที่เลือก) */
+  emptyText: string;
+}) {
   const today = toISODate(new Date());
-  // เริ่มที่เดือนปัจจุบัน — ถ้าเดือนนี้ไม่มีงาน กระโดดไปเดือนของงานถัดไป (ไม่มีงานข้างหน้า = เดือนนี้)
-  const [cursor, setCursor] = useState(() => {
-    // ระบุเดือนมา (กดจากสรุปงานในหน้าหลัก) — เปิดเดือนนั้นตรง ๆ
-    if (startMonth) return { y: Number(startMonth.slice(0, 4)), m: Number(startMonth.slice(5, 7)) - 1 };
-    const now = new Date();
-    const ym = today.slice(0, 7);
-    const thisMonth = jobs.some((j) => j.period.startDate.slice(0, 7) <= ym && j.period.endDate.slice(0, 7) >= ym);
-    const next = [...jobs].sort((a, b) => a.period.startDate.localeCompare(b.period.startDate)).find((j) => j.period.startDate >= today);
-    if (!thisMonth && next) {
-      const [y, m] = next.period.startDate.split('-').map(Number);
-      return { y, m: m - 1 };
-    }
-    return { y: now.getFullYear(), m: now.getMonth() };
-  });
-  const move = (delta: number) => setCursor(({ y, m }) => {
-    const d = new Date(y, m + delta, 1);
-    return { y: d.getFullYear(), m: d.getMonth() };
-  });
-
-  const { y, m } = cursor;
+  const move = onMove;
+  const { y, m } = month;
   const first = iso(y, m, 1);
   const last = iso(y, m + 1, 0);
   const daysInMonth = new Date(y, m + 1, 0).getDate();
@@ -369,9 +560,9 @@ function JobsCalendar({ jobs, startMonth }: { jobs: Job[]; startMonth?: string |
 
       {/* งานของเดือนนี้ — ป้ายสถานะสีเดียวกับแถบในปฏิทิน */}
       {inMonth.length === 0 ? (
-        <p className="zego-guide-list px-4 py-5 text-center text-sm zego-text-tertiary">ไม่มีงานในเดือนนี้</p>
+        <p className="zego-guide-list px-4 py-5 text-center text-sm zego-text-tertiary">{emptyText}</p>
       ) : (
-        <ul className="zego-guide-list">
+        <ul className="space-y-3">
           {inMonth.map((job) => <JobRow key={job.assignment.assignmentId} job={job} />)}
         </ul>
       )}
@@ -421,38 +612,40 @@ function useJobNextStep(period: TourPeriodMaster) {
 }
 
 /**
- * บรรทัดสถานะท้ายแถวงาน
- * ต้องทำ = แถบทองเต็มความกว้าง (เด่นที่สุดในแถว) · ซองมีปัญหา = แถบแดง
+ * บรรทัดสถานะท้ายการ์ดงาน
+ * ต้องทำ = แถบเต็มความกว้าง (เด่นที่สุดในการ์ด) — ระหว่างเดินทาง ฟ้า · อื่น ๆ ทอง · ซองมีปัญหา = แถบแดง
  * ไม่มีอะไรต้องทำ = ตัวหนังสือบรรทัดเดียว: รอฝั่งการเงิน (ฟ้า) · เรียบร้อย (เขียว) · ยังไม่ออกเดินทาง = นับถอยหลังวันออก (เทา)
  */
-function JobStatusLine({ period }: { period: TourPeriodMaster }) {
+function JobStatusLine({ period, ongoing }: { period: TourPeriodMaster; ongoing: boolean }) {
   const step = useJobNextStep(period);
   const envProblem = useEnvelopeProblem(period.internalId);
   const today = toISODate(new Date());
   return (
-    <span className="block space-y-1">
+    <div className="space-y-1.5">
       {envProblem && (
-        <span className="zego-guide-strip zego-guide-strip--red">
-          <Icon name="warning" className="h-3.5 w-3.5 shrink-0" />
+        <div className="zego-guide-strip zego-guide-strip--red">
+          <span className="zego-guide-strip__icon"><Icon name="warning" className="h-4 w-4" /></span>
           <span className="min-w-0 flex-1 truncate">ซองเงิน: {envProblem}</span>
-        </span>
+          <span className="zego-guide-strip__go"><Icon name="chevronRight" className="h-3.5 w-3.5" /></span>
+        </div>
       )}
       {step.tone === 'action' ? (
-        <span className="zego-guide-strip zego-guide-strip--gold">
+        <div className={cx('zego-guide-strip', ongoing ? 'zego-guide-strip--blue' : 'zego-guide-strip--gold')}>
+          <span className="zego-guide-strip__icon"><Icon name={ongoing ? 'checkCircle' : 'receipt'} className="h-4 w-4" /></span>
           <span className="min-w-0 flex-1 truncate">ต้องทำ: {step.label}</span>
-          <Icon name="chevronRight" className="h-3.5 w-3.5 shrink-0" />
-        </span>
+          <span className="zego-guide-strip__go"><Icon name="chevronRight" className="h-3.5 w-3.5" /></span>
+        </div>
       ) : step.tone === 'idle' ? (
-        <span className="flex items-center gap-1 text-xs zego-text-tertiary">
+        <p className="flex items-center gap-1 px-1 text-xs zego-text-tertiary">
           <Icon name="plane" className="h-3.5 w-3.5 shrink-0" />
           ออกเดินทาง{relativeDayLabel(period.startDate.slice(0, 10), today)}
-        </span>
+        </p>
       ) : (
-        <span className={cx('flex items-center gap-1 text-xs font-medium', step.tone === 'done' ? 'zego-guide-status--done' : 'zego-guide-status--waiting')}>
+        <p className={cx('flex items-center gap-1 px-1 text-xs font-medium', step.tone === 'done' ? 'zego-guide-status--done' : 'zego-guide-status--waiting')}>
           <Icon name={step.tone === 'done' ? 'check' : 'clock'} className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">{step.label}</span>
-        </span>
+        </p>
       )}
-    </span>
+    </div>
   );
 }

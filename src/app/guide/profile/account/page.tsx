@@ -91,9 +91,25 @@ export default function GuideAccountPage() {
       <ProfileBackHeader title="บัญชีผู้ใช้" />
 
       {!loaded ? null : !account ? (
-        <Card>
-          <EmptyState icon="guide" title="ยังไม่มีบัญชีผู้ใช้" description="กรุณาติดต่อเจ้าหน้าที่ฝ่ายจัดหัวหน้าทัวร์ เพื่อสร้างบัญชีเข้าสู่ระบบ" />
-        </Card>
+        /*
+          ยังไม่มีข้อมูลบัญชี (User name/รหัสผ่าน) ของหัวหน้าทัวร์คนนี้ในระบบ — แต่ผู้ใช้กำลังใช้งานอยู่
+          เดิมขึ้น "ยังไม่มีบัญชีผู้ใช้" ซึ่งขัดกับความจริงที่เห็น → บอกว่าใครเข้าใช้อยู่ แล้วค่อยบอกสิ่งที่ยังทำไม่ได้
+        */
+        <>
+          <Card>
+            <dl>
+              <Row label="ผู้ใช้ที่เข้าใช้งานอยู่" value={currentUser.name} />
+              <Row label="รหัสหัวหน้าทัวร์" value={<span className="font-mono">{leader.id}</span>} />
+              <Row label="User name" value={<span className="zego-text-tertiary">ยังไม่ได้ตั้ง</span>} />
+            </dl>
+          </Card>
+          <Card className="space-y-1">
+            <p className="text-sm font-semibold zego-text">เปลี่ยนรหัสผ่าน</p>
+            <p className="text-xs zego-text-secondary">
+              ยังไม่ได้ตั้ง User name และรหัสผ่านสำหรับเข้าสู่ระบบด้วยตัวเอง — กรุณาติดต่อเจ้าหน้าที่ฝ่ายจัดหัวหน้าทัวร์ เพื่อตั้งบัญชีก่อน แล้วจึงขอลิงก์เปลี่ยนรหัสผ่านได้ที่หน้านี้
+            </p>
+          </Card>
+        </>
       ) : (
         <>
           <Card>

@@ -24,6 +24,7 @@ import {
 import { TITLE_OPTIONS, TITLE_OPTIONS_EN, NAME_EN_PATTERN } from '@/modules/tour-leaders/constants';
 import { leaderToForm, type LeaderFormState } from '@/modules/tour-leaders/mappers';
 import { saveErrorMessage } from '@/services/browserStorage';
+import { formatDate } from '@/lib/format';
 import type { Country, Gender, LeaderSourceType, MaritalStatus, Religion, TourLeader } from '@/types';
 
 /* --------------------------------- draft --------------------------------- */
@@ -107,21 +108,28 @@ function CountryPicker({
 /* --------------------------------- modal --------------------------------- */
 
 export function GeneralInfoEditModal({
-  open, leader, onClose, onGoStatus,
+  open, leader, onClose, onGoStatus, selfService = false,
 }: {
   open: boolean;
   leader: TourLeader;
   onClose: () => void;
   /** §6 ปิด Modal แล้วไปแท็บ "สถานะและการลา" */
   onGoStatus: () => void;
+  /**
+   * หัวหน้าทัวร์แก้ข้อมูลของตัวเอง (พอร์ทัล /guide)
+   * วันที่เริ่มร่วมงาน = ดูอย่างเดียว (ฝ่ายจัดเป็นผู้กำหนด — ตรงกับหน้า "ข้อมูลการร่วมงาน") ·
+   * ซ่อนแหล่งที่มาของข้อมูล (ข้อมูลระบบของฝ่ายจัด) และหมายเหตุ Demo เรื่องเก็บรูป
+   * ค่าที่ซ่อน/ล็อกบันทึกกลับเป็นค่าเดิมเสมอ (draft เริ่มจากค่าของ leader และไม่มีช่องให้แก้)
+   */
+  selfService?: boolean;
 }) {
   if (!open) return null;
-  return <GeneralInfoForm key={leader.id} leader={leader} onClose={onClose} onGoStatus={onGoStatus} />;
+  return <GeneralInfoForm key={leader.id} leader={leader} onClose={onClose} onGoStatus={onGoStatus} selfService={selfService} />;
 }
 
 function GeneralInfoForm({
-  leader, onClose, onGoStatus,
-}: { leader: TourLeader; onClose: () => void; onGoStatus: () => void }) {
+  leader, onClose, onGoStatus, selfService,
+}: { leader: TourLeader; onClose: () => void; onGoStatus: () => void; selfService: boolean }) {
   const { countries, today, saving, saveLeaderForm } = useDemo();
 
   const initial = useMemo(() => makeDraft(leaderToForm(leader)), [leader]);
@@ -239,6 +247,7 @@ function GeneralInfoForm({
               initials={`${draft.firstName.slice(0, 1)}${draft.lastName.slice(0, 1)}` || '—'}
               color={leader.avatarColor}
               onChange={(url) => set('photoUrl', url)}
+              hideStorageNote={selfService}
             />
           </div>
 
@@ -326,9 +335,13 @@ function GeneralInfoForm({
               />
             </div>
             <div data-field="joinedAt">
-              <DateField label="วันที่เริ่มร่วมงาน" value={draft.joinedAt} onChange={(v) => set('joinedAt', v)} />
+              {selfService ? (
+                <TextInput label="วันที่เริ่มร่วมงาน" value={draft.joinedAt ? formatDate(draft.joinedAt) : 'ยังไม่ระบุ'} readOnly disabled hint="ฝ่ายจัดหัวหน้าทัวร์เป็นผู้กำหนด" />
+              ) : (
+                <DateField label="วันที่เริ่มร่วมงาน" value={draft.joinedAt} onChange={(v) => set('joinedAt', v)} />
+              )}
             </div>
-            <div data-field="sourceType">
+            {!selfService && <div data-field="sourceType">
               <SelectInput
                 label="แหล่งที่มาของข้อมูล"
                 optional
@@ -342,7 +355,7 @@ function GeneralInfoForm({
                   <TextInput label="ระบุแหล่งที่มา" value={draft.sourceOther} onChange={(e) => set('sourceOther', e.target.value)} />
                 </div>
               )}
-            </div>
+            </div>}
           </div>
         </div>
       </Modal>

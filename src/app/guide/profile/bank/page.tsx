@@ -44,8 +44,9 @@ export default function GuideBankPage() {
           </ul>
         )}
         <div className="px-4 pb-4 pt-2">
-          <Button variant="primary" icon="edit" className="w-full" onClick={() => setEditOpen(true)}>
-            แก้ไขบัญชีธนาคาร
+          {/* ยังไม่มีบัญชี = "เพิ่ม" (เดิมขึ้น "แก้ไข" ทั้งที่ไม่มีอะไรให้แก้) */}
+          <Button variant="primary" icon={leader.bankAccounts.length === 0 ? 'plus' : 'edit'} className="w-full" onClick={() => setEditOpen(true)}>
+            {leader.bankAccounts.length === 0 ? 'เพิ่มบัญชีธนาคาร' : 'แก้ไขบัญชีธนาคาร'}
           </Button>
         </div>
       </Card>

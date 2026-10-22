@@ -385,6 +385,7 @@ a.zego-guide-row:hover,.zego-guide-list a:hover{background:var(--zego-surface-so
 .zego-guide-tile--teal{background:var(--zego-tile-teal-bg);color:var(--zego-tile-teal-fg)}
 .zego-guide-tile--gold{background:var(--zego-tile-gold-bg);color:var(--zego-tile-gold-fg)}
 .zego-guide-tile--red{background:var(--zego-tile-red-bg);color:var(--zego-tile-red-fg)}
+.zego-guide-tile--neutral{background:var(--zego-chip-neutral-bg);color:var(--zego-chip-neutral-fg)}
 
 /* ป้ายสถานะ */
 .zego-chip{display:inline-flex;align-items:center;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500;line-height:1.5;white-space:nowrap}
@@ -415,6 +416,9 @@ html[data-zego-theme="dark"] .zego-guide-seg > button[aria-pressed="true"]{backg
 .zego-guide-avatar--white{border:2px solid #fff}
 .zego-guide-ready{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500;background:var(--zego-chip-green-bg);color:var(--zego-chip-green-fg)}
 .zego-guide-ready:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--zego-brand-rim)}
+/* ป้ายความพร้อมรับงานบนการ์ดโปรไฟล์ — กดไปหน้าสถานะ/การลา */
+.zego-guide-status-link{gap:4px;transition:box-shadow var(--zego-motion-fast)}
+.zego-guide-status-link:hover{box-shadow:inset 0 0 0 1px currentColor}
 html[data-zego-theme="dark"] .zego-guide-ready:before{background:#3dba73}
 
 /* กล่องสรุปเตือน (ทอง) — หน้าเอกสาร */
@@ -438,6 +442,37 @@ html[data-zego-theme="dark"] .zego-guide-warnbox__sub{color:#e2b85a}
 .zego-guide-strip--gold{background:var(--zego-chip-gold-bg);color:var(--zego-chip-gold-fg);box-shadow:inset 0 0 0 1px rgba(199,150,61,.35)}
 .zego-guide-strip--red{background:var(--zego-chip-red-bg);color:var(--zego-chip-red-fg);box-shadow:inset 0 0 0 1px rgba(196,66,66,.3)}
 .zego-guide-status--done{color:var(--zego-chip-green-fg)}
+.zego-guide-strip--blue{background:var(--zego-chip-blue-bg);color:var(--zego-chip-blue-fg);box-shadow:inset 0 0 0 1px rgba(40,120,199,.3)}
+.zego-guide-strip{padding:8px 10px;font-size:13.5px}
+.zego-guide-strip__icon{display:flex;flex:0 0 auto;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:rgba(255,255,255,.55)}
+.zego-guide-strip--gold .zego-guide-strip__icon{background:var(--zego-accent-500);color:#fff}
+.zego-guide-strip--blue .zego-guide-strip__icon{background:var(--zego-info);color:#fff}
+.zego-guide-strip--red .zego-guide-strip__icon{background:var(--zego-danger);color:#fff}
+.zego-guide-strip__go{display:flex;flex:0 0 auto;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.6)}
+html[data-zego-theme="dark"] .zego-guide-strip__go{background:rgba(255,255,255,.08)}
+
+/* การ์ดงาน (หน้างานของฉัน) — ทั้งการ์ดเป็นลิงก์ (ลิงก์คลุม) ปุ่มข้างในกดแยกได้ */
+.zego-guide-jobcard{position:relative;padding:14px;border:1px solid var(--zego-border);border-radius:18px;background:var(--zego-surface);box-shadow:var(--zego-shadow-xs);transition:border-color var(--zego-motion-fast)}
+.zego-guide-jobcard:hover{border-color:var(--zego-border-strong)}
+.zego-guide-jobcard__link{position:absolute;inset:0;z-index:0;border-radius:inherit}
+.zego-guide-jobcard__link:focus-visible{outline:3px solid var(--zego-focus);outline-offset:2px}
+.zego-guide-jobcard__body{position:relative;z-index:1;pointer-events:none}
+.zego-guide-jobcard__body button{pointer-events:auto}
+.zego-guide-flag-tile--lg{width:56px;height:56px;border-radius:14px}
+.zego-guide-flag-tile--lg.zego-guide-flag-tile--none{font-size:16px}
+.zego-guide-copy{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;color:var(--zego-text-tertiary)}
+.zego-guide-copy:hover{background:var(--zego-surface-soft);color:var(--zego-text)}
+.zego-guide-copy--done,.zego-guide-copy--done:hover{color:var(--zego-chip-green-fg)}
+/* เที่ยวบินในการ์ดงาน — ทุกช่วงบิน: ขาไป/ขากลับ · เลขเที่ยวบิน · ต้นทาง เวลา → ปลายทาง เวลา */
+.zego-guide-flights{padding:8px 12px;border-radius:12px;background:var(--zego-surface-soft);border:1px solid var(--zego-border-soft);font-size:12.5px;color:var(--zego-text)}
+.zego-guide-flights__row{display:flex;align-items:baseline;gap:8px;min-height:24px;white-space:nowrap}
+.zego-guide-flights__row--split{margin-top:4px;padding-top:4px;border-top:1px dashed var(--zego-border)}
+.zego-guide-flights__label{display:inline-flex;align-items:center;gap:4px;flex:0 0 56px;color:var(--zego-text-secondary);font-weight:500}
+.zego-guide-flights__icon{color:var(--zego-heading)}
+.zego-guide-flights__no{flex:0 0 auto;min-width:46px;font-family:var(--zego-font-display);font-weight:600;color:var(--zego-heading)}
+.zego-guide-flights b{font-weight:600}
+/* ความยาวทริป (วัน | คืน) ในการ์ดงาน — ไฮไลท์พื้นมิ้นต์ ตัวหนังสือเขียวเข้ม */
+.zego-guide-duration{display:inline-flex;align-items:center;margin-left:2px;padding:1px 8px;border-radius:999px;background:var(--zego-mint);color:var(--zego-label);font-weight:600}
 .zego-guide-status--waiting{color:var(--zego-chip-blue-fg)}
 
 /* หน้าที่ยังไม่เปิดใช้งาน — วงมิ้นต์ขอบเส้นประเขียว ไม่มีปุ่ม */
@@ -449,6 +484,29 @@ html[data-zego-theme="dark"] .zego-guide-warnbox__sub{color:#e2b85a}
 .zego-guide-soon__title{font-family:var(--zego-font-display);font-weight:600;font-size:22px;color:var(--zego-heading)}
 .zego-guide-soon__body{max-width:290px;font-size:15px;line-height:1.6;color:var(--zego-text-secondary)}
 .zego-guide-soon__pill{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:6px 14px;border:1px solid var(--zego-border-strong);border-radius:999px;background:var(--zego-surface);font-size:13px;color:var(--zego-label)}
+
+/*
+ * แผ่นแก้ไขเต็มกรอบมือถือ (Modal/Drawer ที่เปิดในพอร์ทัล — PhoneFrameProvider ใน Modal.tsx)
+ * กว้างเท่ากรอบ 448px เลื่อนขึ้นจากล่าง ได้ฟอนต์/ปุ่มธีม v3 จาก .zego-guide-phone ที่ติดมาด้วย
+ */
+.zego-guide-sheet{background:var(--zego-surface);border:1px solid var(--zego-border);border-bottom:0;border-radius:22px 22px 0 0;box-shadow:var(--zego-shadow-lg)}
+.zego-guide-sheet__grip{display:block;width:40px;height:4px;margin:8px auto 0;border-radius:999px;background:var(--zego-border-strong)}
+.zego-guide-sheet__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 16px 12px;border-bottom:1px solid var(--zego-border-soft)}
+.zego-guide-sheet__title{font-family:var(--zego-font-display);font-weight:700;font-size:20px;line-height:1.3;color:var(--zego-heading)}
+.zego-guide-sheet__footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--zego-border-soft);background:var(--zego-surface-soft)}
+/* ปุ่มท้ายแผ่นกว้างเต็มแถว — กดง่ายด้วยนิ้วโป้ง */
+.zego-guide-sheet__footer .zego-button{flex:1 1 0;min-height:44px;white-space:nowrap}
+/* ฟอร์มที่ห่อปุ่มไว้ในกล่องซ้อน (เช่น ข้อความผิดพลาด + กลุ่มปุ่ม) — ให้กล่องกลุ่มปุ่มขยายเต็มแถว ไม่บีบปุ่มจนตัวอักษรตัดบรรทัด */
+.zego-guide-sheet__footer > *{flex:1 1 auto}
+.zego-guide-sheet__footer :is(div,span):has(> .zego-button){display:flex;flex:1 1 auto;gap:8px}
+/*
+ * คอลัมน์เดียวในแผ่น — ฟอร์มฝั่งผู้จัดจัดคอลัมน์ด้วย sm:/md:/lg: ตามความกว้าง "เบราว์เซอร์" (เปิดบนเดสก์ท็อปจะได้ 3 คอลัมน์ในกรอบ 448px)
+ * ยุบเฉพาะกริดที่มีคอลัมน์ตามจอ — กริดคงที่ (เช่น ปฏิทินเลือกวัน grid-cols-7) ไม่โดน · ล้าง col-span ตามจอด้วย ไม่งั้นเกิดคอลัมน์แฝง
+ */
+.zego-guide-sheet [class*="sm:grid-cols-"],.zego-guide-sheet [class*="md:grid-cols-"],.zego-guide-sheet [class*="lg:grid-cols-"],.zego-guide-sheet [class*="xl:grid-cols-"]{grid-template-columns:minmax(0,1fr)}
+.zego-guide-sheet [class*="sm:col-span-"],.zego-guide-sheet [class*="md:col-span-"],.zego-guide-sheet [class*="lg:col-span-"],.zego-guide-sheet [class*="xl:col-span-"]{grid-column:auto}
+.zego-guide-sheet [class*="lg:flex-row"],.zego-guide-sheet [class*="md:flex-row"]{flex-direction:column}
+.zego-guide-sheet [class*="lg:w-"]{width:100%}
 
 /* ปุ่มในพอร์ทัล — หลักเขียวปุ่มทึบ · รองเป็นเขียวอ่อน (tonal) แทนปุ่มเทาเดิม */
 .zego-guide-phone .zego-button--primary,html[data-zego-theme="dark"] .zego-guide-phone .zego-button.zego-button--primary{background:var(--zego-brand-band);border-color:var(--zego-brand-band);color:#fff;box-shadow:none}

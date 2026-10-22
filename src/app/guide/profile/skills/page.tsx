@@ -1,7 +1,8 @@
 'use client';
 
 /**
- * ความเชี่ยวชาญและทักษะ — /guide/profile/skills
+ * การพัฒนาและประสบการณ์ — /guide/profile/skills (ชื่อหัวข้อตามต้นแบบธีม v3)
+ * รวม "ความเชี่ยวชาญและทักษะ" กับ "ภาษา" (เดิม /guide/profile/languages แยกหน้า) ไว้หน้าเดียว
  *
  * แก้ไขได้เองทุกหัวข้อ (ตามนโยบายเดียวกับหัวข้ออื่นในโปรไฟล์) — เปิด SkillSectionEditModal
  * เดียวกับฝั่งผู้จัด (src/app/leaders/[id]/page.tsx) ใช้ซ้ำตรง ๆ เพราะดึงข้อมูลจาก useDemo()
@@ -23,6 +24,7 @@ import { groupExpertiseName, groupExpertiseCountLabel, isAllGroups } from '@/lib
 import { ExpertiseScopeView } from '@/components/leaders/ExpertiseScopeView';
 import { SkillSectionEditModal, type SkillSectionKey } from '@/components/leaders/SkillSectionEditModal';
 import { Button, Card, CardHeader, EmptyState, Pill } from '@/components/ui/Primitives';
+import { LanguageSkillsPanel } from '@/components/leaders/LanguageSkillsPanel';
 import { ProfileBackHeader } from '../ProfileBackHeader';
 
 export default function GuideSkillsPage() {
@@ -31,6 +33,8 @@ export default function GuideSkillsPage() {
 
   const [sectionEdit, setSectionEdit] = useState<{ section: SkillSectionKey; mode: 'add' | 'edit' } | null>(null);
   const [rev, setRev] = useState(0);
+  /** ยังไม่มีภาษา — แผงภาษาจะเปิดเป็นฟอร์มเปล่าทันที จึงแสดงปุ่ม "เพิ่มภาษา" ก่อน กดแล้วค่อยเปิดฟอร์ม */
+  const [addingLanguage, setAddingLanguage] = useState(false);
   const openSection = (section: SkillSectionKey, mode: 'add' | 'edit') => setSectionEdit({ section, mode });
   const closeSection = () => { setSectionEdit(null); setRev((v) => v + 1); };
 
@@ -40,7 +44,7 @@ export default function GuideSkillsPage() {
   if (!leader) {
     return (
       <div>
-        <ProfileBackHeader title="ความเชี่ยวชาญและทักษะ" />
+        <ProfileBackHeader title="การพัฒนาและประสบการณ์" />
         <Card><EmptyState icon="guide" title="ยังไม่พบข้อมูลหัวหน้าทัวร์" /></Card>
       </div>
     );
@@ -48,7 +52,7 @@ export default function GuideSkillsPage() {
 
   return (
     <div className="space-y-4">
-      <ProfileBackHeader title="ความเชี่ยวชาญและทักษะ" />
+      <ProfileBackHeader title="การพัฒนาและประสบการณ์" />
 
       <Card>
         <CardHeader
@@ -96,6 +100,20 @@ export default function GuideSkillsPage() {
           </div>
         )}
       </Card>
+
+      {/* ภาษา — ใช้แผงเดียวกับฝั่งผู้จัด (แก้ไขได้ในตัว) */}
+      {leader.languages.length === 0 && !addingLanguage ? (
+        <Card>
+          <CardHeader title="ทักษะด้านภาษา" />
+          <EmptyState
+            icon="chat"
+            title="ยังไม่ได้ระบุภาษา"
+            action={<Button variant="primary" size="sm" onClick={() => setAddingLanguage(true)}>เพิ่มภาษา</Button>}
+          />
+        </Card>
+      ) : (
+        <LanguageSkillsPanel leader={leader} canEdit />
+      )}
 
       <SkillSectionEditModal
         open={sectionEdit !== null}
