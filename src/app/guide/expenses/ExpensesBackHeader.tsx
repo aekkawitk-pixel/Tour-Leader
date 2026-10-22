@@ -9,13 +9,13 @@ export function ExpensesBackHeader({ title, description, backTab = 'during' }: {
     <div className="mb-3">
       <Link
         href={`/guide/finance#${backTab}`}
-        className="mb-2 inline-flex items-center gap-1 text-sm font-medium zego-text-success"
+        className="zego-guide-back"
       >
-        <Icon name="chevronLeft" className="h-4 w-4" />
+        <Icon name="chevronLeft" className="h-5 w-5" />
         บัญชี-การเงิน
       </Link>
-      <h1 className="text-lg font-bold zego-text">{title}</h1>
-      {description && <p className="text-sm zego-text-tertiary">{description}</p>}
+      <h1 className="zego-guide-title">{title}</h1>
+      {description && <p className="mt-0.5 text-sm zego-text-secondary">{description}</p>}
     </div>
   );
 }

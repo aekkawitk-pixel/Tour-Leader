@@ -21,6 +21,7 @@ import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import { loadGroupClears } from '@/services/groupClearStore';
 import { summarizeGroupClear } from '@/lib/logic/groupClear';
 import { Button, Card, EmptyState, StatusBadge } from '@/components/ui/Primitives';
+import { GuideBand } from '../../GuideUi';
 import { Modal } from '@/components/ui/Modal';
 import { TextArea } from '@/components/ui/FormField';
 import { LANE_LABEL } from '@/lib/logic/appointmentSlots';
@@ -61,13 +62,14 @@ export default function GuideSettlementAppointmentsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-lg font-semibold zego-text">นัดหมาย</h1>
-          <p className="text-sm zego-text-secondary">นัดเคลียร์เงินกับบัญชี — สร้างนัด ยืนยันนัด หรือเลื่อนนัด (เลือกเวลาที่บัญชีว่าง) ได้ที่นี่</p>
+      {/* แถบหัวของแท็บ (ธีม v3) — ปุ่มสร้างนัดเป็นปุ่มขาวบนแถบเขียว */}
+      <GuideBand>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="zego-guide-band__title">นัดหมาย</h1>
+          <Button variant="primary" size="sm" icon="plus" className="shrink-0" onClick={() => setCreating(true)}>สร้างนัดหมาย</Button>
         </div>
-        <Button variant="primary" size="sm" icon="plus" className="shrink-0" onClick={() => setCreating(true)}>สร้างนัดหมาย</Button>
-      </div>
+        <p className="zego-guide-band__sub">นัดเคลียร์เงินกับบัญชี — สร้างนัด ยืนยันนัด หรือเลื่อนนัด (เลือกเวลาที่บัญชีว่าง) ได้ที่นี่</p>
+      </GuideBand>
 
       {/* ปฏิทินไม่แสดงนัดที่ยกเลิกแล้ว (การ์ดในรายการยังบอกว่ายกเลิก ไว้ท้ายสุด) */}
       <AppointmentCalendar month={month} onMonth={setMonth} selected={day} onSelect={setDay} appointments={mine.filter((a) => a.status !== 'cancelled')} today={today} />

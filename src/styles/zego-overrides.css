@@ -331,6 +331,15 @@ html[data-zego-theme="dark"] .zego-guide-nav-item--active .zego-guide-nav-pill{b
 .zego-guide-band__eyebrow{color:var(--zego-brand-band-soft);font-size:15px}
 .zego-guide-band__title{font-family:var(--zego-font-display);font-weight:700;font-size:28px;line-height:1.2;color:#fff}
 .zego-guide-band__meta{color:var(--zego-mint);font-size:13px}
+.zego-guide-band__sub{margin-top:2px;font-size:14px;line-height:1.5;color:var(--zego-brand-band-soft)}
+/* segmented บนแถบเขียว — ช่องขาวโปร่ง ตัวที่เลือกพื้นขาวตัวหนังสือเขียว */
+.zego-guide-band .zego-guide-seg{background:rgba(255,255,255,.16)}
+.zego-guide-band .zego-guide-seg > button{color:#fff}
+.zego-guide-band .zego-guide-seg > button[aria-pressed="true"],html[data-zego-theme="dark"] .zego-guide-band .zego-guide-seg > button[aria-pressed="true"]{background:#fff;color:var(--zego-brand-band)}
+html[data-zego-theme="dark"] .zego-guide-band .zego-guide-seg > button[aria-pressed="true"]{color:#0a4b29}
+/* ปุ่มหลักบนแถบเขียว — กลับสีเป็นปุ่มขาว (ปุ่มเขียวบนพื้นเขียวจะมองไม่เห็น) · selector ที่สองชนะกฎธีมมืดของปุ่มหลัก */
+html .zego-guide-phone .zego-guide-band .zego-button.zego-button--primary,html[data-zego-theme] .zego-guide-phone .zego-guide-band .zego-button.zego-button--primary{background:#fff;border-color:#fff;color:#04803c;box-shadow:none}
+html[data-zego-theme] .zego-guide-phone .zego-guide-band .zego-button.zego-button--primary:hover{background:var(--zego-mint);border-color:var(--zego-mint);color:#08743a}
 html[data-zego-theme="dark"] .zego-guide-band__meta{color:#c9ecd6}
 /* ปุ่มเลือกเดือนบนแถบเขียว */
 .zego-guide-band [aria-haspopup="dialog"]{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.28);color:#fff}
@@ -348,6 +357,7 @@ html[data-zego-theme="dark"] .zego-guide-band__meta{color:#c9ecd6}
 .zego-guide-back{display:inline-flex;align-items:center;gap:2px;height:36px;font-size:16px;font-weight:500;color:var(--zego-brand-band)}
 html[data-zego-theme="dark"] .zego-guide-back{color:#6fd39a}
 .zego-guide-title{font-family:var(--zego-font-display);font-weight:700;font-size:28px;line-height:1.2;color:var(--zego-heading)}
+.zego-guide-title--code{font-size:24px;letter-spacing:.01em}
 
 /* แบนเนอร์งานด่วน — เขียวป่า ตัวนับเขียวอ่อน */
 .zego-guide-notice{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;background:var(--zego-notice-strong);color:var(--zego-notice-strong-fg);box-shadow:var(--zego-shadow-sm)}

@@ -90,7 +90,7 @@ export default function GuideProfilePage() {
     return (
       <div className="space-y-4">
         <GuideBand>
-          <h1 className="zego-guide-band__title text-[32px]">โปรไฟล์</h1>
+          <h1 className="zego-guide-band__title">โปรไฟล์</h1>
         </GuideBand>
         <Card>
           <EmptyState
@@ -110,7 +110,7 @@ export default function GuideProfilePage() {
   return (
     <div className="space-y-4">
       <GuideBand overlap>
-        <h1 className="zego-guide-band__title text-[32px]">โปรไฟล์</h1>
+        <h1 className="zego-guide-band__title">โปรไฟล์</h1>
       </GuideBand>
 
       <GuideOverlap>

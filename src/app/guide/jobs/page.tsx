@@ -33,7 +33,7 @@ import { Card, EmptyState, cx } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import { MonthHeader, MonthYearSelect, useMonthGroups } from '@/components/ui/MonthFilter';
 import { resolveDestination } from '@/lib/logic/destinations';
-import { FlagTile } from '../GuideUi';
+import { FlagTile, GuideBand } from '../GuideUi';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import { groupEnvelopeStatus, groupLines, leaderEnvelopeState, type EnvelopeTone } from '@/lib/logic/cashEnvelope';
 
@@ -77,10 +77,10 @@ export default function GuideJobsPage() {
 
   return (
     <div className="space-y-4">
-      {/* ชื่อหน้า + ปุ่มสลับมุมมองแถวเดียวกัน · คำอธิบายเต็มบรรทัดด้านล่าง (ไม่บีบจนตัดคำ) */}
-      <div>
+      {/* แถบหัวของแท็บ — ชื่อหน้า + ปุ่มสลับมุมมองแถวเดียวกัน · คำอธิบายเต็มบรรทัดด้านล่าง (ไม่บีบจนตัดคำ) */}
+      <GuideBand>
         <div className="flex items-center justify-between gap-3">
-          <h1 className="zego-guide-title">งานของฉัน</h1>
+          <h1 className="zego-guide-band__title">งานของฉัน</h1>
           <div className="zego-guide-seg w-[168px] shrink-0" role="group" aria-label="รูปแบบการแสดง">
             {([
               { key: 'calendar', icon: 'calendar', label: 'ปฏิทิน' },
@@ -100,8 +100,8 @@ export default function GuideJobsPage() {
             ))}
           </div>
         </div>
-        <p className="mt-0.5 text-sm zego-text-secondary">งานทัวร์ทั้งหมดที่ได้รับมอบหมาย</p>
-      </div>
+        <p className="zego-guide-band__sub">งานทัวร์ทั้งหมดที่ได้รับมอบหมาย</p>
+      </GuideBand>
 
       {myJobs.length === 0 ? (
         <Card padded={false}>

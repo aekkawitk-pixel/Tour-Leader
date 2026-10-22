@@ -22,6 +22,7 @@ import { leaderEnvelopeState } from '@/lib/logic/cashEnvelope';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
 import { addDays, diffDays, formatCurrency, formatDate, formatDateRange, toISODate } from '@/lib/format';
 import { Card, cx } from '@/components/ui/Primitives';
+import { GuideBand } from '../GuideUi';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { tripEnded, tripOngoing } from '@/lib/logic/tripPhase';
 import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
@@ -96,10 +97,11 @@ export default function GuideFinancePage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-bold zego-text">บัญชี-การเงิน</h1>
-        <p className="text-sm zego-text-tertiary">ซองเงิน ใบเสร็จ และเคลียร์เงิน — แยกตามกรุ๊ป</p>
-      </div>
+      {/* แถบหัวของแท็บ (ธีม v3) */}
+      <GuideBand>
+        <h1 className="zego-guide-band__title">บัญชี-การเงิน</h1>
+        <p className="zego-guide-band__sub">ซองเงิน ใบเสร็จ และเคลียร์เงิน — แยกตามกรุ๊ป</p>
+      </GuideBand>
 
       {/* ปุ่มด่วน — id คงไว้ให้ลิงก์ย้อนกลับเดิม (#during / #envelopes) */}
       <section id="during" className="scroll-mt-4 grid grid-cols-2 gap-2.5">

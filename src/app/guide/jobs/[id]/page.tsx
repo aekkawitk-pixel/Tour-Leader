@@ -81,8 +81,8 @@ export default function GuideJobDetailPage() {
   if (!period || !assignment) {
     return (
       <div>
-        <Link href="/guide/jobs" className="mb-3 inline-flex items-center gap-1 text-sm font-medium zego-text-success">
-          <Icon name="chevronLeft" className="h-4 w-4" />
+        <Link href="/guide/jobs" className="zego-guide-back mb-3">
+          <Icon name="chevronLeft" className="h-5 w-5" />
           งานของฉัน
         </Link>
         <Card><EmptyState icon="briefcase" title="ไม่พบงานนี้" /></Card>
@@ -113,13 +113,13 @@ export default function GuideJobDetailPage() {
   return (
     <div className="space-y-4">
       <div>
-        <Link href="/guide/jobs" className="mb-2 inline-flex items-center gap-1 text-sm font-medium zego-text-success">
-          <Icon name="chevronLeft" className="h-4 w-4" />
+        <Link href="/guide/jobs" className="zego-guide-back">
+          <Icon name="chevronLeft" className="h-5 w-5" />
           งานของฉัน
         </Link>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h1 className="text-lg font-bold zego-text">{period.groupCode}</h1>
+            <h1 className="zego-guide-title zego-guide-title--code">{period.groupCode}</h1>
             <p className="mt-0.5 text-sm zego-text-secondary">{period.displayName}</p>
           </div>
           <StatusBadge meta={boardStatusMeta(assignment.assignmentStatus)} size="sm" />
