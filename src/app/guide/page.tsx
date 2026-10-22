@@ -191,6 +191,7 @@ export default function GuideHomePage() {
           isCurrent={monthCursor === thisMonth}
           count={monthJobs.length}
           byAirport={airportBreakdown(monthJobs.map((p) => p.departureAirportCode))}
+          centered
         />
 
         {!leader && (

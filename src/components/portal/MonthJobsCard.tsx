@@ -25,7 +25,7 @@ const OTHER_TONE = { tile: 'zego-surface-soft-bg', text: 'zego-text-secondary', 
 const AIRPORT_TONE: Record<string, typeof GREEN> = { BKK: GREEN, DMK: BROWN };
 export const airportTone = (code: string) => AIRPORT_TONE[code] ?? OTHER_TONE;
 
-export function MonthJobsCard({ month, isCurrent, count, byAirport, pending = 0, onBack, onClick, active = false }: {
+export function MonthJobsCard({ month, isCurrent, count, byAirport, pending = 0, onBack, onClick, active = false, centered = false }: {
   /** เดือนที่แสดง (yyyy-mm) */
   month: string;
   /** เป็นเดือนปัจจุบันไหม — หัวข้อ "จำนวนงานเดือนปัจจุบัน" / "จำนวนงานของเดือน" */
@@ -40,6 +40,11 @@ export function MonthJobsCard({ month, isCurrent, count, byAirport, pending = 0,
   onClick?: () => void;
   /** กำลังดูทั้งเดือนอยู่ — กรอบเขียวเข้ม */
   active?: boolean;
+  /**
+   * กล่องสนามบินจัดกึ่งกลางเสมอ (หน้าหลักหัวหน้าทัวร์) — ข้อมูลในกล่องเรียงกึ่งกลาง
+   * และกล่องที่เหลือแถวสุดท้าย (จำนวนคี่ เช่น 3 สนามบิน) อยู่กลางแถว ไม่ชิดซ้าย
+   */
+  centered?: boolean;
 }) {
   const total = count || 1;
   const clickable = !!onClick;
@@ -67,9 +72,21 @@ export function MonthJobsCard({ month, isCurrent, count, byAirport, pending = 0,
           <span key={a.code || 'none'} className={airportTone(a.code).bar} style={{ width: `${(a.count / total) * 100}%` }} />
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className={centered ? 'flex flex-wrap justify-center gap-2' : 'grid grid-cols-2 gap-2'}>
         {byAirport.map((a) => {
           const t = airportTone(a.code);
+          if (centered) {
+            return (
+              <div key={a.code || 'none'} className={cx('flex w-[calc(50%-0.25rem)] flex-col items-center gap-0.5 rounded-lg px-3 py-2 text-center', t.tile)}>
+                <Icon name="plane" className={cx('h-5 w-5 shrink-0', t.text)} />
+                <p className="text-xs leading-tight zego-text-secondary">{airportText(a.code)}{a.code && ` (${a.code})`}</p>
+                <p className="flex items-center justify-center gap-1.5">
+                  <span className={cx('text-lg font-bold tabular-nums', t.text)}>{a.count} <span className="text-xs font-medium">งาน</span></span>
+                  {count > 0 && <span className={cx('rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums', t.badge)}>{Math.round((a.count / count) * 100)}%</span>}
+                </p>
+              </div>
+            );
+          }
           return (
             <div key={a.code || 'none'} className={cx('flex items-start gap-2 rounded-lg px-3 py-2', t.tile)}>
               <Icon name="plane" className={cx('mt-0.5 h-5 w-5 shrink-0', t.text)} />
