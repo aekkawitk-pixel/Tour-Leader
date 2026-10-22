@@ -163,13 +163,12 @@ export default function GuideHomePage() {
   const destinations = destinationBreakdown(monthJobs);
   const topCount = destinations[0]?.count ?? 0;
   const topTied = destinations.filter((d) => d.count === topCount).length > 1;
-  const hasOverlap = !leader || alerts.length > 0 || docAlerts.length > 0;
   const monthWord = monthCursor === thisMonth ? 'เดือนนี้' : thaiMonthTitle(monthCursor);
 
   return (
     <div className="space-y-4">
       {/* แถบหัวโค้ง — คำทักทาย + ชื่อ + วันนี้ · เลือกเดือน (มีผลกับทุกส่วนด้านล่าง) */}
-      <GuideBand overlap={hasOverlap}>
+      <GuideBand overlap>
         <p className="zego-guide-band__eyebrow">{greetingOf(new Date().getHours())}</p>
         <h1 className="zego-guide-band__title">คุณ{firstName}</h1>
         <div className="zego-guide-band__meta mt-2 flex flex-wrap items-center gap-2">
@@ -184,46 +183,53 @@ export default function GuideHomePage() {
         </div>
       </GuideBand>
 
-      {hasOverlap && (
-        <GuideOverlap>
-          {!leader && (
-            <div className="zego-guide-warnbox">
-              <span className="zego-guide-warnbox__icon"><Icon name="warning" className="h-5 w-5" /></span>
-              <p className="zego-guide-warnbox__sub">ยังไม่พบข้อมูลหัวหน้าทัวร์ที่ผูกกับบัญชีนี้ในชุดข้อมูลปัจจุบัน — เมนูด้านล่างยังใช้งานได้ตามปกติ</p>
-            </div>
-          )}
+      <GuideOverlap>
+        {/* จำนวนงานของเดือน + สัดส่วนสนามบินที่กรุ๊ปออกเดินทาง — บนสุดของหน้า ซ้อนขอบแถบหัว
+            การ์ดกลางชุดเดียวกับหน้าหลักเจ้าหน้าที่ส่งกรุ๊ป (แสดงอย่างเดียว) */}
+        <MonthJobsCard
+          month={monthCursor}
+          isCurrent={monthCursor === thisMonth}
+          count={monthJobs.length}
+          byAirport={airportBreakdown(monthJobs.map((p) => p.departureAirportCode))}
+        />
 
-          {/* แบนเนอร์งานด่วน — เรื่องเดียวกับกระดิ่ง · แตะไปเรื่องแรกที่ต้องทำ */}
-          {alerts.length > 0 && (
-            <Link href={alerts[0].href} className="zego-guide-notice">
-              <span className="zego-guide-notice__icon"><Icon name="bell" className="h-5 w-5" /></span>
-              <span className="min-w-0 flex-1">
-                <span className="zego-guide-notice__title">คุณมีงานที่ต้องดำเนินการ</span>
-                <span className="zego-guide-notice__sub truncate">{alertSummary}</span>
-              </span>
-              <span className="zego-guide-notice__count">{alerts.length}</span>
-            </Link>
-          )}
+        {!leader && (
+          <div className="zego-guide-warnbox">
+            <span className="zego-guide-warnbox__icon"><Icon name="warning" className="h-5 w-5" /></span>
+            <p className="zego-guide-warnbox__sub">ยังไม่พบข้อมูลหัวหน้าทัวร์ที่ผูกกับบัญชีนี้ในชุดข้อมูลปัจจุบัน — เมนูด้านล่างยังใช้งานได้ตามปกติ</p>
+          </div>
+        )}
 
-          {/* เอกสารต้องตาม — แจ้งเตือนเฉพาะเอกสาร แยกจากงาน/ค่าใช้จ่าย */}
-          {docAlerts.length > 0 && (
-            <Link href="/guide/profile/documents" className="zego-guide-list zego-guide-row zego-guide-row--tall shadow-sm">
-              <span className={cx('zego-guide-tile zego-guide-tile--lg', expiredDocs.length > 0 ? 'zego-guide-tile--red' : 'zego-guide-tile--gold')}>
-                <Icon name="file" className="h-4.5 w-4.5" />
+        {/* แบนเนอร์งานด่วน — เรื่องเดียวกับกระดิ่ง · แตะไปเรื่องแรกที่ต้องทำ */}
+        {alerts.length > 0 && (
+          <Link href={alerts[0].href} className="zego-guide-notice">
+            <span className="zego-guide-notice__icon"><Icon name="bell" className="h-5 w-5" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="zego-guide-notice__title">คุณมีงานที่ต้องดำเนินการ</span>
+              <span className="zego-guide-notice__sub truncate">{alertSummary}</span>
+            </span>
+            <span className="zego-guide-notice__count">{alerts.length}</span>
+          </Link>
+        )}
+
+        {/* เอกสารต้องตาม — แจ้งเตือนเฉพาะเอกสาร แยกจากงาน/ค่าใช้จ่าย */}
+        {docAlerts.length > 0 && (
+          <Link href="/guide/profile/documents" className="zego-guide-list zego-guide-row zego-guide-row--tall shadow-sm">
+            <span className={cx('zego-guide-tile zego-guide-tile--lg', expiredDocs.length > 0 ? 'zego-guide-tile--red' : 'zego-guide-tile--gold')}>
+              <Icon name="file" className="h-4.5 w-4.5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-semibold zego-text">เอกสารต้องตาม {docAlerts.length} รายการ</span>
+              <span className="zego-guide-row__sub truncate">
+                {expiredDocs.length > 0 && `หมดอายุแล้ว: ${expiredDocs.map((a) => a.name).join(', ')}`}
+                {expiredDocs.length > 0 && soonDocs.length > 0 && ' · '}
+                {soonDocs.length > 0 && `ใกล้หมดอายุ: ${soonDocs.map((a) => a.name).join(', ')}`}
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[15px] font-semibold zego-text">เอกสารต้องตาม {docAlerts.length} รายการ</span>
-                <span className="zego-guide-row__sub truncate">
-                  {expiredDocs.length > 0 && `หมดอายุแล้ว: ${expiredDocs.map((a) => a.name).join(', ')}`}
-                  {expiredDocs.length > 0 && soonDocs.length > 0 && ' · '}
-                  {soonDocs.length > 0 && `ใกล้หมดอายุ: ${soonDocs.map((a) => a.name).join(', ')}`}
-                </span>
-              </span>
-              <span className="zego-guide-link shrink-0">ดูเอกสาร</span>
-            </Link>
-          )}
-        </GuideOverlap>
-      )}
+            </span>
+            <span className="zego-guide-link shrink-0">ดูเอกสาร</span>
+          </Link>
+        )}
+      </GuideOverlap>
 
       {/* ซองของกรุ๊ปอื่นที่ฝากคุณนำส่ง (ถ้ามี) — แยกจากซองของกรุ๊ปตัวเอง */}
       <CarrierLeaderSection />
@@ -352,14 +358,6 @@ export default function GuideHomePage() {
           </ul>
         )}
       </section>
-
-      {/* สรุปจำนวนงานของเดือน + สัดส่วนสนามบินที่กรุ๊ปออกเดินทาง — การ์ดกลางชุดเดียวกับหน้าหลักเจ้าหน้าที่ส่งกรุ๊ป (แสดงอย่างเดียว) */}
-      <MonthJobsCard
-        month={monthCursor}
-        isCurrent={monthCursor === thisMonth}
-        count={monthJobs.length}
-        byAirport={airportBreakdown(monthJobs.map((p) => p.departureAirportCode))}
-      />
 
       {/* สายการบินของเดือนที่เลือก — แยกตามสายการบิน เรียงมาก→น้อย · เกิน 4 เลื่อนดูได้ */}
       <AirlinesCard month={monthCursor} isCurrent={monthCursor === thisMonth} items={airlineBreakdown(monthJobs)} />
