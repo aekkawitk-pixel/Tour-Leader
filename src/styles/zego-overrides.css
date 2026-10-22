@@ -465,6 +465,14 @@ html[data-zego-theme="dark"] .zego-guide-strip__go{background:rgba(255,255,255,.
 .zego-guide-jobcard__body{position:relative;z-index:1;pointer-events:none}
 .zego-guide-jobcard__body button{pointer-events:auto}
 .zego-guide-flag-tile--lg{width:56px;height:56px;border-radius:14px}
+/* ช่องวันที่ของการ์ดนัดหมาย (หน้าหลัก) — พื้นมิ้นต์ วันที่ตัวใหญ่เขียว เวลาใต้ */
+.zego-guide-apt-date{display:flex;flex:0 0 auto;flex-direction:column;align-items:center;justify-content:center;width:76px;min-height:60px;padding:6px 4px;border-radius:12px;background:var(--zego-mint);color:var(--zego-label);text-align:center}
+.zego-guide-apt-date--wide{flex:0 1 auto;min-width:0;width:auto;min-height:80px;gap:4px;padding:10px 12px}
+/* ป้ายสถานะในกล่องวันที่ — สี/พื้น/ขอบมาจาก inline style ตามความหมายของสถานะ */
+.zego-guide-apt-status{display:inline-flex;align-items:center;border:1px solid transparent;border-radius:999px;padding:0 8px;font-size:11px;font-weight:600;line-height:1.5;white-space:nowrap}
+/* การ์ดนัดหมาย (หน้าหลัก) — ข้อความกึ่งกลางซ้าย · ช่องวันที่/เวลาขวา */
+.zego-guide-apt-card{display:flex;align-items:center;gap:12px;padding:12px}
+a.zego-guide-apt-card:hover{background:var(--zego-surface-soft)}
 .zego-guide-flag-tile--lg.zego-guide-flag-tile--none{font-size:16px}
 .zego-guide-copy{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;color:var(--zego-text-tertiary)}
 .zego-guide-copy:hover{background:var(--zego-surface-soft);color:var(--zego-text)}

@@ -13,6 +13,8 @@
  *      (ยืนยันรับซองทำที่เดียว — การ์ดซองเงินชุดเดียวกับหน้ารายละเอียดงาน ไม่มีหน้าตาที่สองที่หน้าหลัก)
  * ไม่มี checklist/attendance/customer-care ที่เพิ่มภาระรายวัน (ตัดออกแล้วตามที่คุยกัน)
  *
+ * นัดหมายเคลียร์งาน — การ์ดนัดที่กำลังจะถึงของเดือนที่เลือก ไม่มีหัวข้อ · เดือนนั้นไม่มีนัดก็ไม่แสดง · แตะการ์ดไปแท็บนัดหมาย
+ *
  * หน้าตาตามธีม v3: แถบหัวโค้งเขียว (ทักทาย + ชื่อ + เลือกเดือน) · แบนเนอร์งานด่วนเขียวป่า (เรื่องเดียวกับกระดิ่ง)
  * · แถวเอกสารต้องตาม · วงกลมธงปลายทาง · รายการงานแบบแถวพร้อม segmented สนามบิน
  */
@@ -24,7 +26,8 @@ import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
-import { getTourPeriodById } from '@/services/tourPeriodMaster';
+import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
+import type { Appointment } from '@/types';
 import { useLeaderDocumentsView } from '@/lib/useLeaderDocuments';
 import { listGuideAlerts, type GuideAlertKind } from '@/lib/logic/guideAlerts';
 import { leaderDisplayName } from '@/lib/logic/leaderExpertise';
@@ -165,6 +168,11 @@ export default function GuideHomePage() {
   const topTied = destinations.filter((d) => d.count === topCount).length > 1;
   const monthWord = monthCursor === thisMonth ? 'เดือนนี้' : thaiMonthTitle(monthCursor);
 
+  /** นัดหมายของฉันในเดือนที่เลือก — ยังไม่ยกเลิก/ยังไม่เข้าพบ ตั้งแต่วันนี้ เรียงวันเวลาใกล้สุดก่อน (เดือนนั้นไม่มีนัด = ไม่แสดงการ์ด) */
+  const monthApts = appointments
+    .filter((a) => a.leaderId === leaderId && a.date.slice(0, 7) === monthCursor && a.status !== 'cancelled' && a.status !== 'attended' && a.date >= realToday)
+    .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+
   return (
     <div className="space-y-4">
       {/* แถบหัวโค้ง — คำทักทาย + ชื่อ + วันนี้ · เลือกเดือน (มีผลกับทุกส่วนด้านล่าง) */}
@@ -266,6 +274,13 @@ export default function GuideHomePage() {
         </Link>
       )}
 
+      {/* นัดหมายเคลียร์งาน — นัดของเดือนที่เลือก ใกล้สุดก่อน · เดือนนั้นไม่มีนัดก็ซ่อน · การ์ดแตะไปแท็บนัดหมาย */}
+      {monthApts.length > 0 && (
+        <ul className="space-y-2">
+          {monthApts.map((a) => <AppointmentCard key={a.id} a={a} />)}
+        </ul>
+      )}
+
       {/* ปลายทางของเดือนที่เลือก — วงกลมธง เรียงมาก→น้อย · เกิน 4 เลื่อนดูได้ · อันดับหนึ่งที่ชัดเจนขอบเขียว */}
       <section className="space-y-2">
         <h2 className="zego-guide-h">ปลายทาง{monthWord}</h2>
@@ -364,5 +379,65 @@ export default function GuideHomePage() {
       {/* สายการบินของเดือนที่เลือก — แยกตามสายการบิน เรียงมาก→น้อย · เกิน 4 เลื่อนดูได้ */}
       <AirlinesCard month={monthCursor} isCurrent={monthCursor === thisMonth} items={airlineBreakdown(monthJobs)} />
     </div>
+  );
+}
+
+const TH_MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+/**
+ * สถานะนัดแบบสั้นในมุมมองหัวหน้าทัวร์ — สีตามความหมายของธีม v3
+ * รอคุณยืนยัน (การเงินนัดมา) = ทอง ต้องทำ · รอการเงินยืนยัน (คุณขอเอง) = ฟ้า · ยืนยันแล้ว = เขียว · ขอเลื่อนแล้ว = เทา
+ * บัญชีเรียกเข้าพบก่อนเวลา = เขียว "เข้าพบได้เลย"
+ */
+function appointmentChip(a: Appointment): { label: string; chip: string } {
+  if (a.calledEarly) return { label: 'เข้าพบได้เลย', chip: 'zego-chip--green' };
+  if (a.status === 'pending') return a.requestedByLeader ? { label: 'รอการเงินยืนยัน', chip: 'zego-chip--blue' } : { label: 'รอคุณยืนยัน', chip: 'zego-chip--gold' };
+  if (a.status === 'confirmed') return { label: 'ยืนยันแล้ว', chip: 'zego-chip--green' };
+  return { label: 'ขอเลื่อนแล้ว', chip: 'zego-chip--neutral' };
+}
+
+/**
+ * การ์ดนัดหมาย 1 รายการ — ซ้าย (กึ่งกลาง): "คิวนัดของคุณ" · รหัสกรุ๊ปตัวใหญ่ · สถานะ · ขวา: ช่องวันที่/เวลา
+ * เรื่องที่นัด/สถานที่ดูในแท็บนัดหมาย · ทั้งการ์ดกดไปแท็บนัดหมาย
+ */
+function AppointmentCard({ a }: { a: Appointment }) {
+  const period = a.jobId ? getTourPeriodById(a.jobId) : null;
+  const code = period?.groupCode ?? (a.jobId ? periodCodeOf(a.jobId) : 'ไม่ผูกกรุ๊ป');
+  const [y, m, d] = a.date.split('-').map(Number);
+  const yy = String((y + 543) % 100).padStart(2, '0'); // ปี พ.ศ. 2 หลัก แบบเดียวกับหน้างานของฉัน
+  const status = appointmentChip(a);
+  const tone = status.chip.replace('zego-chip--', '');
+  return (
+    <li>
+      <Link
+        href="/guide/settlement/appointments"
+        className="zego-guide-list zego-guide-apt-card"
+        aria-label={`คิวนัดของคุณ ${code} วันที่ ${d} ${TH_MONTH_SHORT[m - 1]} ${yy} เวลา ${a.time} น. — ${status.label}`}
+      >
+        {/* ซ้าย: คิวนัดของคุณ + รหัสกรุ๊ป · ขวา: กล่องมิ้นต์ วันที่ ปี เวลา (บรรทัดเดียว จอแคบตัดเป็น 2) + สถานะสีตามความหมาย */}
+        <span className="flex flex-1 flex-col items-center gap-0.5 text-center">
+          <span className="text-[15px] zego-text-secondary">คิวนัดของคุณ</span>
+          <span className="zego-guide-code whitespace-nowrap text-[16px] leading-tight zego-text">{code}</span>
+        </span>
+        <span className="zego-guide-apt-date zego-guide-apt-date--wide">
+          {/* วันเวลาตัวใหญ่ = จุดเด่นของการ์ด · จอกว้างพออยู่บรรทัดเดียว จอแคบเวลาลงบรรทัดใหม่ */}
+          <span className="flex flex-wrap justify-center gap-x-2.5 zego-guide-display text-[20px] font-bold leading-tight tabular-nums">
+            <span className="whitespace-nowrap">{d} {TH_MONTH_SHORT[m - 1]} {yy}</span>
+            <span className="whitespace-nowrap">{a.time} น.</span>
+          </span>
+          {/* สถานะ — ป้ายสีอ่อนบนพื้นการ์ด + ขอบบาง ๆ ตัวอักษรสีตามความหมาย (ป้าย chip ปกติจะกลืนกับกล่องมิ้นต์) */}
+          <span
+            className="zego-guide-apt-status"
+            style={{
+              color: `var(--zego-chip-${tone}-fg)`,
+              background: `color-mix(in srgb, var(--zego-chip-${tone}-fg) 12%, var(--zego-surface))`,
+              borderColor: `color-mix(in srgb, var(--zego-chip-${tone}-fg) 30%, transparent)`,
+            }}
+          >
+            {status.label}
+          </span>
+        </span>
+      </Link>
+    </li>
   );
 }
