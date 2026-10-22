@@ -70,6 +70,7 @@ const GROUPS: { label: string; tone: TileTone; topics: Topic[] }[] = [
     tone: 'neutral',
     topics: [
       { href: '/guide/profile/account', label: 'บัญชีผู้ใช้', description: 'ชื่อผู้ใช้ และเปลี่ยนรหัสผ่าน', icon: 'settings' },
+      { href: '/guide/profile/devices', label: 'อุปกรณ์', description: 'เครื่องที่เข้าสู่ระบบ PIN และการล็อกแอป', icon: 'smartphone' },
     ],
   },
 ];

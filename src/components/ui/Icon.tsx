@@ -53,7 +53,15 @@ export type IconName =
   | 'shield'
   | 'copy'
   | 'building'
-  | 'checkCircle';
+  | 'checkCircle'
+  /* หน้าอุปกรณ์ (โปรไฟล์ → อุปกรณ์) */
+  | 'smartphone'
+  | 'tablet'
+  | 'monitor'
+  | 'key'
+  | 'lock'
+  | 'faceId'
+  | 'cloud';
 
 const PATHS: Record<IconName, string> = {
   dashboard: 'M3 10h7V3H3v7zm11 11h7v-7h-7v7zM3 21h7v-4H3v4zM14 3v7h7V3h-7z',
@@ -120,6 +128,14 @@ const PATHS: Record<IconName, string> = {
   copy: 'M10 8h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2zM5 16H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1',
   building: 'M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18zM6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2M10 6h4M10 10h4M10 14h4M10 18h4',
   checkCircle: 'M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3',
+  /* หน้าอุปกรณ์ */
+  smartphone: 'M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2',
+  tablet: 'M5 2h14a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2',
+  monitor: 'M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 21h8M12 17v4',
+  key: 'M7.5 21a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.7 13.3 20 4M16 8l3 3M18.5 5.5l2 2',
+  lock: 'M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM7 11V7a5 5 0 0 1 10 0v4',
+  faceId: 'M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M9 9v1M15 9v1M12 9v4h-1M9 16c1.7 1.3 4.3 1.3 6 0',
+  cloud: 'M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z',
 };
 
 /** ไอคอนที่วาดแบบทึบ (fill) แทนแบบเส้น (stroke) */

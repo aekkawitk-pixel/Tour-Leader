@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * การพัฒนาและประสบการณ์ — /guide/profile/skills (ชื่อหัวข้อตามต้นแบบธีม v3)
+ * ความเชี่ยวชาญและทักษะ — /guide/profile/skills (ชื่อหน้าตามต้นแบบ B4 · หัวข้อในเมนูยังชื่อ "การพัฒนาและประสบการณ์")
  * รวม "ความเชี่ยวชาญและทักษะ" กับ "ภาษา" (เดิม /guide/profile/languages แยกหน้า) ไว้หน้าเดียว
  *
  * แก้ไขได้เองทุกหัวข้อ (ตามนโยบายเดียวกับหัวข้ออื่นในโปรไฟล์) — เปิด SkillSectionEditModal
@@ -44,7 +44,7 @@ export default function GuideSkillsPage() {
   if (!leader) {
     return (
       <div>
-        <ProfileBackHeader title="การพัฒนาและประสบการณ์" />
+        <ProfileBackHeader title="ความเชี่ยวชาญและทักษะ" />
         <Card><EmptyState icon="guide" title="ยังไม่พบข้อมูลหัวหน้าทัวร์" /></Card>
       </div>
     );
@@ -52,7 +52,7 @@ export default function GuideSkillsPage() {
 
   return (
     <div className="space-y-4">
-      <ProfileBackHeader title="การพัฒนาและประสบการณ์" />
+      <ProfileBackHeader title="ความเชี่ยวชาญและทักษะ" />
 
       <Card>
         <CardHeader

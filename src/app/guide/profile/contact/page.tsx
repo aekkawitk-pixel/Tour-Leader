@@ -5,8 +5,9 @@
  *
  * หน้าแสดงต้องมีครบทุกช่องที่ฟอร์มกรอกได้ — กรอกอะไรไปต้องเห็นอย่างนั้น
  *   ช่องทางติดต่อ: ประเภท/ป้ายกำกับ · ข้อมูล · ช่องทางหลัก · ช่วงเวลาที่สะดวก · หมายเหตุ
- *   ผู้ติดต่อฉุกเฉิน: ชื่อ · ความสัมพันธ์ · ผู้ติดต่อหลัก · เบอร์โทร · ช่องทางอื่น · หมายเหตุ
  *   ที่อยู่ปัจจุบัน: ทุกช่องของที่อยู่ + หมายเหตุเกี่ยวกับที่อยู่
+ *   ผู้ติดต่อฉุกเฉิน: ชื่อ · ความสัมพันธ์ · ผู้ติดต่อหลัก · เบอร์โทร · ช่องทางอื่น · หมายเหตุ
+ *   (ลำดับกลุ่ม ช่องทาง → ที่อยู่ → ผู้ติดต่อฉุกเฉิน ตามต้นแบบ B2)
  * (เดิมแสดงช่องโทร/อีเมล/LINE ตายตัวแม้ไม่ได้กรอก ไม่แสดงป้ายกำกับ ช่วงเวลา หมายเหตุ ช่องทางอื่นของผู้ติดต่อฉุกเฉิน
  *  และที่อยู่ที่กรอกแค่บางช่อง (เช่น ถนน) ขึ้นว่า "ยังไม่ระบุ")
  */
@@ -85,6 +86,14 @@ export default function GuideContactPage() {
         )}
 
         <div className="mt-3 zego-divider-top pt-3">
+          <SectionTitle>ที่อยู่ปัจจุบัน</SectionTitle>
+          <p className={`text-sm ${hasAddress ? 'zego-text' : 'zego-text-disabled'}`}>
+            {hasAddress && address ? formatAddress(address, countries) : 'ยังไม่ระบุ'}
+          </p>
+          {address?.note && <p className="mt-0.5 text-xs zego-text-tertiary">หมายเหตุ: {address.note}</p>}
+        </div>
+
+        <div className="mt-3 zego-divider-top pt-3">
           <SectionTitle>ผู้ติดต่อฉุกเฉิน</SectionTitle>
           {emergencyContacts.length === 0 ? (
             <p className="text-sm zego-text-disabled">ยังไม่มีผู้ติดต่อฉุกเฉิน</p>
@@ -100,14 +109,6 @@ export default function GuideContactPage() {
               ))}
             </dl>
           )}
-        </div>
-
-        <div className="mt-3 zego-divider-top pt-3">
-          <SectionTitle>ที่อยู่ปัจจุบัน</SectionTitle>
-          <p className={`text-sm ${hasAddress ? 'zego-text' : 'zego-text-disabled'}`}>
-            {hasAddress && address ? formatAddress(address, countries) : 'ยังไม่ระบุ'}
-          </p>
-          {address?.note && <p className="mt-0.5 text-xs zego-text-tertiary">หมายเหตุ: {address.note}</p>}
         </div>
 
         <Button variant="primary" icon="edit" className="mt-4 w-full" onClick={() => setEditOpen(true)}>

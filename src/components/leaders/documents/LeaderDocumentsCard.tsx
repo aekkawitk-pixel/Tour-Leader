@@ -33,6 +33,7 @@ import { DocumentFormModal } from './DocumentFormModal';
 import { TourCardTemplate } from './TourCardTemplate';
 import { IdCardTemplate } from './IdCardTemplate';
 import { VisaTemplate } from './VisaTemplate';
+import { DocumentInfoRows } from './DocumentInfoRows';
 import type { TourLeader } from '@/types';
 
 /** บัตรหัวหน้าทัวร์ — แยกเป็นการ์ดของตัวเอง เพราะมี template หน้าบัตรและใช้บ่อยที่สุด */
@@ -390,7 +391,7 @@ export function LeaderDocumentsCard({
             {kinds.filter((k) => byKind.has(k)).map((kind) => (
               <section key={kind}>
                 {/* การ์ดที่ดูแลชนิดเดียวไม่ต้องมีหัวข้อย่อย — ชื่อการ์ดบอกอยู่แล้ว */}
-                {kinds.length > 1 && (
+                {kinds.length > 1 && (!leaderView || byKind.size > 1) && (
                   <h3 className="mb-2 text-sm font-semibold zego-text">
                     {DOC_KIND_DISPLAY_NAME[kind]}
                     <span className="ml-2 text-xs font-normal zego-text-tertiary">
@@ -414,6 +415,7 @@ export function LeaderDocumentsCard({
                       onPrimary={() => changePrimary(doc)}
                       onLifecycle={(lc) => changeLifecycle(doc, lc)}
                       onDelete={() => setConfirmDelete(doc)}
+                      leaderView={leaderView}
                     />
                   ))}
                 </ul>
@@ -497,6 +499,7 @@ function DocumentRow({
   onPrimary,
   onLifecycle,
   onDelete,
+  leaderView = false,
 }: {
   doc: AnyLeaderDocumentRecord;
   today: string;
@@ -511,6 +514,8 @@ function DocumentRow({
   onPrimary: () => void;
   onLifecycle: (lifecycle: DocumentLifecycle) => void;
   onDelete: () => void;
+  /** มุมหัวหน้าทัวร์ — รายละเอียดเป็นแถวข้อมูล (แบบหนังสือเดินทาง) แสดงเสมอ แทนหน้าเอกสารจำลองที่ต้องกดขยาย */
+  leaderView?: boolean;
 }) {
   /**
    * หัวแถว: เอกสารประจำตัวใช้ "เลขที่เอกสาร" เป็นตัวระบุ
@@ -570,13 +575,26 @@ function DocumentRow({
             {doc.lifecycle !== 'ACTIVE' && (
               <StatusBadge meta={{ label: DOCUMENT_LIFECYCLE_LABEL[doc.lifecycle], tone: 'red' }} size="sm" dot={false} />
             )}
-            {usable && doc.status === 'CONFIRMED' && (
+            {leaderView && expired && doc.lifecycle === 'ACTIVE' && (
+              <StatusBadge meta={{ label: 'หมดอายุแล้ว', tone: 'red' }} size="sm" dot={false} />
+            )}
+            {leaderView && soon && doc.lifecycle === 'ACTIVE' && (
+              <StatusBadge meta={{ label: 'ใกล้หมดอายุ', tone: 'amber' }} size="sm" dot={false} />
+            )}
+            {usable && !(leaderView && soon) && doc.status === 'CONFIRMED' && (
               <StatusBadge meta={{ label: 'ใช้งานได้', tone: 'green' }} size="sm" dot={false} />
             )}
           </p>
 
           {/* ชนิดที่ไม่มีช่องวันที่ในฟอร์มแล้ว (ใบเซอร์ · เอกสารอื่น) จะไม่มีบรรทัดนี้ ไม่ใช่ขึ้นว่า "ไม่ระบุ" ลอย ๆ */}
-          {(doc.fields.issuedDate || expiry) && (
+          {leaderView && (
+            <p className="mt-0.5 text-sm zego-text-tertiary">
+              {expiry
+                ? `${expired ? `เกินกำหนด ${Math.abs(daysLeft ?? 0)} วัน` : `เหลือ ${daysLeft} วัน`} · หมดอายุ ${formatDate(expiry)}`
+                : 'ไม่มีวันหมดอายุ'}
+            </p>
+          )}
+          {!leaderView && (doc.fields.issuedDate || expiry) && (
           <p className="mt-0.5 text-xs zego-text-tertiary">
             {doc.fields.issuedDate && `ออกเมื่อ ${formatDate(doc.fields.issuedDate)}`}
             {expiry ? (
@@ -599,7 +617,7 @@ function DocumentRow({
             กลุ่มแนบไฟล์ — ตัวไฟล์คือเนื้อหาหลัก จึงต้องเปิดดูได้จากแถวเลย
             ไม่ใช่ชื่อไฟล์สีเทาที่ต้องกดเข้าไปแก้ไขก่อนถึงจะเห็นของจริง
           */}
-          {fileBased ? (
+          {leaderView ? null : fileBased ? (
             doc.imageId ? (
               <div className="mt-1.5 flex max-w-full items-center gap-2.5 rounded-lg border zego-border-color zego-surface-bg px-2.5 py-2">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded zego-icon-well">
@@ -637,7 +655,7 @@ function DocumentRow({
 
         {/* max-w-full: จอแคบ (แผ่นในพอร์ทัล) ปุ่มขึ้นบรรทัดใหม่ภายในกลุ่มได้ ไม่ล้นแถว */}
         <div className="flex max-w-full flex-wrap items-center gap-1">
-          {hasTemplate && (
+          {hasTemplate && !leaderView && (
             <Button size="sm" variant="ghost" onClick={() => setExpanded((x) => !x)}>
               {expanded ? 'ย่อรายละเอียด' : 'ดูรายละเอียด'}
             </Button>
@@ -711,14 +729,24 @@ function DocumentRow({
         </div>
       )}
 
+      {/* มุมหัวหน้าทัวร์: แถวข้อมูลแบบเดียวกับหนังสือเดินทาง (อ่านง่ายบนจอแคบ) แทนหน้าเอกสารจำลอง */}
+      {leaderView && (
+        <DocumentInfoRows
+          doc={doc}
+          today={today}
+          file={{ size: fileSize, uploadedAt, uploadedBy }}
+          onViewFile={doc.imageId ? onViewFile : undefined}
+        />
+      )}
+
       {/* หน้าเอกสารจำลอง — เฉพาะชนิดที่มี template ของตัวเอง */}
-      {expanded && doc.kind === 'tour_card' && (
+      {!leaderView && expanded && doc.kind === 'tour_card' && (
         <TourCardTemplate doc={doc} onViewFile={doc.imageId ? onViewFile : undefined} />
       )}
-      {expanded && doc.kind === 'id_card' && (
+      {!leaderView && expanded && doc.kind === 'id_card' && (
         <IdCardTemplate doc={doc} onViewFile={doc.imageId ? onViewFile : undefined} />
       )}
-      {expanded && doc.kind === 'visa' && (
+      {!leaderView && expanded && doc.kind === 'visa' && (
         <VisaTemplate doc={doc} onViewFile={doc.imageId ? onViewFile : undefined} />
       )}
     </li>
