@@ -12,7 +12,8 @@
  * แบบที่เลือกจำไว้ในเครื่อง (localStorage) — เปิดครั้งหน้าได้แบบเดิม
  *
  * หน้าตาตามธีม v3: ชื่อหน้าตัวใหญ่เขียวป่า · ปุ่มสลับมุมมองแบบ segmented หมอกเขียว
- * · แถบปฏิทินใช้สีสถานะของธีม (เขียวปุ่ม/ทอง/แดง/เทา) · แถวงานมีธงปลายทาง รหัสกรุ๊ปตัว display และป้ายทรงเม็ด
+ * · แถบปฏิทินสีตามช่วงทริป (รอเดินทาง ทอง · กำลังเดินทาง เขียว · จบแล้ว เทา · การจัดผิดปกติ แดง)
+ * · แถวงาน 3 บรรทัด: รหัสกรุ๊ป + ช่วงทริป / วันที่ + ชื่อโปรแกรม / สิ่งที่ต้องทำ (แถบทอง)
  */
 
 import Link from 'next/link';
@@ -22,11 +23,11 @@ import { ownLeaderScope } from '@/lib/permissions';
 import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { boardStatusMeta } from '@/lib/logic/guideBoard';
-import { formatDate, formatDateRange, toISODate } from '@/lib/format';
+import { daysBetween, formatDate, relativeDayLabel, toISODate } from '@/lib/format';
 import { tripEnded, tripStarted } from '@/lib/logic/tripPhase';
 import { activeLeaderClaim } from '@/lib/logic/leaderClaims';
 import { afterTripProgress } from '@/lib/logic/afterTripProgress';
-import { jobNextStep, type NextStepTone } from '@/lib/logic/guideJobNextStep';
+import { jobNextStep } from '@/lib/logic/guideJobNextStep';
 import { loadGroupClears } from '@/services/groupClearStore';
 import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
 import { Card, EmptyState, cx } from '@/components/ui/Primitives';
@@ -35,7 +36,7 @@ import { MonthHeader, MonthYearSelect, useMonthGroups } from '@/components/ui/Mo
 import { resolveDestination } from '@/lib/logic/destinations';
 import { FlagTile, GuideBand } from '../GuideUi';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
-import { groupEnvelopeStatus, groupLines, leaderEnvelopeState, type EnvelopeTone } from '@/lib/logic/cashEnvelope';
+import { groupEnvelopeStatus, groupLines, leaderEnvelopeState } from '@/lib/logic/cashEnvelope';
 
 type View = 'list' | 'calendar';
 const VIEW_KEY = 'guideJobsView';
@@ -133,54 +134,80 @@ type Job = {
   period: NonNullable<ReturnType<typeof getTourPeriods>[number]>;
 };
 
-/**
- * สีแถบในปฏิทินตามสถานะการจัด (โทนเดียวกับป้ายสถานะ) — ตัวอักษรสีขาวทุกสี
- * ธีม v3: คอนเฟิร์มแล้ว = เขียวปุ่ม · รอ/ต้องเปลี่ยนคน = ทอง · ปฏิเสธ = แดง · อื่น ๆ = เทาอมเขียว
- */
-const STATUS_BAR: Record<string, string> = {
-  green: 'zego-guide-bar--green',
-  amber: 'zego-guide-bar--gold',
-  red: 'zego-guide-bar--red',
-  slate: 'zego-guide-bar--neutral',
-};
-const barColor = (status: unknown) => ({ bar: STATUS_BAR[boardStatusMeta(status).tone] ?? STATUS_BAR.slate });
+/** ช่วงทริปเทียบกับวันนี้ — ข้อมูลหลักที่หัวหน้าทัวร์ดูก่อน (ชุดเดียวกับป้ายในหน้าหลัก) */
+type Phase = 'upcoming' | 'ongoing' | 'ended';
+const phaseOf = (p: TourPeriodMaster, today: string): Phase =>
+  tripEnded(p, today) ? 'ended' : tripStarted(p, today) ? 'ongoing' : 'upcoming';
 
-/** ป้ายสถานะการจัดทรงเม็ด — สีเดียวกับแถบในปฏิทิน */
-const STATUS_CHIP: Record<string, string> = {
-  green: 'zego-chip--green',
-  amber: 'zego-chip--gold',
-  red: 'zego-chip--red',
-  slate: 'zego-chip--neutral',
+/** ป้าย/สีแถบปฏิทินตามช่วงทริป — รอเดินทาง ทอง · กำลังเดินทาง เขียว · จบทริปแล้ว เทา */
+const PHASE: Record<Phase, { label: string; chip: string; bar: string }> = {
+  upcoming: { label: 'รอเดินทาง', chip: 'zego-chip--gold', bar: 'zego-guide-bar--gold' },
+  ongoing: { label: 'กำลังเดินทาง', chip: 'zego-chip--green', bar: 'zego-guide-bar--green' },
+  ended: { label: 'จบทริปแล้ว', chip: 'zego-chip--neutral', bar: 'zego-guide-bar--neutral' },
 };
 
 /**
- * แถวงานหนึ่งกรุ๊ป (ใช้ทั้งมุมมองรายการ และรายการใต้ปฏิทิน)
- * ธงปลายทาง · รหัสกรุ๊ป + สถานะ · ชื่อโปรแกรม (ไม่เกิน 2 บรรทัด) · ประเทศ · วันที่ · ขั้นต่อไป + ซองเงิน
- * มือถือ: ไม่วางป้ายยาวไว้ขวามือ — ป้ายยาวบีบชื่อโปรแกรมจนตัดหลายบรรทัด
+ * การจัดที่ผิดปกติ — มอบหมายงาน = คอนเฟิร์มทันที ป้าย "คอนเฟิร์มแล้ว" จึงขึ้นแทบทุกงานและไม่ให้ข้อมูล
+ * แสดงสถานะการจัดเฉพาะเมื่อไม่ใช่คอนเฟิร์มแล้ว (เช่น ต้องเปลี่ยนหัวหน้าทัวร์) เป็นสีแดงทั้งป้ายและแถบปฏิทิน
  */
-function JobRow({ job: { assignment, period } }: { job: Job }) {
-  const meta = boardStatusMeta(assignment.assignmentStatus);
+const assignmentIssue = (status: unknown) => {
+  const meta = boardStatusMeta(status);
+  return meta.tone === 'green' ? null : meta;
+};
+const barColor = (job: Job, today: string) => ({
+  bar: assignmentIssue(job.assignment.assignmentStatus) ? 'zego-guide-bar--red' : PHASE[phaseOf(job.period, today)].bar,
+});
+
+const TH_MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+/** ช่วงวันแบบไทยสั้น อ่านง่ายกว่าตัวเลขล้วน — "8–11 ต.ค. 69" · "28 ก.ย. – 3 ต.ค. 69" · "28 ธ.ค. 69 – 3 ม.ค. 70" */
+function thaiShortRange(start: string, end: string): string {
+  const [sy, sm, sd] = start.slice(0, 10).split('-').map(Number);
+  const [ey, em, ed] = end.slice(0, 10).split('-').map(Number);
+  const yy = (y: number) => String((y + 543) % 100).padStart(2, '0');
+  const mon = (m: number) => TH_MONTH_SHORT[m - 1];
+  if (sy === ey && sm === em) return sd === ed ? `${sd} ${mon(sm)} ${yy(sy)}` : `${sd}–${ed} ${mon(sm)} ${yy(sy)}`;
+  if (sy === ey) return `${sd} ${mon(sm)} – ${ed} ${mon(em)} ${yy(sy)}`;
+  return `${sd} ${mon(sm)} ${yy(sy)} – ${ed} ${mon(em)} ${yy(ey)}`;
+}
+
+/**
+ * แถวงานหนึ่งกรุ๊ป (ใช้ทั้งมุมมองรายการ และรายการใต้ปฏิทิน) — 3 บรรทัด เรียงตามความสำคัญ
+ *   1) รหัสกรุ๊ป + ช่วงทริป (+ การจัดผิดปกติ / เปลี่ยนตัว เฉพาะเมื่อมี)
+ *   2) ช่วงวันแบบไทย · จำนวนวัน · ชื่อโปรแกรม 1 บรรทัด (ประเทศดูจากธง ไม่พิมพ์ซ้ำ)
+ *   3) สิ่งที่ต้องทำเป็นแถบทองเต็มความกว้าง · ไม่มี = สถานะตัวหนังสือเทาบรรทัดเดียว · ซองเงินแสดงเฉพาะเมื่อมีปัญหา
+ */
+function JobRow({ job }: { job: Job }) {
+  const { assignment, period } = job;
+  const today = toISODate(new Date());
+  const issue = assignmentIssue(assignment.assignmentStatus);
+  const phase = PHASE[phaseOf(period, today)];
   const dest = resolveDestination(period.countryName, period.groupCode);
   return (
     <li>
       <Link href={`/guide/jobs/${period.internalId}`} className="zego-guide-row zego-guide-row--tall zego-guide-row--top">
         <FlagTile alpha2={dest.alpha2} fallback={dest.label.slice(0, 2).toUpperCase()} label={dest.label} />
-        <span className="min-w-0 flex-1 space-y-1">
-          {/* รหัสกรุ๊ปไม่ถูกตัด — ป้ายสถานะยาว (เช่น เปลี่ยนหัวหน้าทัวร์) ขึ้นบรรทัดใหม่แทน */}
-          <span className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-            <span className="zego-guide-code whitespace-nowrap zego-text">{period.groupCode}</span>
-            <span className={cx('zego-chip shrink-0', STATUS_CHIP[meta.tone] ?? STATUS_CHIP.slate)}>{meta.label}</span>
-          </span>
-          <span className="line-clamp-2 block text-[13px] zego-text-secondary" title={period.displayName}>{period.displayName}</span>
-          <span className="block text-xs zego-text-tertiary">{dest.label} · {formatDateRange(period.startDate, period.endDate)}</span>
-          {/* ขั้นต่อไป — บอกว่ากรุ๊ปนี้ต้องทำอะไรต่อ · ซองเงินของกรุ๊ป */}
-          <span className="flex flex-wrap items-center gap-1.5">
+        <span className="min-w-0 flex-1 space-y-1.5">
+          {/* รหัสกรุ๊ปไม่ถูกตัด — ป้ายที่ไม่พอที่ขึ้นบรรทัดใหม่แทน */}
+          <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            {/* ช่วงทริปติดรหัสกรุ๊ปเสมอ (ตำแหน่งเดิมทุกแถว) · ป้ายเสริมต่อท้ายและขึ้นบรรทัดใหม่ได้ */}
+            <span className="flex w-full items-center justify-between gap-2">
+              <span className="zego-guide-code whitespace-nowrap zego-text">{period.groupCode}</span>
+              <span className={cx('zego-chip shrink-0', phase.chip)}>{phase.label}</span>
+            </span>
+            {issue && <span className="zego-chip zego-chip--red shrink-0">{issue.label}</span>}
             {assignment.financeSwap && (
-              <span className="zego-chip zego-chip--gold text-[11px] font-semibold" title="ฝั่งบัญชีเปลี่ยนตัวหัวหน้าทัวร์ของกรุ๊ปนี้">เปลี่ยนตัว</span>
+              <span className="zego-chip zego-chip--gold shrink-0" title="ฝั่งบัญชีเปลี่ยนตัวหัวหน้าทัวร์ของกรุ๊ปนี้">เปลี่ยนตัว</span>
             )}
-            <NextStepChip period={period} />
-            <EnvelopeChip periodId={period.internalId} />
           </span>
+          <span className="block truncate text-[13px] zego-text-secondary" title={`${dest.label} · ${period.displayName}`}>
+            <span className="font-semibold tabular-nums zego-text">
+              {thaiShortRange(period.startDate, period.endDate)} · {daysBetween(period.startDate, period.endDate)} วัน
+            </span>
+            {' · '}
+            {period.displayName}
+          </span>
+          <JobStatusLine period={period} />
         </span>
         <Icon name="chevronRight" className="zego-guide-chev h-4 w-4 self-center" />
       </Link>
@@ -227,7 +254,7 @@ function JobsCalendar({ jobs, startMonth }: { jobs: Job[]; startMonth?: string |
   const inMonth = jobs
     .filter((j) => j.period.startDate <= last && j.period.endDate >= first)
     .sort((a, b) => a.period.startDate.localeCompare(b.period.startDate));
-  const colorOf = new Map(inMonth.map((j) => [j.assignment.assignmentId, barColor(j.assignment.assignmentStatus)]));
+  const colorOf = new Map(inMonth.map((j) => [j.assignment.assignmentId, barColor(j, today)]));
 
   const cells: (string | null)[] = [...Array(lead).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => iso(y, m, i + 1))];
   while (cells.length % 7) cells.push(null);
@@ -353,57 +380,21 @@ function JobsCalendar({ jobs, startMonth }: { jobs: Job[]; startMonth?: string |
 }
 
 /**
- * สถานะซองเงินของกรุ๊ป (มุมมองหัวหน้าทัวร์) — แสดงใต้สถานะงาน · กรุ๊ปที่ไม่มีเอกสารเบิกไม่แสดง
- * ใช้ถ้อยคำของหัวหน้าทัวร์: ซองที่ส่งมาถึงตัวเองและรอกดรับ = "รอคุณยืนยันรับ"
+ * ปัญหาซองเงินของกรุ๊ป (มุมมองหัวหน้าทัวร์) — คืนข้อความเฉพาะเมื่อต้องตาม (แจ้งไม่ได้รับซอง / ยอดไม่ตรง)
+ * สถานะปกติ (จัดซอง ส่งมอบ รับแล้ว) ไม่แสดงในแถว · ซองที่รอคุณกดรับอยู่ใน "ขั้นต่อไป" แล้ว (jobNextStep)
  */
-function EnvelopeChip({ periodId }: { periodId: string }) {
-  const { expenses, envelopes, noEnvelopeMarks, currentUser } = useDemo();
+function useEnvelopeProblem(periodId: string): string | null {
+  const { expenses, envelopes, noEnvelopeMarks } = useDemo();
   const docs = expenses.filter((e) => isGroupAdvanceDoc(e) && e.jobId === periodId && e.status !== 'cancelled' && e.status !== 'rejected');
   if (docs.length === 0) return null;
   const envs = envelopes.filter((e) => e.periodId === periodId);
   const status = groupEnvelopeStatus(groupLines(docs), envs, noEnvelopeMarks.find((m) => m.periodId === periodId));
-  const leaderId = ownLeaderScope(currentUser);
-  const waitingMe = envs.filter((e) => leaderEnvelopeState(e, leaderId) === 'to_ack' || leaderEnvelopeState(e, leaderId) === 'in_transit').length;
-
-  let label: string;
-  let tone: EnvelopeTone;
-  if (status.mismatch) { label = status.label === 'แจ้งไม่ได้รับซอง' ? 'แจ้งไม่ได้รับซอง' : 'แจ้งยอดไม่ตรง'; tone = 'red'; }
-  else if (status.stage === 'none') { label = 'ไม่มีซองเงิน'; tone = 'slate'; }
-  else if (status.stage === 'packing') { label = 'การเงินกำลังจัดซอง'; tone = 'slate'; }
-  else if (status.stage === 'sealed') { label = 'จัดซองแล้ว รอส่งมอบ'; tone = 'blue'; }
-  else if (waitingMe > 0) { label = `รอคุณยืนยันรับ ${waitingMe} ซอง`; tone = 'violet'; }
-  else if (status.stage === 'handed_over') { label = status.label; tone = 'violet'; }
-  else { label = 'รับซองแล้ว'; tone = 'green'; }
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="text-[11px] zego-text-tertiary">ซองเงิน</span>
-      <span className={cx('zego-chip text-[11px]', ENVELOPE_CHIP[tone])}>{label}</span>
-    </span>
-  );
+  if (!status.mismatch) return null;
+  return status.label === 'แจ้งไม่ได้รับซอง' ? 'แจ้งไม่ได้รับซอง' : 'แจ้งยอดไม่ตรง';
 }
 
-/** สีป้ายซองเงินตามธีม v3 — รอคุณ/ส่งมอบแล้ว = ทอง (สถานะรอ) · ปัญหา = แดง · จัดซองแล้ว = ฟ้า · รับแล้ว = เขียว */
-const ENVELOPE_CHIP: Record<EnvelopeTone, string> = {
-  slate: 'zego-chip--neutral',
-  amber: 'zego-chip--gold',
-  blue: 'zego-chip--blue',
-  violet: 'zego-chip--gold',
-  green: 'zego-chip--green',
-  red: 'zego-chip--red',
-};
-
-const NEXT_STEP_STYLE: Record<NextStepTone, string> = {
-  action: 'zego-chip--gold',
-  waiting: 'zego-chip--blue',
-  done: 'zego-chip--green',
-  idle: 'zego-chip--neutral',
-};
-
-/**
- * ป้าย "ขั้นต่อไป" ของกรุ๊ป — บอกว่าต้องทำอะไรต่อโดยไม่ต้องเปิดดูทีละกรุ๊ป (jobNextStep)
- * ทอง = คุณต้องทำ · ฟ้า = รอฝั่งการเงิน · เขียว = เรียบร้อย · เทา = ยังไม่ถึงเวลา
- */
-function NextStepChip({ period }: { period: TourPeriodMaster }) {
+/** ขั้นต่อไปของกรุ๊ป — บอกว่าต้องทำอะไรต่อโดยไม่ต้องเปิดดูทีละกรุ๊ป (jobNextStep) */
+function useJobNextStep(period: TourPeriodMaster) {
   const { currentUser, envelopes, expenses, appointments } = useDemo();
   const leaderId = ownLeaderScope(currentUser);
   const today = toISODate(new Date());
@@ -412,7 +403,7 @@ function NextStepChip({ period }: { period: TourPeriodMaster }) {
   const clearApt = appointments
     .filter((a) => a.leaderId === leaderId && a.kind === 'clear' && a.jobId === pid && a.status !== 'cancelled')
     .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`))[0] ?? null;
-  const step = jobNextStep({
+  return jobNextStep({
     started: tripStarted(period, today),
     ended,
     closed: !!loadGroupClears()[pid]?.closedAt,
@@ -427,10 +418,41 @@ function NextStepChip({ period }: { period: TourPeriodMaster }) {
       })
       : null,
   });
+}
+
+/**
+ * บรรทัดสถานะท้ายแถวงาน
+ * ต้องทำ = แถบทองเต็มความกว้าง (เด่นที่สุดในแถว) · ซองมีปัญหา = แถบแดง
+ * ไม่มีอะไรต้องทำ = ตัวหนังสือบรรทัดเดียว: รอฝั่งการเงิน (ฟ้า) · เรียบร้อย (เขียว) · ยังไม่ออกเดินทาง = นับถอยหลังวันออก (เทา)
+ */
+function JobStatusLine({ period }: { period: TourPeriodMaster }) {
+  const step = useJobNextStep(period);
+  const envProblem = useEnvelopeProblem(period.internalId);
+  const today = toISODate(new Date());
   return (
-    <span className={cx('zego-chip max-w-full gap-1 text-[11px] font-semibold', NEXT_STEP_STYLE[step.tone])}>
-      <Icon name={step.tone === 'done' ? 'check' : step.tone === 'action' ? 'chevronRight' : 'clock'} className="h-3 w-3 shrink-0" />
-      <span className="truncate">{step.tone === 'action' ? `ต้องทำ: ${step.label}` : step.label}</span>
+    <span className="block space-y-1">
+      {envProblem && (
+        <span className="zego-guide-strip zego-guide-strip--red">
+          <Icon name="warning" className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">ซองเงิน: {envProblem}</span>
+        </span>
+      )}
+      {step.tone === 'action' ? (
+        <span className="zego-guide-strip zego-guide-strip--gold">
+          <span className="min-w-0 flex-1 truncate">ต้องทำ: {step.label}</span>
+          <Icon name="chevronRight" className="h-3.5 w-3.5 shrink-0" />
+        </span>
+      ) : step.tone === 'idle' ? (
+        <span className="flex items-center gap-1 text-xs zego-text-tertiary">
+          <Icon name="plane" className="h-3.5 w-3.5 shrink-0" />
+          ออกเดินทาง{relativeDayLabel(period.startDate.slice(0, 10), today)}
+        </span>
+      ) : (
+        <span className={cx('flex items-center gap-1 text-xs font-medium', step.tone === 'done' ? 'zego-guide-status--done' : 'zego-guide-status--waiting')}>
+          <Icon name={step.tone === 'done' ? 'check' : 'clock'} className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{step.label}</span>
+        </span>
+      )}
     </span>
   );
 }

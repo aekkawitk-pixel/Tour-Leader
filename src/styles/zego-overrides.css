@@ -433,6 +433,12 @@ html[data-zego-theme="dark"] .zego-guide-warnbox__sub{color:#e2b85a}
 .zego-guide-bar--neutral{background:#6b7770}
 .zego-guide-today{background:#04803c;color:#fff}
 .zego-guide-sunday{color:var(--zego-chip-red-fg)}
+/* แถบ "ต้องทำ" ท้ายแถวงาน — เด่นที่สุดในแถว เต็มความกว้าง · แดง = ซองเงินมีปัญหา */
+.zego-guide-strip{display:flex;align-items:center;gap:6px;width:100%;padding:6px 10px;border-radius:10px;font-size:12.5px;font-weight:600;line-height:1.4}
+.zego-guide-strip--gold{background:var(--zego-chip-gold-bg);color:var(--zego-chip-gold-fg);box-shadow:inset 0 0 0 1px rgba(199,150,61,.35)}
+.zego-guide-strip--red{background:var(--zego-chip-red-bg);color:var(--zego-chip-red-fg);box-shadow:inset 0 0 0 1px rgba(196,66,66,.3)}
+.zego-guide-status--done{color:var(--zego-chip-green-fg)}
+.zego-guide-status--waiting{color:var(--zego-chip-blue-fg)}
 
 /* หน้าที่ยังไม่เปิดใช้งาน — วงมิ้นต์ขอบเส้นประเขียว ไม่มีปุ่ม */
 .zego-guide-soon{display:flex;flex-direction:column;align-items:center;gap:10px;padding:32px 8px;text-align:center}
