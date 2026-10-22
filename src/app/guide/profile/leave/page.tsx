@@ -64,6 +64,8 @@ export default function GuideLeavePage() {
                     <p className="text-sm font-medium zego-text">{AVAILABILITY_TYPE[r.type].label}</p>
                     <p className="text-xs zego-text-tertiary">{formatRecordSchedule(r)}</p>
                     {r.reason && <p className="mt-0.5 text-xs zego-text-tertiary">{r.reason}</p>}
+                    {/* ช่อง "ปิดรับงานในช่วงนี้" ในฟอร์ม — บอกให้เห็นว่ารายการนี้กันการมอบหมายงานหรือไม่ */}
+                    <p className="mt-0.5 text-xs zego-text-tertiary">{r.blocksAssignment ? 'ปิดรับงานในช่วงนี้' : 'ยังรับงานได้ในช่วงนี้'}</p>
                   </div>
                   <StatusBadge meta={AVAILABILITY_APPROVAL[r.approval]} size="sm" />
                 </div>

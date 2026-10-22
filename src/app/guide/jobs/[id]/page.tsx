@@ -33,7 +33,7 @@ import { leaderBudgetItems } from '@/lib/logic/groupBudget';
 function Row({ label, value }: { label: string; value?: React.ReactNode }) {
   const empty = value === undefined || value === null || value === '';
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 zego-divider-bottom py-2 last:border-b-0">
+    <div className="zego-guide-inforow zego-divider-bottom py-2 last:border-b-0">
       <dt className="shrink-0 text-xs zego-text-tertiary">{label}</dt>
       <dd className={`text-right text-sm ${empty ? 'zego-text-disabled' : 'zego-text'}`}>{empty ? 'ยังไม่ระบุ' : value}</dd>
     </div>
@@ -147,7 +147,7 @@ export default function GuideJobDetailPage() {
         <Row label="รหัสกรุ๊ป (บัส)" value={period.bus ? `${period.groupCode} (${period.bus})` : period.groupCode} />
 
         {/* วันเดินทาง — เด่นกว่าแถวอื่นตั้งใจ กันไปผิดวัน */}
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 zego-divider-bottom py-2.5">
+        <div className="zego-guide-inforow zego-divider-bottom py-2.5">
           <p className="shrink-0 text-xs zego-text-tertiary">วันเดินทาง</p>
           <p className="text-right text-base font-bold zego-text-success">{formatDateRange(period.startDate, period.endDate)}</p>
         </div>

@@ -1,6 +1,9 @@
 'use client';
 
-/** เอกสารการเงิน — /guide/profile/bank — ดูและแก้ไขบัญชีธนาคารได้ (reuse LeaderSectionEditModal section='bank') */
+/**
+ * เอกสารการเงิน — /guide/profile/bank — ดูและแก้ไขบัญชีธนาคารได้ (reuse LeaderSectionEditModal section='bank')
+ * แสดงครบทุกช่องที่ฟอร์มกรอกได้: ธนาคาร · ชื่อบัญชี · เลขที่บัญชี (ปิดบัง) · สาขา · PromptPay · บัญชีหลัก · เปิด/ปิดใช้งาน
+ */
 
 import { useState } from 'react';
 import { useDemo } from '@/store/DemoStore';
@@ -32,13 +35,17 @@ export default function GuideBankPage() {
         ) : (
           <ul className="divide-y divide-[var(--zego-border-soft)]">
             {leader.bankAccounts.map((b) => (
-              <li key={b.id} className="flex items-start justify-between gap-2 px-4 py-2.5">
+              <li key={b.id} className={`flex items-start justify-between gap-2 px-4 py-2.5 ${b.active === false ? 'opacity-70' : ''}`}>
                 <div className="min-w-0">
                   <p className="text-sm font-medium zego-text">{b.bank}</p>
                   <p className="text-xs zego-text-tertiary">{b.accountName} · {b.accountNoMasked}</p>
                   {b.branch && <p className="text-xs zego-text-tertiary">สาขา{b.branch}</p>}
+                  {b.promptPay && <p className="text-xs zego-text-tertiary">PromptPay {b.promptPay}</p>}
                 </div>
-                {b.isPrimary && <Pill tone="blue">บัญชีหลัก</Pill>}
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  {b.isPrimary && <Pill tone="blue">บัญชีหลัก</Pill>}
+                  {b.active === false && <Pill tone="slate">ปิดใช้งาน</Pill>}
+                </div>
               </li>
             ))}
           </ul>

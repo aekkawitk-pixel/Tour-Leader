@@ -18,7 +18,7 @@ import { ProfileBackHeader } from '../ProfileBackHeader';
 function Row({ label, value }: { label: string; value?: React.ReactNode }) {
   const empty = value === undefined || value === null || value === '';
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 zego-divider-bottom py-2 last:border-b-0">
+    <div className="zego-guide-inforow zego-divider-bottom py-2 last:border-b-0">
       <dt className="shrink-0 text-xs zego-text-tertiary">{label}</dt>
       <dd className={`text-right text-sm ${empty ? 'zego-text-disabled' : 'zego-text'}`}>{empty ? 'ยังไม่ระบุ' : value}</dd>
     </div>

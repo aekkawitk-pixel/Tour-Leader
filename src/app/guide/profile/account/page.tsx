@@ -31,7 +31,7 @@ function maskPhone(v: string): string {
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 zego-divider-bottom py-2 last:border-b-0">
+    <div className="zego-guide-inforow zego-divider-bottom py-2 last:border-b-0">
       <dt className="shrink-0 text-xs zego-text-tertiary">{label}</dt>
       <dd className="text-right text-sm zego-text">{value}</dd>
     </div>
@@ -99,7 +99,7 @@ export default function GuideAccountPage() {
           <Card>
             <dl>
               <Row label="ผู้ใช้ที่เข้าใช้งานอยู่" value={currentUser.name} />
-              <Row label="รหัสหัวหน้าทัวร์" value={<span className="font-mono">{leader.id}</span>} />
+              <Row label="รหัสหัวหน้าทัวร์" value={leader.id} />
               <Row label="User name" value={<span className="zego-text-tertiary">ยังไม่ได้ตั้ง</span>} />
             </dl>
           </Card>
