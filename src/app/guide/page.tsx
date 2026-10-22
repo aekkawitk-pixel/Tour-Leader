@@ -328,7 +328,7 @@ export default function GuideHomePage() {
               const flight = outboundFlight(p);
               const env = envelopeNoticeOf(p.internalId);
               return (
-                <li key={p.internalId} className="zego-guide-row zego-guide-row--tall items-start">
+                <li key={p.internalId} className="zego-guide-row zego-guide-row--tall zego-guide-row--top">
                   <FlagTile alpha2={dest.alpha2} fallback={dest.label.slice(0, 2).toUpperCase()} label={dest.label} />
                   <span className="min-w-0 flex-1">
                     <span className="zego-guide-code block truncate zego-text">{p.groupCode}</span>

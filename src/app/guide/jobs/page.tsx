@@ -10,6 +10,9 @@
  *
  * ดูได้ 2 แบบ: ปฏิทิน (ค่าเริ่มต้น — ตารางเดือน แถบสีตามช่วงเดินทางของแต่ละงาน) / รายการ (แบ่งรายเดือน)
  * แบบที่เลือกจำไว้ในเครื่อง (localStorage) — เปิดครั้งหน้าได้แบบเดิม
+ *
+ * หน้าตาตามธีม v3: ชื่อหน้าตัวใหญ่เขียวป่า · ปุ่มสลับมุมมองแบบ segmented หมอกเขียว
+ * · แถบปฏิทินใช้สีสถานะของธีม (เขียวปุ่ม/ทอง/แดง/เทา) · แถวงานมีธงปลายทาง รหัสกรุ๊ปตัว display และป้ายทรงเม็ด
  */
 
 import Link from 'next/link';
@@ -26,10 +29,11 @@ import { afterTripProgress } from '@/lib/logic/afterTripProgress';
 import { jobNextStep, type NextStepTone } from '@/lib/logic/guideJobNextStep';
 import { loadGroupClears } from '@/services/groupClearStore';
 import type { TourPeriodMaster } from '@/data/schedule/masterTypes';
-import { Card, EmptyState, StatusBadge, cx } from '@/components/ui/Primitives';
+import { Card, EmptyState, cx } from '@/components/ui/Primitives';
 import { Icon } from '@/components/ui/Icon';
 import { MonthHeader, MonthYearSelect, useMonthGroups } from '@/components/ui/MonthFilter';
-import { StatusPill } from '@/components/expenses/CashEnvelopeDrawer';
+import { resolveDestination } from '@/lib/logic/destinations';
+import { FlagTile } from '../GuideUi';
 import { isGroupAdvanceDoc } from '@/lib/logic/groupBudget';
 import { groupEnvelopeStatus, groupLines, leaderEnvelopeState, type EnvelopeTone } from '@/lib/logic/cashEnvelope';
 
@@ -73,33 +77,30 @@ export default function GuideJobsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-lg font-bold zego-text">งานของฉัน</h1>
-          <p className="text-sm zego-text-tertiary">งานทัวร์ทั้งหมดที่ได้รับมอบหมาย</p>
+      {/* ชื่อหน้า + ปุ่มสลับมุมมองแถวเดียวกัน · คำอธิบายเต็มบรรทัดด้านล่าง (ไม่บีบจนตัดคำ) */}
+      <div>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="zego-guide-title">งานของฉัน</h1>
+          <div className="zego-guide-seg w-[168px] shrink-0" role="group" aria-label="รูปแบบการแสดง">
+            {([
+              { key: 'calendar', icon: 'calendar', label: 'ปฏิทิน' },
+              { key: 'list', icon: 'list', label: 'รายการ' },
+            ] as const).map((o) => (
+              <button
+                key={o.key}
+                type="button"
+                aria-pressed={view === o.key}
+                title={o.label}
+                onClick={() => pickView(o.key)}
+                className="flex items-center justify-center gap-1"
+              >
+                <Icon name={o.icon} className="h-4 w-4 shrink-0" />
+                {o.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex shrink-0 rounded-lg zego-surface-soft-bg p-0.5" role="group" aria-label="รูปแบบการแสดง">
-          {([
-            { key: 'calendar', icon: 'calendar', label: 'ปฏิทิน' },
-            { key: 'list', icon: 'list', label: 'รายการ' },
-          ] as const).map((o) => (
-            <button
-              key={o.key}
-              type="button"
-              aria-pressed={view === o.key}
-              aria-label={o.label}
-              title={o.label}
-              onClick={() => pickView(o.key)}
-              className={cx(
-                'flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
-                view === o.key ? 'bg-emerald-600 text-white shadow-sm' : 'zego-text-secondary',
-              )}
-            >
-              <Icon name={o.icon} className="h-4 w-4" />
-              {o.label}
-            </button>
-          ))}
-        </div>
+        <p className="mt-0.5 text-sm zego-text-secondary">งานทัวร์ทั้งหมดที่ได้รับมอบหมาย</p>
       </div>
 
       {myJobs.length === 0 ? (
@@ -115,30 +116,9 @@ export default function GuideJobsPage() {
             {monthGroups.shown.map((m) => (
               <section key={m.key} aria-label={m.label} className="space-y-2">
                 <MonthHeader label={m.label} />
-                <Card padded={false}>
-                  <ul className="divide-y divide-[var(--zego-border-soft)]">
-                    {m.items.map(({ assignment, period }) => (
-                      <li key={assignment.assignmentId}>
-                        <Link
-                          href={`/guide/jobs/${period.internalId}`}
-                          className="flex items-center gap-3 px-4 py-3 zego-hover-surface"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium zego-text">{period.groupCode}{assignment.financeSwap && <span className="ml-1 rounded border border-amber-400 bg-amber-100 px-1 text-[10px] font-semibold text-amber-900" title="ฝั่งบัญชีเปลี่ยนตัวหัวหน้าทัวร์ของกรุ๊ปนี้">เปลี่ยน</span>} · {period.displayName}</p>
-                            <p className="text-xs zego-text-tertiary">{period.countryName} · {formatDateRange(period.startDate, period.endDate)}</p>
-                            {/* ขั้นต่อไป — บอกว่ากรุ๊ปนี้ต้องทำอะไรต่อ */}
-                            <div className="mt-1"><NextStepChip period={period} /></div>
-                          </div>
-                          <div className="flex shrink-0 flex-col items-end gap-1">
-                            <StatusBadge meta={boardStatusMeta(assignment.assignmentStatus)} size="sm" />
-                            <EnvelopeChip periodId={period.internalId} />
-                          </div>
-                          <Icon name="chevronRight" className="h-4 w-4 shrink-0 zego-text-disabled" />
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
+                <ul className="zego-guide-list">
+                  {m.items.map((job) => <JobRow key={job.assignment.assignmentId} job={job} />)}
+                </ul>
               </section>
             ))}
           </div>
@@ -155,15 +135,58 @@ type Job = {
 
 /**
  * สีแถบในปฏิทินตามสถานะการจัด (โทนเดียวกับป้ายสถานะ) — ตัวอักษรสีขาวทุกสี
- * คอนเฟิร์มแล้ว = เขียว · สถานะอื่น (ต้องเปลี่ยนคน ฯลฯ) ตามโทนของป้ายสถานะ
+ * ธีม v3: คอนเฟิร์มแล้ว = เขียวปุ่ม · รอ/ต้องเปลี่ยนคน = ทอง · ปฏิเสธ = แดง · อื่น ๆ = เทาอมเขียว
  */
 const STATUS_BAR: Record<string, string> = {
-  green: 'bg-emerald-600',
-  amber: 'bg-amber-600',
-  red: 'bg-rose-600',
-  slate: 'bg-slate-500',
+  green: 'zego-guide-bar--green',
+  amber: 'zego-guide-bar--gold',
+  red: 'zego-guide-bar--red',
+  slate: 'zego-guide-bar--neutral',
 };
 const barColor = (status: unknown) => ({ bar: STATUS_BAR[boardStatusMeta(status).tone] ?? STATUS_BAR.slate });
+
+/** ป้ายสถานะการจัดทรงเม็ด — สีเดียวกับแถบในปฏิทิน */
+const STATUS_CHIP: Record<string, string> = {
+  green: 'zego-chip--green',
+  amber: 'zego-chip--gold',
+  red: 'zego-chip--red',
+  slate: 'zego-chip--neutral',
+};
+
+/**
+ * แถวงานหนึ่งกรุ๊ป (ใช้ทั้งมุมมองรายการ และรายการใต้ปฏิทิน)
+ * ธงปลายทาง · รหัสกรุ๊ป + สถานะ · ชื่อโปรแกรม (ไม่เกิน 2 บรรทัด) · ประเทศ · วันที่ · ขั้นต่อไป + ซองเงิน
+ * มือถือ: ไม่วางป้ายยาวไว้ขวามือ — ป้ายยาวบีบชื่อโปรแกรมจนตัดหลายบรรทัด
+ */
+function JobRow({ job: { assignment, period } }: { job: Job }) {
+  const meta = boardStatusMeta(assignment.assignmentStatus);
+  const dest = resolveDestination(period.countryName, period.groupCode);
+  return (
+    <li>
+      <Link href={`/guide/jobs/${period.internalId}`} className="zego-guide-row zego-guide-row--tall zego-guide-row--top">
+        <FlagTile alpha2={dest.alpha2} fallback={dest.label.slice(0, 2).toUpperCase()} label={dest.label} />
+        <span className="min-w-0 flex-1 space-y-1">
+          {/* รหัสกรุ๊ปไม่ถูกตัด — ป้ายสถานะยาว (เช่น เปลี่ยนหัวหน้าทัวร์) ขึ้นบรรทัดใหม่แทน */}
+          <span className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <span className="zego-guide-code whitespace-nowrap zego-text">{period.groupCode}</span>
+            <span className={cx('zego-chip shrink-0', STATUS_CHIP[meta.tone] ?? STATUS_CHIP.slate)}>{meta.label}</span>
+          </span>
+          <span className="line-clamp-2 block text-[13px] zego-text-secondary" title={period.displayName}>{period.displayName}</span>
+          <span className="block text-xs zego-text-tertiary">{dest.label} · {formatDateRange(period.startDate, period.endDate)}</span>
+          {/* ขั้นต่อไป — บอกว่ากรุ๊ปนี้ต้องทำอะไรต่อ · ซองเงินของกรุ๊ป */}
+          <span className="flex flex-wrap items-center gap-1.5">
+            {assignment.financeSwap && (
+              <span className="zego-chip zego-chip--gold text-[11px] font-semibold" title="ฝั่งบัญชีเปลี่ยนตัวหัวหน้าทัวร์ของกรุ๊ปนี้">เปลี่ยนตัว</span>
+            )}
+            <NextStepChip period={period} />
+            <EnvelopeChip periodId={period.internalId} />
+          </span>
+        </span>
+        <Icon name="chevronRight" className="zego-guide-chev h-4 w-4 self-center" />
+      </Link>
+    </li>
+  );
+}
 const WEEKDAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
 const monthLabel = (y: number, m: number) => new Date(y, m, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
@@ -230,14 +253,14 @@ function JobsCalendar({ jobs, startMonth }: { jobs: Job[]; startMonth?: string |
           <button type="button" onClick={() => move(-1)} aria-label="เดือนก่อนหน้า" className="rounded-lg p-2 zego-hover-surface">
             <Icon name="chevronLeft" className="h-4 w-4" />
           </button>
-          <p className="text-sm font-semibold zego-text">{monthLabel(y, m)}</p>
+          <p className="zego-guide-display text-base font-semibold text-[var(--zego-heading)]">{monthLabel(y, m)}</p>
           <button type="button" onClick={() => move(1)} aria-label="เดือนถัดไป" className="rounded-lg p-2 zego-hover-surface">
             <Icon name="chevronRight" className="h-4 w-4" />
           </button>
         </div>
         <div className="grid grid-cols-7 zego-divider-top text-center">
           {WEEKDAYS.map((w, i) => (
-            <p key={w} className={cx('py-1.5 text-[11px] font-medium', i === 0 ? 'text-rose-600' : 'zego-text-tertiary')}>{w}</p>
+            <p key={w} className={cx('py-1.5 text-[11px] font-medium', i === 0 ? 'zego-guide-sunday' : 'zego-text-tertiary')}>{w}</p>
           ))}
         </div>
         {weeks.map((week, wi) => {
@@ -264,7 +287,7 @@ function JobsCalendar({ jobs, startMonth }: { jobs: Job[]; startMonth?: string |
                   {d && (
                     <p className={cx(
                       'mx-auto flex h-5 w-5 items-center justify-center rounded-full text-[11px] tabular-nums',
-                      d === today ? 'bg-emerald-600 font-bold text-white' : ci === 0 ? 'text-rose-600' : 'zego-text-secondary',
+                      d === today ? 'zego-guide-today font-bold' : ci === 0 ? 'zego-guide-sunday' : 'zego-text-secondary',
                     )}>
                       {Number(d.slice(8))}
                     </p>
@@ -317,37 +340,14 @@ function JobsCalendar({ jobs, startMonth }: { jobs: Job[]; startMonth?: string |
         })}
       </Card>
 
-      {/* งานของเดือนนี้ — สีเดียวกับแถบในปฏิทิน */}
-      <Card padded={false}>
-        {inMonth.length === 0 ? (
-          <p className="px-4 py-5 text-center text-sm zego-text-tertiary">ไม่มีงานในเดือนนี้</p>
-        ) : (
-          <ul className="divide-y divide-[var(--zego-border-soft)]">
-            {inMonth.map(({ assignment, period }) => (
-              <li key={assignment.assignmentId}>
-                {/*
-                  มือถือ: แถวบน รหัสกรุ๊ป + สถานะงาน · ชื่อโปรแกรม (ไม่เกิน 2 บรรทัด) · ประเทศ · วันที่ · ซองเงินแถวล่างสุด
-                  ไม่วางป้ายไว้ขวามือ — ป้ายยาวบีบชื่อโปรแกรมจนตัดหลายบรรทัด
-                */}
-                <Link href={`/guide/jobs/${period.internalId}`} className="flex items-stretch gap-3 px-4 py-3 zego-hover-surface">
-                  <span className={cx('w-1.5 shrink-0 rounded-full', colorOf.get(assignment.assignmentId)!.bar)} />
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-semibold zego-text">{period.groupCode}{assignment.financeSwap && <span className="ml-1 rounded border border-amber-400 bg-amber-100 px-1 text-[10px] font-semibold text-amber-900" title="ฝั่งบัญชีเปลี่ยนตัวหัวหน้าทัวร์ของกรุ๊ปนี้">เปลี่ยน</span>}</p>
-                      <StatusBadge meta={boardStatusMeta(assignment.assignmentStatus)} size="sm" />
-                    </div>
-                    <p className="line-clamp-2 text-xs zego-text-secondary" title={period.displayName}>{period.displayName}</p>
-                    <p className="text-[11px] zego-text-tertiary">{period.countryName} · {formatDateRange(period.startDate, period.endDate)}</p>
-                    {/* ขั้นต่อไป — บอกว่ากรุ๊ปนี้ต้องทำอะไรต่อ */}
-                    <NextStepChip period={period} />
-                    <EnvelopeChip periodId={period.internalId} />
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+      {/* งานของเดือนนี้ — ป้ายสถานะสีเดียวกับแถบในปฏิทิน */}
+      {inMonth.length === 0 ? (
+        <p className="zego-guide-list px-4 py-5 text-center text-sm zego-text-tertiary">ไม่มีงานในเดือนนี้</p>
+      ) : (
+        <ul className="zego-guide-list">
+          {inMonth.map((job) => <JobRow key={job.assignment.assignmentId} job={job} />)}
+        </ul>
+      )}
     </div>
   );
 }
@@ -375,23 +375,33 @@ function EnvelopeChip({ periodId }: { periodId: string }) {
   else if (status.stage === 'handed_over') { label = status.label; tone = 'violet'; }
   else { label = 'รับซองแล้ว'; tone = 'green'; }
   return (
-    <span className="flex items-center gap-1.5">
+    <span className="inline-flex items-center gap-1.5">
       <span className="text-[11px] zego-text-tertiary">ซองเงิน</span>
-      <StatusPill label={label} tone={tone} />
+      <span className={cx('zego-chip text-[11px]', ENVELOPE_CHIP[tone])}>{label}</span>
     </span>
   );
 }
 
+/** สีป้ายซองเงินตามธีม v3 — รอคุณ/ส่งมอบแล้ว = ทอง (สถานะรอ) · ปัญหา = แดง · จัดซองแล้ว = ฟ้า · รับแล้ว = เขียว */
+const ENVELOPE_CHIP: Record<EnvelopeTone, string> = {
+  slate: 'zego-chip--neutral',
+  amber: 'zego-chip--gold',
+  blue: 'zego-chip--blue',
+  violet: 'zego-chip--gold',
+  green: 'zego-chip--green',
+  red: 'zego-chip--red',
+};
+
 const NEXT_STEP_STYLE: Record<NextStepTone, string> = {
-  action: 'bg-amber-100 text-amber-900 ring-amber-300',
-  waiting: 'bg-sky-50 text-sky-800 ring-sky-200',
-  done: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
-  idle: 'zego-surface-soft-bg zego-text-secondary ring-[var(--zego-border-soft)]',
+  action: 'zego-chip--gold',
+  waiting: 'zego-chip--blue',
+  done: 'zego-chip--green',
+  idle: 'zego-chip--neutral',
 };
 
 /**
  * ป้าย "ขั้นต่อไป" ของกรุ๊ป — บอกว่าต้องทำอะไรต่อโดยไม่ต้องเปิดดูทีละกรุ๊ป (jobNextStep)
- * ส้ม = คุณต้องทำ · ฟ้า = รอฝั่งการเงิน · เขียว = เรียบร้อย · เทา = ยังไม่ถึงเวลา
+ * ทอง = คุณต้องทำ · ฟ้า = รอฝั่งการเงิน · เขียว = เรียบร้อย · เทา = ยังไม่ถึงเวลา
  */
 function NextStepChip({ period }: { period: TourPeriodMaster }) {
   const { currentUser, envelopes, expenses, appointments } = useDemo();
@@ -418,7 +428,7 @@ function NextStepChip({ period }: { period: TourPeriodMaster }) {
       : null,
   });
   return (
-    <span className={cx('inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', NEXT_STEP_STYLE[step.tone])}>
+    <span className={cx('zego-chip max-w-full gap-1 text-[11px] font-semibold', NEXT_STEP_STYLE[step.tone])}>
       <Icon name={step.tone === 'done' ? 'check' : step.tone === 'action' ? 'chevronRight' : 'clock'} className="h-3 w-3 shrink-0" />
       <span className="truncate">{step.tone === 'action' ? `ต้องทำ: ${step.label}` : step.label}</span>
     </span>

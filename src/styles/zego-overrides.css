@@ -360,6 +360,7 @@ html[data-zego-theme="dark"] .zego-guide-back{color:#6fd39a}
 .zego-guide-list{overflow:hidden;border:1px solid var(--zego-border);border-radius:16px;background:var(--zego-surface)}
 .zego-guide-row{display:flex;align-items:center;gap:12px;padding:10px 14px}
 .zego-guide-row--tall{padding-block:12px}
+.zego-guide-row--top{align-items:flex-start}
 .zego-guide-row + .zego-guide-row,.zego-guide-list > li + li{border-top:1px solid var(--zego-border-soft)}
 a.zego-guide-row:hover,.zego-guide-list a:hover{background:var(--zego-surface-soft)}
 .zego-guide-row__title{display:block;font-size:16px;color:var(--zego-text)}
@@ -414,6 +415,14 @@ html[data-zego-theme="dark"] .zego-guide-ready:before{background:#3dba73}
 html[data-zego-theme="dark"] .zego-guide-warnbox{background:#3a3016}
 html[data-zego-theme="dark"] .zego-guide-warnbox__title{color:#f3dca6}
 html[data-zego-theme="dark"] .zego-guide-warnbox__sub{color:#e2b85a}
+
+/* ปฏิทินงานของฉัน — แถบสีตามสถานะ (ตัวอักษรขาวทุกสี สีเดียวกันทั้งสองธีมให้ตัดกับพื้นได้เสมอ) · วงวันนี้ · วันอาทิตย์ */
+.zego-guide-bar--green{background:#04803c}
+.zego-guide-bar--gold{background:#946d26}
+.zego-guide-bar--red{background:#c44242}
+.zego-guide-bar--neutral{background:#6b7770}
+.zego-guide-today{background:#04803c;color:#fff}
+.zego-guide-sunday{color:var(--zego-chip-red-fg)}
 
 /* หน้าที่ยังไม่เปิดใช้งาน — วงมิ้นต์ขอบเส้นประเขียว ไม่มีปุ่ม */
 .zego-guide-soon{display:flex;flex-direction:column;align-items:center;gap:10px;padding:32px 8px;text-align:center}
