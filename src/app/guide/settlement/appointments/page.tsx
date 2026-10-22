@@ -68,7 +68,7 @@ export default function GuideSettlementAppointmentsPage() {
           <h1 className="zego-guide-band__title">นัดหมาย</h1>
           <Button variant="primary" size="sm" icon="plus" className="shrink-0" onClick={() => setCreating(true)}>สร้างนัดหมาย</Button>
         </div>
-        <p className="zego-guide-band__sub">นัดเคลียร์เงินกับบัญชี — สร้างนัด ยืนยันนัด หรือเลื่อนนัด (เลือกเวลาที่บัญชีว่าง) ได้ที่นี่</p>
+        <p className="zego-guide-band__sub">นัดเคลียร์เงินกับบัญชี · สร้าง ยืนยัน หรือเลื่อนนัด</p>
       </GuideBand>
 
       {/* ปฏิทินไม่แสดงนัดที่ยกเลิกแล้ว (การ์ดในรายการยังบอกว่ายกเลิก ไว้ท้ายสุด) */}
