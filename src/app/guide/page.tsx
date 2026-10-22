@@ -28,10 +28,9 @@ import { getTourPeriods } from '@/services/tourPeriodMaster';
 import { loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { getTourPeriodById, periodCodeOf } from '@/services/tourPeriodMaster';
 import type { Appointment } from '@/types';
-import { useLeaderDocumentsView } from '@/lib/useLeaderDocuments';
+import { useGuideDocuments } from '@/lib/useGuideDocuments';
 import { listGuideAlerts, type GuideAlertKind } from '@/lib/logic/guideAlerts';
 import { leaderDisplayName } from '@/lib/logic/leaderExpertise';
-import { listDocumentExpiryAlerts } from '@/lib/logic/documentExpiryAlerts';
 import { formatDate, toISODate } from '@/lib/format';
 import { leaderEnvelopeState } from '@/lib/logic/cashEnvelope';
 import { Icon } from '@/components/ui/Icon';
@@ -81,15 +80,15 @@ function greetingOf(hour: number) {
 }
 
 export default function GuideHomePage() {
-  const { currentUser, leaders, today, envelopes, appointments } = useDemo();
+  const { currentUser, leaders, envelopes, appointments } = useDemo();
 
   // GuideShell กันบัญชีที่ไม่ใช่บทบาทหัวหน้าทัวร์ไว้แล้วที่ชั้นบนสุด — หน้านี้เข้าถึงได้แปลว่าเป็นหัวหน้าทัวร์แน่นอน
   const leaderId = ownLeaderScope(currentUser);
   const leader = leaders.find((l) => l.id === leaderId);
 
   // เอกสารต้องตาม (หมดอายุแล้ว/ใกล้หมดอายุ) — ดูของตัวเองได้เสมอ ไม่ต้องเช็คสิทธิ์เพิ่ม
-  const documents = useLeaderDocumentsView(leader, true);
-  const docAlerts = listDocumentExpiryAlerts(documents, today);
+  // รวมหนังสือเดินทางด้วย (useGuideDocuments) — ตัวเลขเดียวกับกระดิ่ง/เมนูโปรไฟล์/หน้าเอกสาร
+  const docAlerts = useGuideDocuments(leader).alerts;
   const expiredDocs = docAlerts.filter((a) => a.severity === 'expired');
   const soonDocs = docAlerts.filter((a) => a.severity === 'soon');
 

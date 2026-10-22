@@ -21,8 +21,7 @@ import { useDemo } from '@/store/DemoStore';
 import { ownLeaderScope } from '@/lib/permissions';
 import { leaderDisplayName } from '@/lib/logic/leaderExpertise';
 import { LEADER_STATUS, LEADER_TYPE } from '@/lib/labels';
-import { useLeaderDocumentsView } from '@/lib/useLeaderDocuments';
-import { listDocumentExpiryAlerts } from '@/lib/logic/documentExpiryAlerts';
+import { useGuideDocuments } from '@/lib/useGuideDocuments';
 import { toISODate } from '@/lib/format';
 import { Card, EmptyState, cx } from '@/components/ui/Primitives';
 import { Icon, type IconName } from '@/components/ui/Icon';
@@ -53,8 +52,8 @@ const GROUPS: { label: string; tone: TileTone; topics: Topic[] }[] = [
     tone: 'teal',
     topics: [
       { href: '/guide/profile/employment', label: 'ข้อมูลการร่วมงาน', description: 'รูปแบบการร่วมงาน วันที่เริ่ม สถานะ', icon: 'briefcase', readOnly: true },
-      { href: '/guide/profile/work-history', label: 'ประวัติงานและผลประเมิน', description: 'งานที่ผ่านมา คะแนน ประวัติการทำงาน', icon: 'history', readOnly: true },
-      { href: '/guide/profile/skills', label: 'การพัฒนาและประสบการณ์', description: 'ประเทศ/เส้นทางที่เชี่ยวชาญ กลุ่มลูกค้า ภาษา', icon: 'chart' },
+      { href: '/guide/profile/work-history', label: 'ประวัติงานและผลประเมิน', description: 'ทริปที่ปิดแล้ว ผลประเมิน ค่าตอบแทน', icon: 'history', readOnly: true },
+      { href: '/guide/profile/skills', label: 'การพัฒนาและประสบการณ์', description: 'จุดแข็ง ประเทศที่เคยพาทัวร์', icon: 'chart' },
       { href: '/guide/profile/leave', label: 'สถานะ/การลา', description: 'ความพร้อมรับงาน และขอลา', icon: 'calendar' },
     ],
   },
@@ -62,7 +61,7 @@ const GROUPS: { label: string; tone: TileTone; topics: Topic[] }[] = [
     label: 'เอกสาร',
     tone: 'gold',
     topics: [
-      { href: '/guide/profile/documents', label: 'เอกสารประจำตัว', description: 'พาสปอร์ต วีซ่า และเอกสารอื่น ๆ', icon: 'passport' },
+      { href: '/guide/profile/documents', label: 'เอกสารประจำตัว', description: 'พาสปอร์ต บัตรหัวหน้าทัวร์ วีซ่า', icon: 'passport' },
       { href: '/guide/profile/bank', label: 'เอกสารการเงิน', description: 'บัญชีธนาคารที่ใช้รับเงิน', icon: 'bank' },
     ],
   },
@@ -90,12 +89,11 @@ function tenureText(joinedAt: string | undefined, today: string): string {
 }
 
 export default function GuideProfilePage() {
-  const { currentUser, leaders, today } = useDemo();
+  const { currentUser, leaders } = useDemo();
   const leader = leaders.find((l) => l.id === ownLeaderScope(currentUser));
 
   // เอกสารต้องตาม — ตัวเลขเดียวกับกระดิ่งเอกสาร/แถบล่าง (เรียก Hook ก่อน early-return เสมอ)
-  const documents = useLeaderDocumentsView(leader, true);
-  const docAlertCount = listDocumentExpiryAlerts(documents, today).length;
+  const docAlertCount = useGuideDocuments(leader).alerts.length;
 
   if (!leader) {
     return (

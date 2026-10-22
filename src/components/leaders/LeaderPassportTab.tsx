@@ -47,7 +47,20 @@ const HISTORY_LABEL: Record<PassportBookHistoryEntry['action'], string> = {
   REPLACE_IMAGE: 'อัปโหลดรูปใหม่',
 };
 
-export function LeaderPassportTab({ leader }: { leader: TourLeader }) {
+export function LeaderPassportTab({
+  leader,
+  leaderView = false,
+  startAdding = false,
+}: {
+  leader: TourLeader;
+  /**
+   * มุมหัวหน้าทัวร์ (พอร์ทัล /guide · อยู่ในแผ่นเต็มกรอบมือถือ) — ไม่มีหัวข้อซ้ำกับชื่อแผ่น
+   * ตัดข้อความสำหรับเจ้าหน้าที่ (กติกาเล่มหลัก · ที่มาของข้อมูล · Audit Log) และปุ่มจัดเรียงให้พอดีจอแคบ
+   */
+  leaderView?: boolean;
+  /** เปิดมาพร้อมการ์ดเพิ่มเล่มใหม่ (กด "+ เพิ่ม" จากหน้ารายการ) */
+  startAdding?: boolean;
+}) {
   const { currentUser, today, pushToast } = useDemo();
   // §11 สิทธิ์แยกละเอียด
   const canViewIdentity = can(currentUser.role, 'passport.view');
@@ -66,7 +79,7 @@ export function LeaderPassportTab({ leader }: { leader: TourLeader }) {
   const reload = useCallback(() => setRev((v) => v + 1), []);
 
   /** การ์ดเปล่าสำหรับกรอกเล่มใหม่ในหน้าเดียวกัน */
-  const [addingInline, setAddingInline] = useState(false);
+  const [addingInline, setAddingInline] = useState(startAdding);
   /** หน้าต่างอัปโหลดรูป + OCR — เส้นทางเสริมที่มีขั้นตอนหมุน/ครอปรูป */
   const [addOpen, setAddOpen] = useState(false);
   /** §7 OCR กำลังทำงานแต่ผู้ใช้ยังไม่ยืนยัน → แสดงสถานะชั่วคราว ไม่สร้าง Card จริง */
@@ -198,7 +211,13 @@ export function LeaderPassportTab({ leader }: { leader: TourLeader }) {
   };
 
   /* ------------------------------- ส่วนหัว (§1) ------------------------------- */
-  const header = (
+  const header = leaderView ? (
+    canViewIdentity && !addingInline ? (
+      <Button variant="primary" icon="plus" className="w-full" onClick={() => setAddingInline(true)} disabled={addingInline}>
+        เพิ่มหนังสือเดินทาง
+      </Button>
+    ) : null
+  ) : (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
         <h2 className="text-lg font-bold zego-text">หนังสือเดินทาง</h2>
@@ -296,6 +315,7 @@ export function LeaderPassportTab({ leader }: { leader: TourLeader }) {
                 canManage={canManage}
                 canEdit={canEdit}
                 eligibility={eligibility}
+                leaderView={leaderView}
                 // §5 เล่มหลักเปิดรายละเอียดเป็นค่าเริ่มต้น (ไม่มีเล่มหลัก → เปิดเล่มแรก)
                 defaultExpanded={card.id === primaryCard?.id}
                 editing={editingThis}
@@ -326,7 +346,7 @@ export function LeaderPassportTab({ leader }: { leader: TourLeader }) {
       {/* เลขบัตรประชาชน — ไม่ใช่ข้อมูลของเล่มใดเล่มหนึ่ง จึงแยกออกจาก Passport Card (§9) */}
       {identity?.personalID && (
         <Card>
-          <CardHeader title="เลขบัตรประชาชน" description="ข้อมูลส่วนบุคคล — ไม่ผูกกับหนังสือเดินทางเล่มใดเล่มหนึ่ง" />
+          <CardHeader title="เลขบัตรประชาชน" description={leaderView ? undefined : 'ข้อมูลส่วนบุคคล — ไม่ผูกกับหนังสือเดินทางเล่มใดเล่มหนึ่ง'} />
           <p className="font-mono text-sm zego-text-secondary">
             {canViewFull && revealed.has('personalId') ? identity.personalID : maskPersonalId(identity.personalID)}
           </p>
@@ -355,7 +375,7 @@ export function LeaderPassportTab({ leader }: { leader: TourLeader }) {
       )}
 
       {/* Audit (§9) */}
-      {canViewFull && getPassportAudit(leader.id).length > 0 && (
+      {!leaderView && canViewFull && getPassportAudit(leader.id).length > 0 && (
         <Card>
           <CardHeader title="ประวัติการเข้าถึงข้อมูลสำคัญ (Audit Log)" description="บันทึกผู้อัปโหลด ผู้เปิดดู และเวลาของทุกครั้ง" />
           <ul className="space-y-1 text-xs zego-text-secondary">

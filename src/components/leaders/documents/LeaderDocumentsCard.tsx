@@ -10,7 +10,7 @@
  * สิทธิ์ใช้ชุด passport.* ร่วมกัน เพราะเป็น "เอกสารประจำตัว" กลุ่มเดียวกัน
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ElementType } from 'react';
 import { Button, Card, CardHeader, EmptyState, StatusBadge, cx } from '@/components/ui/Primitives';
 import { ConfirmDialog } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
@@ -112,6 +112,8 @@ export function LeaderDocumentsCard({
   title,
   description,
   onChanged,
+  leaderView = false,
+  startAdding = false,
 }: {
   leader: TourLeader;
   /** ชนิดเอกสารที่การ์ดนี้ดูแล (แสดงรวมกันทุกชนิด) */
@@ -126,6 +128,16 @@ export function LeaderDocumentsCard({
   description: string;
   /** แจ้งหน้าจอแม่ให้อ่านเอกสารใหม่ — การ์ดอื่นบนหน้าเดียวกันอ่านจาก store เหมือนกัน */
   onChanged?: () => void;
+  /**
+   * มุมหัวหน้าทัวร์ (พอร์ทัล /guide · อยู่ในแผ่นเต็มกรอบมือถือ) — ไม่มีกรอบการ์ด/หัวข้อซ้ำกับชื่อแผ่น
+   * ยังไม่มีเอกสาร = ข้อความสั้น ๆ แทนหน้าเอกสารเปล่าทั้งใบ · ปุ่มเพิ่มเต็มความกว้าง
+   */
+  leaderView?: boolean;
+  /**
+   * เปิดมาพร้อมฟอร์มเพิ่มในการ์ด (กด "+ เพิ่ม" จากหน้ารายการ) — เฉพาะชนิดที่กรอกในการ์ดได้ (วีซ่า ฯลฯ)
+   * ชนิดที่ใช้หน้าต่างฟอร์มให้ผู้เรียกเปิด DocumentFormModal เอง: หน้าต่างที่เปิดพร้อมกับแผ่นจะถูกแผ่นบัง
+   */
+  startAdding?: boolean;
 }) {
   const { currentUser, today, pushToast } = useDemo();
 
@@ -139,8 +151,11 @@ export function LeaderDocumentsCard({
   const reload = () => { setRev((v) => v + 1); onChanged?.(); };
 
   const [form, setForm] = useState<{ kind: DocKind; editing: AnyLeaderDocumentRecord | null } | null>(null);
-  /** ชนิดที่กำลังกรอกฟอร์มฝังอยู่บนการ์ดนี้ (null = ยังไม่ได้กดเพิ่ม) */
-  const [inlineAdding, setInlineAdding] = useState<DocKind | null>(null);
+  /** ชนิดที่กำลังกรอกฟอร์มฝังอยู่บนการ์ดนี้ (null = ยังไม่ได้กดเพิ่ม) · startAdding เปิดได้เฉพาะชนิดที่กรอกในการ์ด */
+  const startKind = addKind ?? kinds[0];
+  const [inlineAdding, setInlineAdding] = useState<DocKind | null>(
+    () => (startAdding && KINDS_WITH_INLINE_FORM.includes(startKind) ? startKind : null),
+  );
   const [confirmDelete, setConfirmDelete] = useState<AnyLeaderDocumentRecord | null>(null);
   const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>('ACTIVE');
 
@@ -246,50 +261,60 @@ export function LeaderDocumentsCard({
     }
   };
 
+  /** ปุ่มเพิ่มเอกสาร — มุมขวาบนของการ์ด (มุมหัวหน้าทัวร์: เต็มความกว้างบนสุดของแผ่น) */
+  const addButtons = (
+    <div className={cx('flex flex-wrap gap-2', leaderView && '[&>button]:w-full')}>
+      {addKind ? (
+        <Button
+          variant="primary"
+          icon="plus"
+          disabled={inlineAdding === addKind || blockedReason.has(addKind)}
+          title={blockedReason.get(addKind)}
+          onClick={() => {
+            if (KINDS_WITH_INLINE_FORM.includes(addKind)) setInlineAdding(addKind);
+            else setForm({ kind: addKind, editing: null });
+          }}
+        >
+          เพิ่มเอกสาร
+        </Button>
+      ) : (
+        kinds.map((kind) => (
+          <Button
+            key={kind}
+            variant="primary"
+            icon="plus"
+            disabled={inlineAdding === kind || blockedReason.has(kind)}
+            title={blockedReason.get(kind)}
+            onClick={() => {
+              if (KINDS_WITH_INLINE_FORM.includes(kind)) setInlineAdding(kind);
+              else setForm({ kind, editing: null });
+            }}
+          >
+            เพิ่ม{DOC_KIND_DISPLAY_NAME[kind]}
+          </Button>
+        ))
+      )}
+    </div>
+  );
+
+  const shownBlocked = [...blockedReason].filter(([kind]) => !addKind || kind === addKind);
+
+  /** มุมหัวหน้าทัวร์อยู่ในแผ่นที่มีกรอบ/หัวข้ออยู่แล้ว — ไม่ต้องซ้อนกรอบการ์ดอีกชั้น */
+  const Wrap: ElementType = leaderView ? 'div' : Card;
+
   return (
     <>
-      <Card>
+      <Wrap>
         {/* ปุ่มเพิ่มอยู่มุมขวาบนของการ์ด รูปแบบเดียวกับการ์ดหนังสือเดินทาง */}
-        <CardHeader
-          title={title}
-          description={totalAll > 0 ? `${total} ฉบับ · ${description}` : description}
-          action={
-            canEdit ? (
-              <div className="flex flex-wrap gap-2">
-                {addKind ? (
-                  <Button
-                    variant="primary"
-                    icon="plus"
-                    disabled={inlineAdding === addKind || blockedReason.has(addKind)}
-                    title={blockedReason.get(addKind)}
-                    onClick={() => {
-                      if (KINDS_WITH_INLINE_FORM.includes(addKind)) setInlineAdding(addKind);
-                      else setForm({ kind: addKind, editing: null });
-                    }}
-                  >
-                    เพิ่มเอกสาร
-                  </Button>
-                ) : (
-                  kinds.map((kind) => (
-                    <Button
-                      key={kind}
-                      variant="primary"
-                      icon="plus"
-                      disabled={inlineAdding === kind || blockedReason.has(kind)}
-                      title={blockedReason.get(kind)}
-                      onClick={() => {
-                        if (KINDS_WITH_INLINE_FORM.includes(kind)) setInlineAdding(kind);
-                        else setForm({ kind, editing: null });
-                      }}
-                    >
-                      เพิ่ม{DOC_KIND_DISPLAY_NAME[kind]}
-                    </Button>
-                  ))
-                )}
-              </div>
-            ) : undefined
-          }
-        />
+        {leaderView ? (
+          canEdit && !inlineAdding && <div className="mb-4">{addButtons}</div>
+        ) : (
+          <CardHeader
+            title={title}
+            description={totalAll > 0 ? `${total} ฉบับ · ${description}` : description}
+            action={canEdit ? addButtons : undefined}
+          />
+        )}
 
         {/*
           ตัวกรองสถานะ — โผล่เมื่อมีเอกสารแล้วเท่านั้น
@@ -323,9 +348,10 @@ export function LeaderDocumentsCard({
         )}
 
         {/* บอกเหตุผลไว้ตรงนี้ด้วย — ปุ่มจางอย่างเดียวผู้ใช้จะไม่รู้ว่าติดกติกาข้อไหน */}
-        {canEdit && blockedReason.size > 0 && !inlineAdding && (
+        {/* นับเฉพาะชนิดที่มีปุ่มเพิ่มจริง — มี addKind = ปุ่มเดียว ชนิดอื่นไม่เกี่ยว */}
+        {canEdit && shownBlocked.length > 0 && !inlineAdding && (
           <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-            {[...blockedReason].map(([kind, reason]) => (
+            {shownBlocked.map(([kind, reason]) => (
               <p key={kind} className="text-xs text-amber-800">{reason}</p>
             ))}
           </div>
@@ -350,7 +376,7 @@ export function LeaderDocumentsCard({
             title={`ไม่มีเอกสารสถานะ “${LIFECYCLE_FILTERS.find((f) => f.value === lifecycleFilter)!.label}”`}
             description={`มีทั้งหมด ${totalAll} ฉบับ — เลือก “ทั้งหมด” เพื่อดูทุกฉบับ`}
           />
-        ) : total === 0 && inlineFormKind ? (
+        ) : total === 0 && inlineFormKind && !leaderView ? (
           /* ยังไม่มีเอกสาร → โชว์หน้าเอกสารเปล่าไว้ให้รู้ว่าช่องนี้คือเอกสารอะไร ยังกรอกไม่ได้ */
           <DocumentPreview kind={inlineFormKind} />
         ) : total === 0 ? (
@@ -395,7 +421,7 @@ export function LeaderDocumentsCard({
             ))}
           </div>
         )}
-      </Card>
+      </Wrap>
 
       {form && (
         <DocumentFormModal
@@ -609,7 +635,8 @@ function DocumentRow({
           {doc.note && <p className="mt-0.5 text-xs zego-text-tertiary">{doc.note}</p>}
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-1">
+        {/* max-w-full: จอแคบ (แผ่นในพอร์ทัล) ปุ่มขึ้นบรรทัดใหม่ภายในกลุ่มได้ ไม่ล้นแถว */}
+        <div className="flex max-w-full flex-wrap items-center gap-1">
           {hasTemplate && (
             <Button size="sm" variant="ghost" onClick={() => setExpanded((x) => !x)}>
               {expanded ? 'ย่อรายละเอียด' : 'ดูรายละเอียด'}

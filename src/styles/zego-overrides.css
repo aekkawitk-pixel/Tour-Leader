@@ -435,6 +435,14 @@ html[data-zego-theme="dark"] .zego-guide-ready:before{background:#3dba73}
 html[data-zego-theme="dark"] .zego-guide-warnbox{background:#3a3016}
 html[data-zego-theme="dark"] .zego-guide-warnbox__title{color:#f3dca6}
 html[data-zego-theme="dark"] .zego-guide-warnbox__sub{color:#e2b85a}
+/* กล่องสรุปแบบ "ใช้ได้ทั้งหมด" (เขียว) — หน้าเอกสารประจำตัว */
+.zego-guide-warnbox--ok,html[data-zego-theme="dark"] .zego-guide-warnbox--ok{background:var(--zego-mint)}
+.zego-guide-warnbox--ok .zego-guide-warnbox__icon{background:var(--zego-brand-band)}
+.zego-guide-warnbox--ok .zego-guide-warnbox__title,html[data-zego-theme="dark"] .zego-guide-warnbox--ok .zego-guide-warnbox__title{color:var(--zego-heading)}
+.zego-guide-warnbox--ok .zego-guide-warnbox__sub,html[data-zego-theme="dark"] .zego-guide-warnbox--ok .zego-guide-warnbox__sub{color:var(--zego-label)}
+/* แถวรายการที่เป็นปุ่ม (แตะเปิดแผ่น) */
+button.zego-guide-row{width:100%;text-align:left}
+button.zego-guide-row:hover{background:var(--zego-surface-soft)}
 
 /* ปฏิทินงานของฉัน — แถบสีตามสถานะ (ตัวอักษรขาวทุกสี สีเดียวกันทั้งสองธีมให้ตัดกับพื้นได้เสมอ) · วงวันนี้ · วันอาทิตย์ */
 .zego-guide-bar--green{background:#04803c}

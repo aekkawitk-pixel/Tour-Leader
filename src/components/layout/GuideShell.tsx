@@ -18,8 +18,7 @@ import { Button, Card, EmptyState, cx } from '@/components/ui/Primitives';
 import { PhoneFrameProvider } from '@/components/ui/Modal';
 import { landingPathForRole, ownLeaderScope } from '@/lib/permissions';
 import { ROLE } from '@/lib/labels';
-import { useLeaderDocumentsView } from '@/lib/useLeaderDocuments';
-import { listDocumentExpiryAlerts } from '@/lib/logic/documentExpiryAlerts';
+import { useGuideDocuments } from '@/lib/useGuideDocuments';
 import { listGuideAlerts, type GuideAlertKind } from '@/lib/logic/guideAlerts';
 import { ASSIGNMENT_SEEN_EVENT, loadActiveGuideAssignments } from '@/services/guideAssignmentStore';
 import { getTourPeriodById } from '@/services/tourPeriodMaster';
@@ -53,15 +52,15 @@ const ALERT_STYLE: Record<GuideAlertKind, { icon: IconName; tone: string }> = {
 export function GuideShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, leaders, today, setRole, envelopes, appointments } = useDemo();
+  const { currentUser, leaders, setRole, envelopes, appointments } = useDemo();
 
   /*
    * เอกสารต้องตาม — ต้องเรียก Hook นี้เสมอไม่ว่าบทบาทปัจจุบันจะเป็นอะไร (กฎของ Hook)
    * ผู้ใช้ที่ไม่ใช่หัวหน้าทัวร์จะได้ leader เป็น undefined ซึ่ง Hook รองรับอยู่แล้ว → ได้ 0 รายการ
    */
   const ownLeader = leaders.find((l) => l.id === ownLeaderScope(currentUser));
-  const ownDocuments = useLeaderDocumentsView(ownLeader, true);
-  const docAlertCount = listDocumentExpiryAlerts(ownDocuments, today).length;
+  // รวมหนังสือเดินทางด้วย — ตัวเลขเดียวกับหน้าหลัก/เมนูโปรไฟล์/หน้าเอกสารประจำตัว
+  const docAlertCount = useGuideDocuments(ownLeader).alerts.length;
 
   /** กระดิ่ง — เรื่องที่ต้องทำจริง: ได้รับงานใหม่ · มีซองรอรับ · นัดหมายรอยืนยัน (ใช้วันที่จริงของเครื่อง เหมือนหน้าอื่นในพอร์ทัล) */
   const alerts = listGuideAlerts({
