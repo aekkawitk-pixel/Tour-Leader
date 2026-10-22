@@ -291,21 +291,147 @@ html[data-zego-theme="dark"] button.zego-badge--info:hover, html[data-zego-theme
  * zego-design-system.css ไม่มีแพทเทิร์น mobile-app-shell สำเร็จรูป (โครง .zego-app/.zego-topbar
  * ออกแบบมาสำหรับแอปฝั่งผู้จัดที่มี sidebar) จึงประกอบเองจาก token สี/กระจกชุดเดียวกัน
  */
-.zego-guide-backdrop{background:var(--zego-workspace)}
-.zego-guide-phone{background:var(--zego-surface);border-color:var(--zego-border)}
-.zego-guide-header,.zego-guide-bottomnav{
+.zego-guide-backdrop{background:var(--zego-canvas)}
+/* Brand Theme v3 — พื้นขาวอมเขียว การ์ดขาว ฟอนต์ Thai Looped (ผูกเฉพาะพอร์ทัลนี้) */
+.zego-guide-phone{background:var(--zego-workspace);border-color:var(--zego-border);color:var(--zego-text);font-family:var(--zego-font-body)}
+.zego-guide-phone h1,.zego-guide-phone h2,.zego-guide-phone h3,.zego-guide-display{font-family:var(--zego-font-display)}
+.zego-guide-header{
   background:var(--zego-glass-chrome);
   -webkit-backdrop-filter:blur(20px) saturate(120%);
   backdrop-filter:blur(20px) saturate(120%);
+  border-bottom:1px solid var(--zego-border-soft);
 }
-.zego-guide-header{border-bottom:1px solid var(--zego-border-soft)}
-.zego-guide-bottomnav{border-top:1px solid var(--zego-border-soft)}
+/* หน้าหลัก/โปรไฟล์ — หัวเป็นแถบเขียวต่อเนื่องกับ .zego-guide-band ใต้ลงไป */
+.zego-guide-header--band{background:var(--zego-brand-band);color:var(--zego-brand-band-fg);border-bottom-color:var(--zego-brand-band);-webkit-backdrop-filter:none;backdrop-filter:none}
 .zego-guide-icon-btn{color:var(--zego-text-tertiary)}
 .zego-guide-icon-btn:hover{background:var(--zego-surface-soft);color:var(--zego-text)}
-.zego-guide-nav-item{color:var(--zego-text-disabled)}
-.zego-guide-nav-item:hover{color:var(--zego-text-secondary)}
-.zego-guide-nav-item--active{color:var(--zego-primary-700)}
+.zego-guide-header--band .zego-guide-icon-btn{color:#fff;background:rgba(255,255,255,.16);border-radius:999px}
+.zego-guide-header--band .zego-guide-icon-btn:hover{background:rgba(255,255,255,.26);color:#fff}
+html[data-zego-theme="dark"] .zego-guide-header--band .zego-guide-icon-btn{background:rgba(255,255,255,.12)}
 .zego-guide-dot--idle{background:var(--zego-border-strong)}
+.zego-guide-header--band .zego-guide-dot--idle{background:rgba(255,255,255,.55)}
+.zego-guide-header--band .zego-count-badge{box-shadow:0 0 0 2px var(--zego-brand-band)}
+
+/* แถบล่าง — แท็บที่เลือกเป็นเม็ดเขียวทึบรอบไอคอน */
+.zego-guide-bottomnav{background:rgba(250,252,248,.95);border-top:1px solid var(--zego-border);-webkit-backdrop-filter:blur(20px) saturate(120%);backdrop-filter:blur(20px) saturate(120%)}
+html[data-zego-theme="dark"] .zego-guide-bottomnav{background:rgba(18,24,20,.95)}
+.zego-guide-nav-item{color:var(--zego-text-tertiary)}
+.zego-guide-nav-item:hover{color:var(--zego-text)}
+.zego-guide-nav-pill{display:flex;align-items:center;justify-content:center;width:52px;height:30px;border-radius:15px;transition:background var(--zego-motion-fast),color var(--zego-motion-fast)}
+.zego-guide-nav-item--active{color:var(--zego-brand-band);font-weight:600}
+.zego-guide-nav-item--active .zego-guide-nav-pill{background:var(--zego-brand-band);color:#fff}
+html[data-zego-theme="dark"] .zego-guide-nav-item--active{color:#6fd39a}
+html[data-zego-theme="dark"] .zego-guide-nav-item--active .zego-guide-nav-pill{background:#3dba73;color:#0d120f}
+
+/* แถบหัวโค้งสองชั้น (แบบ A) — แถบเขียวปุ่ม ขอบล่างเขียวสว่างเป็นคลื่น · ชิดขอบ main (px-4 pt-4) */
+/* margin-bottom 26px = ขอบ rim 10px + ระยะห่าง 16px · เนื้อหาที่ซ้อนแถบ (.zego-guide-overlap) ดึงขึ้นมาทับส่วนล่างของแถบ */
+.zego-guide-band{position:relative;margin:-1rem -1rem 26px;padding:4px 16px 22px;color:var(--zego-brand-band-fg);background:var(--zego-brand-band);border-radius:0 0 50% 50%/0 0 32px 32px;box-shadow:0 10px 0 0 var(--zego-brand-rim)}
+.zego-guide-band--overlap{padding-bottom:58px}
+.zego-guide-band + .zego-guide-overlap{position:relative;margin-top:-74px}
+.zego-guide-band__eyebrow{color:var(--zego-brand-band-soft);font-size:15px}
+.zego-guide-band__title{font-family:var(--zego-font-display);font-weight:700;font-size:28px;line-height:1.2;color:#fff}
+.zego-guide-band__meta{color:var(--zego-mint);font-size:13px}
+html[data-zego-theme="dark"] .zego-guide-band__meta{color:#c9ecd6}
+/* ปุ่มเลือกเดือนบนแถบเขียว */
+.zego-guide-band [aria-haspopup="dialog"]{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.28);color:#fff}
+.zego-guide-band [aria-haspopup="dialog"] svg{color:#fff}
+.zego-guide-band .zego-popover{color:var(--zego-text)}
+
+/* หัวข้อ/หัวกลุ่ม */
+.zego-guide-h{font-family:var(--zego-font-display);font-weight:600;font-size:17px;color:var(--zego-heading)}
+.zego-guide-label{display:flex;align-items:center;gap:6px;margin:6px 4px 0;font-size:13px;font-weight:600;letter-spacing:.03em;color:var(--zego-label)}
+.zego-guide-label:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--zego-label-dot)}
+.zego-guide-link{font-size:13px;font-weight:600;color:var(--zego-label)}
+.zego-guide-link:hover{text-decoration:underline}
+
+/* หน้าย่อย — หัวเรียบบนพื้นขาวอมเขียว ชื่อหน้าเขียวป่า */
+.zego-guide-back{display:inline-flex;align-items:center;gap:2px;height:36px;font-size:16px;font-weight:500;color:var(--zego-brand-band)}
+html[data-zego-theme="dark"] .zego-guide-back{color:#6fd39a}
+.zego-guide-title{font-family:var(--zego-font-display);font-weight:700;font-size:28px;line-height:1.2;color:var(--zego-heading)}
+
+/* แบนเนอร์งานด่วน — เขียวป่า ตัวนับเขียวอ่อน */
+.zego-guide-notice{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;background:var(--zego-notice-strong);color:var(--zego-notice-strong-fg);box-shadow:var(--zego-shadow-sm)}
+.zego-guide-notice__icon{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,.12)}
+.zego-guide-notice__title{display:block;font-size:15px;font-weight:600}
+.zego-guide-notice__sub{display:block;font-size:13px;color:var(--zego-notice-strong-soft)}
+.zego-guide-notice__count{display:flex;align-items:center;justify-content:center;min-width:28px;height:28px;padding:0 8px;border-radius:999px;background:var(--zego-notice-count);color:var(--zego-notice-strong);font-family:var(--zego-font-display);font-weight:700;font-size:15px}
+
+/* รายการ — การ์ดขาว แถวคั่นเส้นอมเขียว */
+.zego-guide-list{overflow:hidden;border:1px solid var(--zego-border);border-radius:16px;background:var(--zego-surface)}
+.zego-guide-row{display:flex;align-items:center;gap:12px;padding:10px 14px}
+.zego-guide-row--tall{padding-block:12px}
+.zego-guide-row + .zego-guide-row,.zego-guide-list > li + li{border-top:1px solid var(--zego-border-soft)}
+a.zego-guide-row:hover,.zego-guide-list a:hover{background:var(--zego-surface-soft)}
+.zego-guide-row__title{display:block;font-size:16px;color:var(--zego-text)}
+.zego-guide-row__sub{display:block;font-size:13px;color:var(--zego-text-secondary)}
+.zego-guide-code{font-family:var(--zego-font-display);font-weight:600;font-size:15px;letter-spacing:.02em}
+.zego-guide-chev{color:var(--zego-text-disabled);flex:0 0 auto}
+
+/* ไอคอนหมวด — ส่วนตัว เขียว · การทำงาน เขียวหัวเป็ด · เอกสาร ทอง · ต้องแก้ แดง */
+.zego-guide-tile{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:34px;height:34px;border-radius:10px}
+.zego-guide-tile--lg{width:40px;height:40px;border-radius:12px}
+.zego-guide-tile--green{background:var(--zego-tile-green-bg);color:var(--zego-tile-green-fg)}
+.zego-guide-tile--teal{background:var(--zego-tile-teal-bg);color:var(--zego-tile-teal-fg)}
+.zego-guide-tile--gold{background:var(--zego-tile-gold-bg);color:var(--zego-tile-gold-fg)}
+.zego-guide-tile--red{background:var(--zego-tile-red-bg);color:var(--zego-tile-red-fg)}
+
+/* ป้ายสถานะ */
+.zego-chip{display:inline-flex;align-items:center;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500;line-height:1.5;white-space:nowrap}
+.zego-chip--gold{background:var(--zego-chip-gold-bg);color:var(--zego-chip-gold-fg)}
+.zego-chip--green{background:var(--zego-chip-green-bg);color:var(--zego-chip-green-fg)}
+.zego-chip--neutral{background:var(--zego-chip-neutral-bg);color:var(--zego-chip-neutral-fg)}
+.zego-chip--red{background:var(--zego-chip-red-bg);color:var(--zego-chip-red-fg)}
+.zego-chip--blue{background:var(--zego-chip-blue-bg);color:var(--zego-chip-blue-fg)}
+
+/* segmented — ช่องหมอกเขียว ตัวที่เลือกเป็นพื้นขาว */
+.zego-guide-seg{display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--zego-mist)}
+.zego-guide-seg > button{flex:1 1 0;min-width:0;height:34px;padding:0 6px;border-radius:10px;font-size:13px;color:var(--zego-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background var(--zego-motion-fast)}
+.zego-guide-seg > button[aria-pressed="true"]{background:var(--zego-surface);font-weight:600;color:var(--zego-label);box-shadow:var(--zego-shadow-xs)}
+html[data-zego-theme="dark"] .zego-guide-seg > button[aria-pressed="true"]{background:var(--zego-surface-raised)}
+
+/* วงกลมประเทศ — ธงชาติ วงที่เลือกขอบเขียว ไม่มีธงใช้รหัสบนพื้นมิ้นต์ */
+.zego-guide-flag{display:block;flex:0 0 auto;width:62px;height:62px;overflow:hidden;border-radius:50%;border:3px solid #fff;outline:1px solid var(--zego-border);background:#fff}
+.zego-guide-flag--sel{border-color:var(--zego-brand-band);outline:0}
+.zego-guide-flag--none{display:flex;align-items:center;justify-content:center;background:var(--zego-mint);color:var(--zego-label);font-family:var(--zego-font-display);font-weight:600;font-size:18px}
+.zego-no-scrollbar{scrollbar-width:none}.zego-no-scrollbar::-webkit-scrollbar{display:none}
+.zego-guide-flag-tile{display:block;flex:0 0 auto;width:40px;height:40px;overflow:hidden;border-radius:12px;box-shadow:inset 0 0 0 1px var(--zego-border)}
+.zego-guide-flag-tile--none{display:flex;align-items:center;justify-content:center;background:var(--zego-mint);color:var(--zego-label);font-family:var(--zego-font-display);font-weight:600;font-size:13px}
+
+/* โปรไฟล์ — การ์ดซ้อนแถบหัว รูปวงทอง ป้ายพร้อมรับงาน */
+.zego-guide-profile-card{display:flex;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--zego-border);border-radius:18px;background:var(--zego-surface);box-shadow:var(--zego-shadow-sm)}
+.zego-guide-avatar{display:flex;align-items:center;justify-content:center;flex:0 0 auto;overflow:hidden;border-radius:50%;background:var(--zego-mint);color:var(--zego-label);font-family:var(--zego-font-display);font-weight:600}
+.zego-guide-avatar--ring{border:2.5px solid var(--zego-accent-500)}
+.zego-guide-avatar--white{border:2px solid #fff}
+.zego-guide-ready{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500;background:var(--zego-chip-green-bg);color:var(--zego-chip-green-fg)}
+.zego-guide-ready:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--zego-brand-rim)}
+html[data-zego-theme="dark"] .zego-guide-ready:before{background:#3dba73}
+
+/* กล่องสรุปเตือน (ทอง) — หน้าเอกสาร */
+.zego-guide-warnbox{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:#fbf1dc}
+.zego-guide-warnbox__icon{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:36px;height:36px;border-radius:11px;background:var(--zego-accent-500);color:#fff}
+.zego-guide-warnbox__title{font-size:15px;font-weight:600;color:#5c3e0c}
+.zego-guide-warnbox__sub{font-size:13px;color:#8a5e14}
+html[data-zego-theme="dark"] .zego-guide-warnbox{background:#3a3016}
+html[data-zego-theme="dark"] .zego-guide-warnbox__title{color:#f3dca6}
+html[data-zego-theme="dark"] .zego-guide-warnbox__sub{color:#e2b85a}
+
+/* หน้าที่ยังไม่เปิดใช้งาน — วงมิ้นต์ขอบเส้นประเขียว ไม่มีปุ่ม */
+.zego-guide-soon{display:flex;flex-direction:column;align-items:center;gap:10px;padding:32px 8px;text-align:center}
+.zego-guide-soon__art{position:relative;width:176px;height:176px;display:flex;align-items:center;justify-content:center}
+.zego-guide-soon__art:before{content:"";position:absolute;inset:12px;border-radius:50%;background:var(--zego-mint)}
+.zego-guide-soon__art svg.zego-guide-soon__ring{position:absolute;inset:0;width:100%;height:100%;color:var(--zego-brand-rim)}
+.zego-guide-soon__art > .zego-guide-soon__icon{position:relative;color:var(--zego-label)}
+.zego-guide-soon__title{font-family:var(--zego-font-display);font-weight:600;font-size:22px;color:var(--zego-heading)}
+.zego-guide-soon__body{max-width:290px;font-size:15px;line-height:1.6;color:var(--zego-text-secondary)}
+.zego-guide-soon__pill{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:6px 14px;border:1px solid var(--zego-border-strong);border-radius:999px;background:var(--zego-surface);font-size:13px;color:var(--zego-label)}
+
+/* ปุ่มในพอร์ทัล — หลักเขียวปุ่มทึบ · รองเป็นเขียวอ่อน (tonal) แทนปุ่มเทาเดิม */
+.zego-guide-phone .zego-button--primary,html[data-zego-theme="dark"] .zego-guide-phone .zego-button.zego-button--primary{background:var(--zego-brand-band);border-color:var(--zego-brand-band);color:#fff;box-shadow:none}
+html[data-zego-theme="dark"] .zego-guide-phone .zego-button.zego-button--primary{background:#04803c;border-color:#04803c}
+.zego-guide-phone .zego-button--primary:after{display:none}
+.zego-guide-phone .zego-button--primary:hover{background:#08743a;color:#fff;box-shadow:none}
+.zego-guide-phone .zego-button:not(.zego-button--primary):not(.zego-button--ghost):not(.zego-button--danger):not(.zego-button--icon){background:var(--zego-button-tonal-bg);border-color:transparent;color:var(--zego-button-tonal-fg);box-shadow:none}
+.zego-guide-phone .zego-button:not(.zego-button--primary):not(.zego-button--ghost):not(.zego-button--danger):not(.zego-button--icon):hover{border-color:var(--zego-border-strong)}
 
 /**
  * === แถบสถานะการจัดงาน/วันลา (ตารางจัดสเก็ต, ปฏิทิน) ===

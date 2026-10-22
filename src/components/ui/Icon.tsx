@@ -44,7 +44,13 @@ export type IconName =
   | 'image'
   | 'sun'
   | 'moon'
-  | 'mapPin';
+  | 'mapPin'
+  | 'user'
+  | 'history'
+  | 'bank'
+  | 'passport'
+  | 'idCard'
+  | 'shield';
 
 const PATHS: Record<IconName, string> = {
   dashboard: 'M3 10h7V3H3v7zm11 11h7v-7h-7v7zM3 21h7v-4H3v4zM14 3v7h7V3h-7z',
@@ -100,6 +106,13 @@ const PATHS: Record<IconName, string> = {
   sun: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42',
   moon: 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z',
   mapPin: 'M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0zM12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  /* ไอคอนหมวดของธีม v3 (หน้ารวมโปรไฟล์/เอกสาร) */
+  user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
+  history: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2',
+  bank: 'M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM2 10h20M6 15h4',
+  passport: 'M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8 17h8',
+  idCard: 'M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM8 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM14 10h4M14 14h4',
+  shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 12l2 2 4-4',
 };
 
 /** ไอคอนที่วาดแบบทึบ (fill) แทนแบบเส้น (stroke) */

@@ -14,7 +14,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useDemo } from '@/store/DemoStore';
 import { Icon, type IconName } from '@/components/ui/Icon';
-import { Avatar, Button, Card, EmptyState, cx } from '@/components/ui/Primitives';
+import { Button, Card, EmptyState, cx } from '@/components/ui/Primitives';
 import { landingPathForRole, ownLeaderScope } from '@/lib/permissions';
 import { ROLE } from '@/lib/labels';
 import { useLeaderDocumentsView } from '@/lib/useLeaderDocuments';
@@ -85,6 +85,12 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
     .filter((item) => (item.href === '/guide' ? pathname === '/guide' : [item.href, ...(item.also ?? [])].some((h) => pathname.startsWith(h))))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
+  /**
+   * หน้ารวม (หน้าหลัก/โปรไฟล์) — หัวเป็นแถบเขียวต่อกับแถบโค้งของหน้า (ธีม v3)
+   * หน้าย่อยใช้หัวเรียบบนพื้นขาวอมเขียว
+   */
+  const banded = pathname === '/guide' || pathname === '/guide/profile';
+
   /** ออกจากมุมมองหัวหน้าทัวร์ — สลับกลับบทบาทผู้จัด (ใช้ทดสอบ/สาธิตเท่านั้น ไม่ใช่ระบบ Login จริง) */
   const exitToAdmin = () => {
     const adminRole: Role = 'coordinator';
@@ -104,7 +110,7 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
       <div className="zego-guide-backdrop flex h-dvh justify-center">
         <div className="zego-guide-phone flex h-dvh w-full max-w-md flex-col shadow-xl sm:my-0 sm:border-x">
           <header className="zego-guide-header sticky top-0 z-30 flex items-center gap-2.5 px-4 py-2.5">
-            <Avatar initials={currentUser.name.slice(0, 1)} color="bg-emerald-700" size="sm" />
+            <span className="zego-guide-avatar h-8 w-8 text-sm" aria-hidden="true">{currentUser.name.slice(0, 1)}</span>
             <div className="min-w-0 flex-1">
               <p className="zego-text truncate text-xs font-semibold leading-tight">{currentUser.name}</p>
               <p className="zego-text-tertiary truncate text-[11px] leading-tight">พอร์ทัลหัวหน้าทัวร์</p>
@@ -129,12 +135,19 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
     <div className="zego-guide-backdrop flex h-dvh justify-center">
       <div className="zego-guide-phone flex h-dvh w-full max-w-md flex-col shadow-xl sm:my-0 sm:border-x">
         {/* แถบบน — เบามาก แค่ระบุตัวตนและทางออกกลับมุมมองผู้จัด (โหมดทดลอง) */}
-        <header className="zego-guide-header sticky top-0 z-30 flex items-center gap-2.5 px-4 py-2.5">
-          <Avatar initials={currentUser.name.slice(0, 1)} color="bg-emerald-700" size="sm" />
-          <div className="min-w-0 flex-1">
-            <p className="zego-text truncate text-xs font-semibold leading-tight">{currentUser.name}</p>
-            <p className="zego-text-tertiary truncate text-[11px] leading-tight">พอร์ทัลหัวหน้าทัวร์</p>
-          </div>
+        <header className={cx('zego-guide-header sticky top-0 z-30 flex items-center gap-2 px-4 py-2.5', banded && 'zego-guide-header--band')}>
+          {banded ? (
+            // แถบเขียว — ชื่อแสดงตัวใหญ่ในแถบโค้งของหน้าอยู่แล้ว หัวเหลือแค่ปุ่มกับรูปประจำตัว
+            <span className="flex-1" />
+          ) : (
+            <>
+              <span className="zego-guide-avatar h-8 w-8 text-sm" aria-hidden="true">{currentUser.name.slice(0, 1)}</span>
+              <div className="min-w-0 flex-1">
+                <p className="zego-text truncate text-xs font-semibold leading-tight">{currentUser.name}</p>
+                <p className="zego-text-tertiary truncate text-[11px] leading-tight">พอร์ทัลหัวหน้าทัวร์</p>
+              </div>
+            </>
+          )}
           <div className="relative">
             <button
               type="button"
@@ -210,6 +223,11 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
           >
             <Icon name="logout" className="h-4 w-4" />
           </button>
+          {banded && (
+            <Link href="/guide/profile" aria-label="โปรไฟล์ของฉัน" className="zego-guide-avatar zego-guide-avatar--white h-9 w-9 text-base">
+              {currentUser.name.slice(0, 1)}
+            </Link>
+          )}
         </header>
 
 
@@ -227,12 +245,20 @@ export function GuideShell({ children }: { children: React.ReactNode }) {
                 onClick={() => router.push(item.href)}
                 aria-current={active ? 'page' : undefined}
                 className={cx(
-                  'zego-guide-nav-item relative flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors',
+                  'zego-guide-nav-item relative flex min-w-0 flex-col items-center gap-0.5 whitespace-nowrap pb-2 pt-1.5 text-[10px] tracking-tight transition-colors',
                   active && 'zego-guide-nav-item--active',
                 )}
               >
-                <Icon name={item.icon} className="h-5 w-5" filled={active} />
+                <span className="zego-guide-nav-pill">
+                  <Icon name={item.icon} className="h-5 w-5" />
+                </span>
                 {item.label}
+                {/* เอกสารต้องตาม — ตัวนับที่แท็บโปรไฟล์ (ทางเข้าหน้าเอกสาร) */}
+                {item.href === '/guide/profile' && docAlertCount > 0 && (
+                  <span className="zego-count-badge absolute right-[calc(50%-30px)] top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold">
+                    {docAlertCount}
+                  </span>
+                )}
               </button>
             );
           })}

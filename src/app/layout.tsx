@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Noto_Sans_Thai } from 'next/font/google';
+import { IBM_Plex_Sans_Thai_Looped, Noto_Sans_Thai, Noto_Sans_Thai_Looped } from 'next/font/google';
 import Script from 'next/script';
 import './globals.css';
 import '@/styles/zego-design-system.css';
@@ -42,6 +42,24 @@ const notoSansThai = Noto_Sans_Thai({
   display: 'swap',
 });
 
+/**
+ * ฟอนต์ธีม v3 ของพอร์ทัลหัวหน้าทัวร์ (/guide) — ใช้ผ่าน --zego-font-display / --zego-font-body
+ * (zego-design-system.css) และผูกเฉพาะใน .zego-guide-phone ฝั่งผู้จัดยังใช้ Noto Sans Thai เดิม
+ */
+const plexThaiLooped = IBM_Plex_Sans_Thai_Looped({
+  variable: '--font-display-looped',
+  subsets: ['thai', 'latin'],
+  weight: ['600', '700'],
+  display: 'swap',
+});
+
+const notoThaiLooped = Noto_Sans_Thai_Looped({
+  variable: '--font-body-looped',
+  subsets: ['thai', 'latin'],
+  weight: ['400', '500', '600'],
+  display: 'swap',
+});
+
 export const metadata: Metadata = {
   title: 'ระบบจัดการหัวหน้าทัวร์ (Demo)',
   description:
@@ -56,7 +74,7 @@ export default function RootLayout({
   return (
     <html
       lang="th"
-      className={`${notoSansThai.variable} h-full`}
+      className={`${notoSansThai.variable} ${plexThaiLooped.variable} ${notoThaiLooped.variable} h-full`}
       // สคริปต์ beforeInteractive ด้านบนเติม data-zego-theme/data-zego-density ให้ <html>
       // นอก React (ก่อน hydrate) ตามที่ตั้งใจ — ต้องกัน React เตือน hydration mismatch เพราะ
       // attribute พวกนี้ "ควร" ต่างจาก server เสมอ (server ไม่รู้ค่าที่ผู้ใช้ตั้งไว้ใน localStorage)
